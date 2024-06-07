@@ -108,13 +108,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             if microceph.is_cluster_member(gethostname()):
                 raise e
 
-    def configure_charm(self, event: ops.framework.EventBase) -> None:
+    def configure_app_leader(self, event: ops.framework.EventBase) -> None:
         """Hook to apply configuration options."""
-        super().configure_charm(event)
+        super().configure_app_leader(event)
         self.configure_ceph(event)
-
-    def _on_config_changed(self, event: ops.framework.EventBase) -> None:
-        self.configure_charm(event)
 
     def _set_pool_size_action(self, event: ops.framework.EventBase) -> None:
         """Set the size for one or more pools."""
@@ -323,6 +320,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def configure_ceph(self, event) -> None:
         """Configure Ceph."""
+
         if not self.ready_for_service():
             event.defer()
             return
