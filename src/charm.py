@@ -22,6 +22,7 @@ This charm deploys and manages microceph.
 import json
 import logging
 import subprocess
+from pathlib import Path
 from socket import gethostname
 from typing import List
 
@@ -51,6 +52,7 @@ from relation_handlers import (
 from storage import StorageHandler
 
 logger = logging.getLogger(__name__)
+CACERT_FILE = "/usr/local/share/ca-certificates/receive-keystone-ca-bundle.crt"
 
 
 class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
@@ -126,6 +128,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         super().configure_charm(event)
         self.configure_ceph(event)
 
+    def configure_unit(self, event: ops.framework.EventBase) -> None:
+        """Run configuration on this unit."""
+        super().configure_unit(event)
+        self._handle_receive_ca_cert(event)
+
     def _on_config_changed(self, event: ops.framework.EventBase) -> None:
         with sunbeam_guard.guard(self, "Checking configs"):
             if not self.is_valid_placement_directive(self.model.config.get("enable-rgw")):
@@ -140,6 +147,39 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 )
 
             self.configure_charm(event)
+
+    def _handle_receive_ca_cert(self, event: ops.framework.EventBase) -> None:
+        contexts = self.contexts()
+        cacert_path = Path(CACERT_FILE)
+        if hasattr(contexts.receive_ca_cert, "ca_bundle") and contexts.receive_ca_cert.ca_bundle:
+            cacert_in_bytes = contexts.receive_ca_cert.ca_bundle.encode()
+            if cacert_path.exists():
+                cert_from_file = cacert_path.read_bytes()
+                if cert_from_file == cacert_in_bytes:
+                    # CA Cert already exists with same content
+                    logger.debug("CA cert exists with same content")
+                    return
+
+            # Write CACert if file does not exist or ca cert content is modified
+            logger.debug("Write CA Cert file to /usr/local/share/ca-certificates/")
+            cacert_path.write_bytes(contexts.receive_ca_cert.ca_bundle.encode())
+            cacert_path.chmod(0o640)
+        else:
+            try:
+                cacert_path.unlink()
+            except FileNotFoundError:
+                # No CA Cert file to unlink
+                # No need to run update-ca-certificates
+                logger.debug("No CA Cert to delete, ignore")
+                return
+
+        try:
+            logger.debug("Running update-ca-certificates to update the certs")
+            subprocess.run(["update-ca-certificates"], check=True)
+            if self.model.config.get("enable-rgw") == "*":
+                self.configure_rgw_service(event)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            raise sunbeam_guard.BlockedExceptionError("Updating CA Certificates failed")
 
     def is_valid_placement_directive(self, directive: str) -> bool:
         """Check if placement directive is valid or not."""
@@ -498,6 +538,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             return
 
         configs = {}
+        contexts = self.contexts()
         if self.id_svc.ready:
             try:
                 configs = {
@@ -510,11 +551,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                     "rgw_keystone_accepted_roles": "Member,member",
                     "rgw_keystone_accepted_admin_roles": self.id_svc.interface.admin_role,
                     "rgw_keystone_token_cache_size": "500",
-                    "rgw_keystone_verify_ssl": str(False).lower(),
                     "rgw_keystone_service_token_enabled": str(True).lower(),
                     "rgw_keystone_service_token_accepted_roles": self.id_svc.interface.admin_role,
                     "rgw_s3_auth_use_keystone": str(True).lower(),
                 }
+
                 namespace_projects = self.leader_get("namespace-projects")
                 if namespace_projects and json.loads(namespace_projects):
                     configs.update(
@@ -523,6 +564,15 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                             "rgw_keystone_implicit_tenants": str(True).lower(),
                         }
                     )
+
+                if (
+                    hasattr(contexts.receive_ca_cert, "ca_bundle")
+                    and contexts.receive_ca_cert.ca_bundle
+                ):
+                    configs["rgw_keystone_verify_ssl"] = str(True).lower()
+                else:
+                    configs["rgw_keystone_verify_ssl"] = str(False).lower()
+
                 logger.info("Updating RGW Cluster configs")
                 microceph.update_cluster_configs(configs)
             except (AttributeError, KeyError) as e:

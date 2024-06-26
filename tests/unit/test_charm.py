@@ -14,6 +14,7 @@
 
 """Tests for Microceph charm."""
 
+from pathlib import Path
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
@@ -23,8 +24,28 @@ from ops.testing import Harness
 import charm
 import microceph
 
-# Total number of RGW configs configured
-RGW_CONFIGS_KEY_COUNT = 15
+DUMMY_CA_CERT = """-----BEGIN CERTIFICATE-----
+MIIDdzCCAl+gAwIBAgIUexFR59kb53PwxGKCFFO32jHAGKwwDQYJKoZIhvcNAQEL
+BQAwSzELMAkGA1UEBhMCSU4xCzAJBgNVBAgMAkFQMQwwCgYDVQQHDANWVFoxITAf
+BgNVBAoMGEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDAeFw0yNDA2MjMwNTQ2Mjha
+Fw0yOTA2MjIwNTQ2MjhaMEsxCzAJBgNVBAYTAklOMQswCQYDVQQIDAJBUDEMMAoG
+A1UEBwwDVlRaMSEwHwYDVQQKDBhJbnRlcm5ldCBXaWRnaXRzIFB0eSBMdGQwggEi
+MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCUmJ0xjPppm0YV8hPQjbZH9+LO
+LU8HXUb2EYU9yb+UEP24grGar2zsVUBXWGJAXIAYejyDapSRjYoCnPECRHfrCqs2
+vhZmQzPII+6Nllf3IpzS65TEfssfEtiSweN2sXLPymHaRKcq+rnmmpOM3vO396pc
+COJX7WG/+qDJUhJthdbA008sKulG4Qq7NGaUA6Y4IMlZsZFEMp17rvFWNRSZBPVd
+qrmW38v7rZfJwHrN4NL0me/1GZ+9ucnXnD5q/D1kRURt8J8cbFrPqGo4QwTzoNIi
+D8Q7yRHUIMDY2MGmtpwzluh1HYg97IRJO0ciVXGL1yKEpELJ2Q32jS4xx2GJAgMB
+AAGjUzBRMB0GA1UdDgQWBBSNg6SlHP06mM/vFPUoM9p37ZbUvzAfBgNVHSMEGDAW
+gBSNg6SlHP06mM/vFPUoM9p37ZbUvzAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3
+DQEBCwUAA4IBAQCGHlGuKr4L7nfZgFY1VZI14pSUvEZKPIXb4jPMvsVIdQY8wowM
+9TDFmsDps0W+XZDNq5wwRtWiVKoNO6zw9ZKVlsKas4hnhqnaWD101xI9xN/ADax1
+OHmBVcugXeYdWxmaz3JdiVKmwhiscmAiAWr4MS2FY/moZAl/U+YeIxbCxqKkZgJF
+sEygfjVGcGUYrPvBB3SIyL+n8N9anht7u6ZY1chw6dnlT79mcx4huNE+NCSRK+7t
+aU6GF5joUr0UWjFkoXpINM+ozet/bYvxa8MJ5OvSeU1ahHFeOmv0axs0JHvV0rW4
+I7bWFePvjNsCPUyBSGu3GCisT5/FaxcS/IOA
+-----END CERTIFICATE-----
+"""
 
 
 class _MicroCephCharm(charm.MicroCephCharm):
@@ -99,16 +120,17 @@ class TestCharm(test_utils.CharmTestCase):
             "peers", harness.charm.app.name, unit_data={"public-address": "dummy-ip"}
         )
 
+    def add_complete_certificate_transfer_relation(self, harness: Harness) -> None:
+        """Add complete certificate_transfer relation."""
+        harness.add_relation("receive-ca-cert", "keystone", unit_data={"ca": DUMMY_CA_CERT})
+
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
-    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
-    def test_all_relations(self, mock_file, subprocess, cclient):
-        """Test all the charms relations."""
+    def test_mandatory_relations(self, subprocess, cclient):
+        """Test the mandatory charm relations."""
         self.harness.set_leader()
         self.harness.update_config({"snap-channel": "1.0/stable"})
         self.add_complete_peer_relation(self.harness)
-        self.add_complete_identity_relation(self.harness)
-        self.add_complete_ingress_relation(self.harness)
         cclient().cluster.list_services.return_value = []
         subprocess.run.assert_any_call(
             [
@@ -138,14 +160,59 @@ class TestCharm(test_utils.CharmTestCase):
 
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
-    def test_all_relations_with_enable_rgw_config(self, mock_file, subprocess, cclient):
+    def test_all_relations(self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient):
+        """Test all the charms relations."""
+        self.harness.set_leader()
+        self.harness.update_config({"snap-channel": "1.0/stable"})
+        self.add_complete_peer_relation(self.harness)
+        self.add_complete_identity_relation(self.harness)
+        self.add_complete_ingress_relation(self.harness)
+        self.add_complete_certificate_transfer_relation(self.harness)
+        cclient().cluster.list_services.return_value = []
+        subprocess.run.assert_any_call(
+            [
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+        # Remove RGW configs when RGW is not enabled
+        # The function might be called more than one time as it is part of
+        # configure_charm and so assert any one removal of config instead
+        # of call count.
+        cclient.from_socket().cluster.delete_config.assert_any_call("rgw_keystone_url")
+
+        # Assert RGW update configs is not called
+        cclient.from_socket().cluster.update_config.assert_not_called()
+
+    @patch.object(microceph, "Client")
+    @patch.object(microceph, "subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
+    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
+    def test_all_relations_with_enable_rgw_config(
+        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient
+    ):
         """Test all the charms relations."""
         self.harness.set_leader()
         self.harness.update_config({"snap-channel": "1.0/stable", "enable-rgw": "*"})
         test_utils.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
+        self.add_complete_certificate_transfer_relation(self.harness)
         cclient().cluster.list_services.return_value = []
         subprocess.run.assert_any_call(
             [
@@ -175,18 +242,84 @@ class TestCharm(test_utils.CharmTestCase):
             check=True,
             timeout=180,
         )
-        # Verify if update_config for RGW configs is called
-        # RGW config key count will be 2 less than the total count since namepsace-projects
-        # is False by default
-        self.assertEqual(
-            cclient.from_socket().cluster.update_config.call_count, RGW_CONFIGS_KEY_COUNT - 2
+
+        # Check config rgw_swift_account_in_url is not updated since
+        # namespace-projects is False by default.
+        for call in cclient.from_socket().cluster.update_config.mock_calls:
+            assert call.args[0] != "rgw_swift_account_in_url"
+
+        # Check config rgw_keystone_verify_ssl is updated since certificate
+        # transfer relation is set
+        cclient.from_socket().cluster.update_config.assert_any_call(
+            "rgw_keystone_verify_ssl", str(True).lower()
         )
 
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
     def test_all_relations_with_enable_rgw_config_and_namespace_projects(
-        self, mock_file, subprocess, cclient
+        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient
+    ):
+        """Test all the charms relations."""
+        self.harness.set_leader()
+        self.harness.update_config(
+            {"snap-channel": "1.0/stable", "enable-rgw": "*", "namespace-projects": True}
+        )
+        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_identity_relation(self.harness)
+        self.add_complete_ingress_relation(self.harness)
+        self.add_complete_certificate_transfer_relation(self.harness)
+        cclient().cluster.list_services.return_value = []
+        subprocess.run.assert_any_call(
+            [
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+        subprocess.run.assert_any_call(
+            [
+                "microceph",
+                "enable",
+                "rgw",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+
+        # Check config rgw_swift_account_in_url is updated since
+        # namespace-projects is set to True.
+        cclient.from_socket().cluster.update_config.assert_any_call(
+            "rgw_swift_account_in_url", str(True).lower()
+        )
+
+        # Check config rgw_keystone_verify_ssl is updated since certificate
+        # transfer relation is set
+        cclient.from_socket().cluster.update_config.assert_any_call(
+            "rgw_keystone_verify_ssl", str(True).lower()
+        )
+
+    @patch.object(microceph, "Client")
+    @patch.object(microceph, "subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
+    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
+    def test_relations_without_certificate_transfer(
+        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient
     ):
         """Test all the charms relations."""
         self.harness.set_leader()
@@ -225,9 +358,17 @@ class TestCharm(test_utils.CharmTestCase):
             check=True,
             timeout=180,
         )
-        # Verify if update_config for RGW configs is called
-        self.assertEqual(
-            cclient.from_socket().cluster.update_config.call_count, RGW_CONFIGS_KEY_COUNT
+
+        # Check config rgw_swift_account_in_url is updated since
+        # namespace-projects is set to True.
+        cclient.from_socket().cluster.update_config.assert_any_call(
+            "rgw_swift_account_in_url", str(True).lower()
+        )
+
+        # Check config rgw_keystone_verify_ssl is updated since certificate
+        # transfer relation is set
+        cclient.from_socket().cluster.update_config.assert_any_call(
+            "rgw_keystone_verify_ssl", str(False).lower()
         )
 
     @patch.object(microceph, "subprocess")
