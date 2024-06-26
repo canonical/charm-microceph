@@ -40,6 +40,9 @@ requires:
   identity-service:
     interface: keystone
     optional: true
+  receive-ca-cert:
+    interface: certificate_transfer
+    optional: true
 
 peers:
   peers:
