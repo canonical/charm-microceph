@@ -121,11 +121,6 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _on_peer_relation_departed(self, event: ops.framework.EventBase) -> None:
         self.handle_traefik_ready(event)
 
-    def configure_charm(self, event: ops.framework.EventBase) -> None:
-        """Hook to apply configuration options."""
-        super().configure_charm(event)
-        self.configure_ceph(event)
-
     def _on_config_changed(self, event: ops.framework.EventBase) -> None:
         with sunbeam_guard.guard(self, "Checking configs"):
             if not self.is_valid_placement_directive(self.model.config.get("enable-rgw")):
@@ -385,6 +380,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             self.leader_set(
                 {"namespace-projects": json.dumps(self.model.config.get("namespace-projects"))}
             )
+        self.configure_ceph(event)
         self.manage_rgw_service(event)
         snap_chan = self.model.config.get("snap-channel")
 
