@@ -34,7 +34,7 @@ function install_juju_simple() {
 function setup_juju_spaces() {
     set -ex
     date
-    juju add-model spacetest
+    juju add-model microceph-test
     juju add-space cluster
     # Subnet value from LXD profile.
     juju move-to-space cluster 10.85.4.0/24
