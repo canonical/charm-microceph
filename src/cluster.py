@@ -45,7 +45,14 @@ class ClusterNodes(ops.framework.Object):
         """Add node to microceph cluster."""
         if not event.unit:
             return
-        cmd = ["microceph", "cluster", "add", event.unit.name]
+        # get hostname using unit name.
+        hostnames = self.charm.peers.get_all_unit_values(
+            key=event.unit.name, include_local_unit=True
+        )
+        if not hostnames:
+            event.defer()
+
+        cmd = ["microceph", "cluster", "add", hostnames[0]]
         try:
             out = microceph._run_cmd(cmd)
             token = out.strip()

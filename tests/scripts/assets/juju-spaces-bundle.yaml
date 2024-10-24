@@ -1,11 +1,12 @@
-default-base: ubuntu@22.04/stable
+default-base: ubuntu@24.04
 applications:
   microceph:
     charm: ./microceph.charm
     num_units: 1
     to:
     - "0"
-    constraints: arch=amd64 virt-type=virtual-machine
+    options:
+      snap-channel: squid/edge
     storage:
       osd-standalone: loop,3,2G
     bindings:
@@ -14,4 +15,4 @@ applications:
       public: alpha
 machines:
   "0":
-    constraints: arch=amd64 virt-type=virtual-machine root-disk=80G
+    constraints: arch=amd64 virt-type=virtual-machine root-disk=32G

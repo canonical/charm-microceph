@@ -91,7 +91,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         ]
 
         logger.debug(f'Running command {" ".join(cmd)}')
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=180)
+        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=900)
         logger.debug(f"Command finished. stdout={process.stdout}, " f"stderr={process.stderr}")
 
         cmd = ["sudo", "snap", "alias", "microceph.ceph", "ceph"]
@@ -117,6 +117,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 raise e
 
     def _on_peer_relation_created(self, event: ops.framework.EventBase) -> None:
+        # save self hostname in the unit databag
+        self.peers.set_unit_data({self.unit.name: str(gethostname())})
+
         public_address = self.model.get_binding(binding_key="public").network.bind_address
         if public_address:
             logger.debug("Setting peer unit data")

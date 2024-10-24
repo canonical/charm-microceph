@@ -57,7 +57,7 @@ jobs:
       - unit-test
       - build
     name: Functional test
-    runs-on: [self-hosted, xlarge]
+    runs-on: [self-hosted, large, ubuntu-24.04]
     steps:
 
       - name: Download charm
@@ -74,7 +74,7 @@ jobs:
       - name: Install sunbeam
         run: |
           date
-          sudo snap install openstack --channel 2023.2
+          sudo snap install openstack --channel 2024.1
           sunbeam prepare-node-script | bash -x
           sudo snap refresh juju --channel 3.4/stable
           sg snap_daemon "sunbeam cluster bootstrap --accept-defaults"
@@ -481,12 +481,48 @@ jobs:
           mv ~/artifacts/microceph.charm ./tests/scripts/assets/
           juju deploy ./tests/scripts/assets/juju-spaces-bundle.yaml
           # wait for charm to bootstrap and OSD devices to enroll.
+          sleep 10m
+          juju status
           juju wait-for unit microceph/0 --query='workload-message=="(workload) charm is ready"' --timeout=20m
           bash ./tests/scripts/ci_helpers.sh check_osd_count microceph/0 3
           date
 
       - name: Validate the network configurations.
         run: ./tests/scripts/ci_helpers.sh verify_juju_spaces_config
+
+      - name: Collect logs
+        if: always()
+        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs
+
+      - name: Juju crashdump
+        if: failure()
+        run: |
+          sudo snap install --classic juju-crashdump
+          juju-crashdump \
+            -m microceph-test \
+            -o logs \
+            -a juju-show-unit \
+            --as-root \
+            -j '*' \
+            -a juju-show-unit \
+            -a juju-show-status-log \
+            /var/snap/microceph/
+
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: microceph_juju_network_spaces_test_logs
+          path: logs
+          retention-days: 30
+
+      - name: Setup tmate session
+        if: ${{ failure() && runner.debug }}
+        uses: canonical/action-tmate@main
+        
+          
+
 
   juju-mds-test:
     needs:
