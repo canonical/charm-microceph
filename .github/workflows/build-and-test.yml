@@ -57,7 +57,7 @@ jobs:
       - unit-test
       - build
     name: Functional test
-    runs-on: [self-hosted, large, ubuntu-24.04]
+    runs-on: [self-hosted, large, noble]
     steps:
 
       - name: Download charm
