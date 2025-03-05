@@ -262,7 +262,7 @@ jobs:
 
           echo "Make sure all units have ceph monitor enabled."
 
-          for i in 1 2 3 4 ; do
+          for i in 0 1 2 3 ; do
             juju ssh microceph/$i -- sudo microceph enable mon || true
           done
 
