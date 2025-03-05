@@ -372,8 +372,8 @@ class BasePool(object):
         :type name: str
         :param percent_data: The expected pool size in relation to all
                              available resources in the Ceph cluster. Will be
-                             used to set the ``target_size_ratio`` pool
-                             property. (default: 10.0)
+                             used conditionally to set the ``target_size_ratio``
+                             or ``bulk`` pool property. (default: 10.0)
         :type percent_data: Optional[float]
         :param app_name: Ceph application name, usually one of:
                          ('cephfs', 'rbd', 'rgw') (default: 'unknown')
@@ -432,12 +432,17 @@ class BasePool(object):
         Do not add calls for a specific pool type here, those should go into
         one of the pool specific classes.
         """
-        # Ensure we set the expected pool ratio
+        # conditionally configure bulk flag
+        key, value = ("target_size_ratio", str(self.percent_data / 100.0))
+        if self.percent_data >= 20:
+            key = "bulk"
+            value = "true"
+
         update_pool(
             client=self.service,
             pool=self.name,
             settings={
-                "target_size_ratio": str(self.percent_data / 100.0),
+                key: value,
             },
         )
         try:
