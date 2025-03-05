@@ -18,7 +18,6 @@
 
 import json
 import logging
-from socket import getfqdn, gethostname
 from subprocess import CalledProcessError, TimeoutExpired, run
 
 import ops_sunbeam.guard as sunbeam_guard
@@ -165,8 +164,9 @@ class StorageHandler(Object):
             event.fail()
             return
 
+        host_only = event.params.get("host-only", False)
         try:
-            disks = microceph.list_disk_cmd()
+            disks = microceph.list_disk_cmd(host_only=host_only)
         except (CalledProcessError, TimeoutExpired) as e:
             logger.warning(e.stderr)
             event.set_results({"message": e.stderr})
@@ -233,15 +233,8 @@ class StorageHandler(Object):
         """Save OSD data to stored state mapping with juju storage names."""
         logger.debug(f"Entry stored state: {dict(self._stored.osd_data)}")
         disk_path = self.juju_storage_get(storage_id=disk_name, attribute="location")
-        hostname = gethostname()
-        fqdn = getfqdn()
 
-        for osd in microceph.list_disk_cmd()["ConfiguredDisks"]:
-            # OSD not configured on current unit.
-            # check for exact match with both hostname and fqdn.
-            if osd["location"] != hostname and osd["location"] != fqdn:
-                continue
-
+        for osd in microceph.list_disk_cmd(host_only=True)["ConfiguredDisks"]:
             # get block device info using /dev/disk-by-id and lsblk.
             local_device = microceph._get_disk_info(osd["path"])
 

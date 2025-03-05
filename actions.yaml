@@ -2,6 +2,10 @@ list-disks:
   description: |
     List OSDs on the cluster and unpartitioned disks on the
     node.
+  params:
+    host-only:
+      type: boolean
+      description: List OSDs on the node instead of cluster.
 add-osd:
   description: |
     Add ceph disks (OSD) to cluster

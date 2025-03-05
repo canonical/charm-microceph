@@ -39,7 +39,7 @@ Monitor the deployment:
 
 List OSDs and available unpartitioned disks on each node:
 
-    juju run microceph/0 list-disks
+    juju run microceph/0 list-disks --host-only
 
 Add OSDs on each node:
 

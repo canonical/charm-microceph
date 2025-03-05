@@ -223,9 +223,11 @@ def get_snap_info(snap_name):
     return response.json()
 
 
-def list_disk_cmd() -> dict:
+def list_disk_cmd(host_only: bool = False) -> dict:
     """Fetches MicroCeph configured and unpartitioned disks as a dict."""
     cmd = ["microceph", "disk", "list", "--json"]
+    if host_only:
+        cmd.append("--host-only")
     return json.loads(_run_cmd(cmd))
 
 
