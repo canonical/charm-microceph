@@ -168,13 +168,28 @@ class ClusterUpgrades(ops.framework.Object):
         mc_snap.ensure(snap.SnapState.Present, channel=channel)
 
         @tenacity.retry(
-            wait=tenacity.wait_fixed(5),
-            stop=tenacity.stop_after_delay(600),
-            retry=tenacity.retry_if_result(lambda b: not b),
+            wait=tenacity.wait_fixed(8),
+            stop=tenacity.stop_after_delay(900),
+            retry=tenacity.retry_if_result(lambda is_healthy: not is_healthy),
         )
         def poll_ok():
+            """Checks Ceph health.
+
+            Needs 3 'Ok' checks in a row before succeeding.
+            """
             health, _ = CephStatus().ceph_health()
-            return health == CephHealth.Ok
+
+            # initialize
+            if not hasattr(poll_ok, "consecutive_ok"):
+                poll_ok.consecutive_ok = 0
+
+            if health == CephHealth.Ok:
+                poll_ok.consecutive_ok += 1
+            else:
+                poll_ok.consecutive_ok = 0
+
+            logger.debug(f"Consecutive healthy checks: {poll_ok.consecutive_ok}")
+            return poll_ok.consecutive_ok >= 3
 
         poll_ok()  # wait for ceph to be healthy
 
