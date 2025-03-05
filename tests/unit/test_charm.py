@@ -757,7 +757,7 @@ class TestCharm(test_utils.CharmTestCase):
             "ignore-check": False,
         }
 
-        self.harness.charm._enter_maintenance_action(action_event)
+        self.harness.charm.maintenance._enter_maintenance_action(action_event)
         action_event.set_results.assert_called_with(
             {
                 "actions": {
@@ -808,7 +808,7 @@ class TestCharm(test_utils.CharmTestCase):
             "ignore-check": False,
         }
 
-        self.harness.charm._enter_maintenance_action(action_event)
+        self.harness.charm.maintenance._enter_maintenance_action(action_event)
         action_event.set_results.assert_called_with(
             {
                 "actions": {
@@ -842,7 +842,7 @@ class TestCharm(test_utils.CharmTestCase):
             "ignore-check": False,
         }
 
-        self.harness.charm._enter_maintenance_action(action_event)
+        self.harness.charm.maintenance._enter_maintenance_action(action_event)
         action_event.set_results.assert_called_with(
             {"status": "failure", "errors": "some errors", "actions": {}}
         )
@@ -853,7 +853,7 @@ class TestCharm(test_utils.CharmTestCase):
         action_event = MagicMock()
         action_event.params = {"check-only": True, "ignore-check": True}
 
-        self.harness.charm._enter_maintenance_action(action_event)
+        self.harness.charm.maintenance._enter_maintenance_action(action_event)
         action_event.set_results.assert_called_with(
             {
                 "status": "failure",
@@ -882,7 +882,7 @@ class TestCharm(test_utils.CharmTestCase):
         action_event = MagicMock()
         action_event.params = {"dry-run": False}
 
-        self.harness.charm._exit_maintenance_action(action_event)
+        self.harness.charm.maintenance._exit_maintenance_action(action_event)
         action_event.set_results.assert_called_with(
             {
                 "actions": {
@@ -926,7 +926,7 @@ class TestCharm(test_utils.CharmTestCase):
         action_event = MagicMock()
         action_event.params = {"dry-run": False}
 
-        self.harness.charm._exit_maintenance_action(action_event)
+        self.harness.charm.maintenance._exit_maintenance_action(action_event)
         action_event.set_results.assert_called_with(
             {
                 "actions": {
@@ -953,7 +953,7 @@ class TestCharm(test_utils.CharmTestCase):
         action_event = MagicMock()
         action_event.params = {"dry-run": False}
 
-        self.harness.charm._exit_maintenance_action(action_event)
+        self.harness.charm.maintenance._exit_maintenance_action(action_event)
         action_event.set_results.assert_called_with(
             {"status": "failure", "errors": "some errors", "actions": {}}
         )
@@ -964,7 +964,7 @@ class TestCharm(test_utils.CharmTestCase):
         action_event = MagicMock()
         action_event.params = {"check-only": True, "ignore-check": True}
 
-        self.harness.charm._exit_maintenance_action(action_event)
+        self.harness.charm.maintenance._exit_maintenance_action(action_event)
         action_event.set_results.assert_called_with(
             {
                 "status": "failure",
