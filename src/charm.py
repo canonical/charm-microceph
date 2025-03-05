@@ -37,6 +37,7 @@ from ops.main import main
 
 import ceph
 import cluster
+import maintenance
 import microceph
 import microceph_client
 from ceph_broker import get_named_key
@@ -73,6 +74,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.storage = StorageHandler(self)
         self.cluster_nodes = cluster.ClusterNodes(self)
         self.cluster_upgrades = cluster.ClusterUpgrades(self)
+        self.maintenance = maintenance.Maintenance(self)
         self.rgw = RadosGWHandler(self)
 
         # Initialise handlers for events.

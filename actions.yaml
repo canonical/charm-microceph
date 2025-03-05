@@ -35,3 +35,61 @@ set-pool-size:
 get-rgw-endpoints:
   description: |
     S3 and swift public endpoints for Rados Gateway.
+enter-maintenance:
+  description: |
+    Put the given unit into maintenance mode.
+  params:
+    dry-run:
+      type: boolean
+      default: false
+      description: |
+        Do not run the operations but print the action plan.
+    force:
+      type: boolean
+      default: false
+      description: |
+        Force to run the operations to enter maintenance mode even if there are failed operations.
+    set-noout:
+      type: boolean
+      default: true
+      description: |
+        Optional to run `ceph osd set noout`. Defaults to set noout when entering maintenance mode.
+    stop-osds:
+      type: boolean
+      default: false
+      description: |
+        Optional to stop and disable OSD service on that node. Defaults to keep the OSD service
+        running when entering maintenance mode.
+    check-only:
+      type: boolean
+      default: false
+      description: |
+        Only run the sanity checks for entering maintenance mode. Do not confuse with `dry-run`
+        option, which only prints the action plan.
+    ignore-check:
+      type: boolean
+      default: false
+      description: |
+        Ignore sanity checks and run the operations for entering maintenance mode. Do not confuse
+        with `force` option, which will ignore any error in the operations and continue the
+        remaining operations.
+exit-maintenance:
+  description: |
+     Bring the given unit out of maintenance mode.
+  params:
+    dry-run:
+      type: boolean
+      default: false
+      description: |
+        Do not run the operations but print the action plan.
+    check-only:
+      type: boolean
+      default: false
+      description: |
+        Only run the sanity checks for exiting maintenance mode. Do not confuse with `dry-run`
+        option, which only prints the action plan.
+    ignore-check:
+      type: boolean
+      default: false
+      description: |
+        Ignore sanity checks and run the operations for exiting maintenance mode.
