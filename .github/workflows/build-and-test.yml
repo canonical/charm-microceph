@@ -247,7 +247,8 @@ jobs:
       - name: Install MicroCeph charm
         run: |
           date
-          juju deploy -n 4 ~/artifacts/microceph.charm
+          # FIXME: change to squid/stable when maintenance feature is landed
+          juju deploy -n 4 ~/artifacts/microceph.charm --config snap-channel=squid/edge
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           date
 
