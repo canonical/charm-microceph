@@ -40,6 +40,19 @@ class Maintenance(ops.framework.Object):
             self.charm.on.enter_maintenance_action, self._enter_maintenance_action
         )
 
+    def _parse_actions_from_output(self, output: dict) -> dict:
+        """Get the action results from API output."""
+        actions = {}
+        metadata = output.get("metadata", []) or []
+        for i, result in enumerate(metadata, 1):
+            actions[f"step-{i}"] = {
+                "description": result["action"],
+                "error": result["error"],
+                "id": result["name"],
+            }
+        logger.debug("%s", actions)
+        return actions
+
     def _exit_maintenance_action(self, event: ops.framework.EventBase) -> None:
         """Bring the given unit out of maintenance mode."""
         dry_run = event.params.get("dry-run")
@@ -57,26 +70,12 @@ class Maintenance(ops.framework.Object):
             output = client.cluster.exit_maintenance_mode(
                 gethostname(), dry_run, check_only, ignore_check
             )
-            metadata = output.get("metadata", []) or []
-            actions = {}
-            for i, result in enumerate(metadata, 1):
-                actions[f"step-{i}"] = {
-                    "description": result["action"],
-                    "error": result["error"],
-                    "id": result["name"],
-                }
+            actions = self._parse_actions_from_output(output)
             event.set_results({"actions": actions, "errors": "", "status": "success"})
         except MaintenanceOperationFailedException as e:
             errors = str(e)
             output = e.response
-            metadata = output.get("metadata", []) or []
-            actions = {}
-            for i, result in enumerate(metadata, 1):
-                actions[f"step-{i}"] = {
-                    "description": result["action"],
-                    "error": result["error"],
-                    "id": result["name"],
-                }
+            actions = self._parse_actions_from_output(output)
             logger.error("%s", errors)
             event.set_results({"actions": actions, "errors": errors, "status": "failure"})
             event.fail()
@@ -107,16 +106,8 @@ class Maintenance(ops.framework.Object):
             output = client.cluster.enter_maintenance_mode(
                 gethostname(), force, dry_run, set_noout, stop_osds, check_only, ignore_check
             )
-            metadata = output.get("metadata", []) or []
-            actions = {}
-            for i, result in enumerate(metadata, 1):
-                actions[f"step-{i}"] = {
-                    "description": result["action"],
-                    "error": result["error"],
-                    "id": result["name"],
-                }
+            actions = self._parse_actions_from_output(output)
             event.set_results({"actions": actions, "errors": "", "status": "success"})
-            metadata = output.get("metadata", []) or []
             if force:
                 logger.warning(
                     "Forced to enter maintenance mode for %s, all actions were run but "
@@ -126,14 +117,7 @@ class Maintenance(ops.framework.Object):
         except MaintenanceOperationFailedException as e:
             errors = str(e)
             output = e.response
-            metadata = output.get("metadata", []) or []
-            actions = {}
-            for i, result in enumerate(metadata, 1):
-                actions[f"step-{i}"] = {
-                    "description": result["action"],
-                    "error": result["error"],
-                    "id": result["name"],
-                }
+            actions = self._parse_actions_from_output(output)
             logger.error("%s", errors)
             event.set_results({"actions": actions, "errors": errors, "status": "failure"})
             event.fail()
