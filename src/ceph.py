@@ -832,3 +832,12 @@ def is_quorum():
             return False
     else:
         return False
+
+
+# Ceph Config keys
+def ceph_config_set(ceph_service: str, key: str, value: str):
+    """Configure Ceph configurations for given ceph service.
+
+    :raises: CalledProcessError if config set op fails.
+    """
+    check_call(["ceph", "config", "set", ceph_service, key, value])
