@@ -767,15 +767,6 @@ class ReplicatedPool(BasePool):
             self.profile_name = profile_name
 
     def _create(self):
-        # Do extra validation on pg_num with data from live cluster
-        if self.pg_num:
-            # Since the number of placement groups were specified, ensure
-            # that there aren't too many created.
-            max_pgs = self.get_pgs(self.replicas, 100.0)
-            self.pg_num = min(self.pg_num, max_pgs)
-        else:
-            self.pg_num = self.get_pgs(self.replicas, self.percent_data)
-
         cmd = [
             "ceph",
             "--id",
@@ -783,12 +774,15 @@ class ReplicatedPool(BasePool):
             "osd",
             "pool",
             "create",
-            "--pg-num-min={}".format(min(AUTOSCALER_DEFAULT_PGS, self.pg_num)),
             self.name,
-            str(self.pg_num),
         ]
+
+        if self.percent_data > DEFAULT_POOL_WEIGHT:
+            cmd.append("--bulk")
+
         if self.profile_name:
             cmd.append(self.profile_name)
+
         check_call(cmd)
 
     def _post_create(self):
