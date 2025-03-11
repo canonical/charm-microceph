@@ -49,6 +49,7 @@ TRACE = "TRACE"
 # clusters as the default.
 DEFAULT_PGS_PER_OSD_TARGET = 100
 DEFAULT_POOL_WEIGHT = 10.0
+BULK_POOL_WEIGHT_THRESHOLD = 20.0
 LEGACY_PG_COUNT = 200
 DEFAULT_MINIMUM_PGS = 2
 AUTOSCALER_DEFAULT_PGS = 32
@@ -433,7 +434,7 @@ class BasePool(object):
         """
         # conditionally configure bulk flag
         config = {}
-        if self.percent_data >= 20:
+        if self.percent_data >= BULK_POOL_WEIGHT_THRESHOLD:
             config.update({"bulk": "true"})
 
         update_pool(
@@ -775,9 +776,10 @@ class ReplicatedPool(BasePool):
             "pool",
             "create",
             self.name,
+            str(AUTOSCALER_DEFAULT_PGS),
         ]
 
-        if self.percent_data > DEFAULT_POOL_WEIGHT:
+        if self.percent_data > BULK_POOL_WEIGHT_THRESHOLD:
             cmd.append("--bulk")
 
         if self.profile_name:
