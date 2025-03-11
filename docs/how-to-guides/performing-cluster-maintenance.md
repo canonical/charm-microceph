@@ -54,8 +54,8 @@ juju run microceph/leader exit-maintenance dry-run=True
 juju run microceph/leader enter-maintenance dry-run=True
 ```
 
-Some steps in the action plan can be optionally add or removed from the action plan. To see what are the optional steps,
-run
+Some steps in the action plan can be optionally added or removed from the action plan. To see what are the optional
+steps, run
 
 ```shell
 juju show-action microceph exit-maintenance
