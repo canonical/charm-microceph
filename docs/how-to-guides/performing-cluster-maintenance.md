@@ -2,12 +2,14 @@
 
 MicroCeph provides a simple and consistent workflow to support cluster maintenance activity.
 
-## Prerequisite
+## Prerequisites
 
-Cluster maintenance requires extra redundancy in ceph services, make sure you have at least 4 units of microceph and
-that all units have ceph monitor enabled.
+Cluster maintenance requires extra redundancy in ceph services, make sure you have
 
-For example, one possible 4 nodes MicroCeph cluster can be like:
+- at least 4 units of MicroCeph
+- enabled Ceph Monitor on all units.
+
+For example, a four-node MicroCeph cluster would look something similar to this:
 
 ```text
 Model      Controller  Cloud/Region         Version  SLA          Timestamp
@@ -43,9 +45,7 @@ MicroCeph deployment summary:
   Disks: 1
 ```
 
-## Procedures
-
-### 0. Review the action plan of maintenance mode
+## Review the action plan of maintenance mode
 
 The action plan for entering or exiting the maintenance mode can reviewed by using the run dry-run option.
 
@@ -54,15 +54,14 @@ juju run microceph/leader exit-maintenance dry-run=True
 juju run microceph/leader enter-maintenance dry-run=True
 ```
 
-Some steps in the action plan can be optionally added or removed from the action plan. To see what are the optional
-steps, run
+Some steps in the action plan can be optionally added or removed. To see what steps are optional, run:
 
 ```shell
 juju show-action microceph exit-maintenance
 juju show-action microceph enter-maintenance
 ```
 
-### 1. Enter maintenance mode
+## Enter maintenance mode
 
 To put unit `microceph/3` into maintenance mode, and optionally disable the OSD service on that node, run
 
@@ -70,7 +69,7 @@ To put unit `microceph/3` into maintenance mode, and optionally disable the OSD 
 juju run microceph/3 enter-maintenance stop-osds=True
 ```
 
-Sample output is:
+Our sample output looks like this:
 
 ```text
 Running operation 15 with 1 task
@@ -103,7 +102,7 @@ errors: ""
 status: success
 ```
 
-After entering maintenance mode, the status of the cluster is:
+After entering maintenance mode, this is the status of the cluster:
 
 ```text
 $ juju ssh microceph/3 -- sudo snap services microceph
@@ -139,7 +138,7 @@ $ juju ssh microceph/3 -- sudo microceph.ceph -s
              1 active+undersized+degraded
 ```
 
-For reference, comparing the status of the cluster **before** entering maintenance mode:
+Compare the status of the cluster with the cluster status **before** entering maintenance mode:
 
 ```text
 $ juju ssh microceph/3 -- sudo snap services microceph
@@ -169,10 +168,11 @@ $ juju ssh microceph/3 -- sudo microceph.ceph -s
     pgs:     1 active+clean
 ```
 
-Note that the `microceph.osd` service is disabled and inactive after entering maintenance mode; the cluster also has
-noout flag set.
+> [!Note]
+> The `microceph.osd` service is disabled and inactive after entering maintenance mode; the cluster also has noout flag
+> set.
 
-### 2. Exit maintenance mode for microceph node
+## Exit maintenance mode for microceph node
 
 To recover unit `microceph/3` from maintenance mode, run
 
@@ -180,7 +180,7 @@ To recover unit `microceph/3` from maintenance mode, run
 juju run microceph/3 exit-maintenance
 ```
 
-Sample output is:
+Our sample output looks like this:
 
 ```text
 $ juju run microceph/3 exit-maintenance
@@ -205,7 +205,7 @@ errors: ""
 status: success
 ```
 
-After exiting maintenance mode, the status of the cluster is:
+This is the cluster status after exiting maintenance node for unit `microceph/3`
 
 ```text
 $ juju ssh microceph/3 -- sudo snap services microceph
@@ -235,5 +235,6 @@ $ juju ssh microceph/3 -- sudo microceph.ceph -s
     pgs:     1 active+clean
 ```
 
-Note that the `microceph.osd` service is enabled and active again after exiting maintenance mode; the cluster also does
-not have noout flag set.
+> [!Note]
+> The `microceph.osd` service is enabled and active again after exiting maintenance mode; the cluster also does not have
+> noout flag set.
