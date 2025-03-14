@@ -57,6 +57,7 @@ from storage import StorageHandler
 
 logger = logging.getLogger(__name__)
 CACERT_FILE = "/usr/local/share/ca-certificates/receive-keystone-ca-bundle.crt"
+MAX_PG_PER_OSD = 400
 
 
 class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
@@ -632,9 +633,16 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             event.defer()
             return
 
-        default_rf = self.model.config.get("default-pool-size")
         try:
+            default_rf = self.model.config.get("default-pool-size")
             microceph.set_pool_size("", str(default_rf))
+
+            # NOTE(utkarshbhatthere): Smaller sunbeam clusters with 3 nodes (and OSDs) and
+            # data pools (bulk) for glance, cinder-ceph, gnocchi, rgw, etc will always
+            # exhaust the max limit of 250 per OSD. Having a larger limit is preferable
+            # over decreasing min_pg for all the pools because the later will reduce distribution
+            # in larger clusters.
+            ceph.ceph_config_set("global", "mon_max_pg_per_osd", str(MAX_PG_PER_OSD))
         except subprocess.CalledProcessError as e:
             if "unknown command" in e.stderr:
                 # Instead of checking for Reef+ in the channel, we run the

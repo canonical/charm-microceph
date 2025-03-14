@@ -49,6 +49,7 @@ TRACE = "TRACE"
 # clusters as the default.
 DEFAULT_PGS_PER_OSD_TARGET = 100
 DEFAULT_POOL_WEIGHT = 10.0
+BULK_POOL_WEIGHT_THRESHOLD = 20.0
 LEGACY_PG_COUNT = 200
 DEFAULT_MINIMUM_PGS = 2
 AUTOSCALER_DEFAULT_PGS = 32
@@ -372,8 +373,7 @@ class BasePool(object):
         :type name: str
         :param percent_data: The expected pool size in relation to all
                              available resources in the Ceph cluster. Will be
-                             used to set the ``target_size_ratio`` pool
-                             property. (default: 10.0)
+                             used to set the ``bulk`` pool property. (default: 10.0)
         :type percent_data: Optional[float]
         :param app_name: Ceph application name, usually one of:
                          ('cephfs', 'rbd', 'rgw') (default: 'unknown')
@@ -432,13 +432,15 @@ class BasePool(object):
         Do not add calls for a specific pool type here, those should go into
         one of the pool specific classes.
         """
-        # Ensure we set the expected pool ratio
+        # conditionally configure bulk flag
+        config = {}
+        if self.percent_data >= BULK_POOL_WEIGHT_THRESHOLD:
+            config.update({"bulk": "true"})
+
         update_pool(
             client=self.service,
             pool=self.name,
-            settings={
-                "target_size_ratio": str(self.percent_data / 100.0),
-            },
+            settings=config,
         )
         try:
             set_app_name_for_pool(client=self.service, pool=self.name, name=self.app_name)
@@ -766,15 +768,6 @@ class ReplicatedPool(BasePool):
             self.profile_name = profile_name
 
     def _create(self):
-        # Do extra validation on pg_num with data from live cluster
-        if self.pg_num:
-            # Since the number of placement groups were specified, ensure
-            # that there aren't too many created.
-            max_pgs = self.get_pgs(self.replicas, 100.0)
-            self.pg_num = min(self.pg_num, max_pgs)
-        else:
-            self.pg_num = self.get_pgs(self.replicas, self.percent_data)
-
         cmd = [
             "ceph",
             "--id",
@@ -782,12 +775,16 @@ class ReplicatedPool(BasePool):
             "osd",
             "pool",
             "create",
-            "--pg-num-min={}".format(min(AUTOSCALER_DEFAULT_PGS, self.pg_num)),
             self.name,
-            str(self.pg_num),
+            str(AUTOSCALER_DEFAULT_PGS),
         ]
+
+        if self.percent_data > BULK_POOL_WEIGHT_THRESHOLD:
+            cmd.append("--bulk")
+
         if self.profile_name:
             cmd.append(self.profile_name)
+
         check_call(cmd)
 
     def _post_create(self):
@@ -837,3 +834,12 @@ def is_quorum():
             return False
     else:
         return False
+
+
+# Ceph Config keys
+def ceph_config_set(ceph_service: str, key: str, value: str):
+    """Configure Ceph configurations for given ceph service.
+
+    :raises: CalledProcessError if config set op fails.
+    """
+    check_call(["ceph", "config", "set", ceph_service, key, value])
