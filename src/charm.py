@@ -72,6 +72,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Run constructor."""
         super().__init__(framework)
 
+        logger.info("Entered CEPH COS AGENT PRE-INIT")
         # Initialise Modules.
         self.storage = StorageHandler(self)
         self.cluster_nodes = cluster.ClusterNodes(self)
