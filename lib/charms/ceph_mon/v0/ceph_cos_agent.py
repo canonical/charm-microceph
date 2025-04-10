@@ -37,6 +37,7 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
             metrics_rules_dir="./files/prometheus_alert_rules",
             dashboard_dirs=["./files/grafana_dashboards"],
             scrape_configs=self._custom_scrape_configs,
+            log_slots=["microceph:ceph-logs"],
         )
         self._refresh_cb = refresh_cb
         self._departed_cb = departed_cb
