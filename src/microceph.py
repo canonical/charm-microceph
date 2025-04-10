@@ -20,10 +20,14 @@ import enum
 import json
 import logging
 import subprocess
+from socket import gethostname
 from typing import Tuple
 
 import requests
+from charms.operator_libs_linux.v2 import snap
+from tenacity import retry, stop_after_attempt, wait_fixed
 
+import ceph
 from microceph_client import Client, UnrecognizedClusterConfigOption
 
 logger = logging.getLogger(__name__)
@@ -44,6 +48,48 @@ def _run_cmd(cmd: list) -> str:
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed executing cmd: {cmd}, error: {e.stderr}")
         raise e
+
+
+def is_ready() -> bool:
+    """Check if microceph snap is installed and bootstrapped/joined."""
+    if not snap.SnapCache()["microceph"].present:
+        logger.warning("Snap microceph not installed yet.")
+        return False
+
+    if not is_cluster_member(gethostname()):
+        logger.warning("Microceph not bootstrapped yet.")
+        return False
+
+    if not ceph.is_quorum():
+        logger.debug("Ceph cluster not in quorum, not ready yet")
+        return False
+
+    return True
+
+
+def cos_agent_refresh_cb(event):
+    """Callback for cos-agent relation change."""
+    logger.info("Entered CEPH COS AGENT REFRESH")
+
+    if not is_ready():
+        logger.debug("not bootstrapped, defer _on_refresh: %s", event)
+        event.defer()
+        return
+
+    logger.debug("refreshing cos_agent relation")
+    enable_ceph_monitoring()
+
+
+def cos_agent_departed_cb(event):
+    """Callback for cos-agent relation departed event."""
+    logger.info("Entered CEPH COS AGENT DEPARTED")
+
+    if not is_ready():
+        logger.debug("not bootstrapped, skipping relation_deparated: %s", event)
+        return
+
+    logger.debug("disabling cos_agent relation.")
+    disable_ceph_monitoring()
 
 
 def remove_cluster_member(name: str, is_force: bool) -> None:
@@ -338,6 +384,53 @@ def set_pool_size(pools: str, size: int):
     cmd = ["sudo", "microceph", "pool", "set-rf", "--size", str(size)]
     cmd.extend(pools_list)
     _run_cmd(cmd)
+
+
+@retry(wait=wait_fixed(5), stop=stop_after_attempt(10))
+def list_mgr_modules() -> dict:
+    """Returns a python dict of mgr modules.
+
+    available keys:
+       1. disabled_modules
+       2. always_on_modules
+       3. enabled_modules
+    """
+    cmd = ["ceph", "mgr", "module", "ls", "--format", "json"]
+    return json.loads(_run_cmd(cmd=cmd))
+
+
+def enable_mgr_module(module: str):
+    """Enable requested ceph mgr module."""
+    disabled_modules = [
+        module_info["name"] for module_info in list_mgr_modules()["disabled_modules"]
+    ]
+    if module not in disabled_modules:
+        logger.info("nothing to do, %s module is not disabled", module)
+        return
+
+    cmd = ["ceph", "mgr", "module", "enable", module]
+    _run_cmd(cmd=cmd)
+
+
+def disable_mgr_module(module: str):
+    """Disable requested ceph mgr module."""
+    enabled_modules = list_mgr_modules()["enabled_modules"]
+    if module not in enabled_modules:
+        logger.info("nothing to do, %s module is not enabled or is always on", module)
+        return
+
+    cmd = ["ceph", "mgr", "module", "disable", module]
+    _run_cmd(cmd=cmd)
+
+
+def enable_ceph_monitoring():
+    """Enable Monitoring for ceph cluster."""
+    enable_mgr_module("prometheus")
+
+
+def disable_ceph_monitoring():
+    """Disable Monitoring for ceph cluster."""
+    disable_mgr_module("prometheus")
 
 
 class CephHealth(enum.Enum):

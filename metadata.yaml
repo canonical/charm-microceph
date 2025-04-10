@@ -32,6 +32,8 @@ provides:
     interface: ceph-radosgw
   mds:
     interface: ceph-mds
+  cos-agent:
+    interface: cos_agent
 
 requires:
   traefik-route-rgw:
