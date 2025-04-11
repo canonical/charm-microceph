@@ -26,13 +26,14 @@ from pathlib import Path
 from socket import gethostname
 from typing import List
 
-import charms.operator_libs_linux.v2.snap as snap
 import netifaces
 import ops.framework
 import ops_sunbeam.charm as sunbeam_charm
 import ops_sunbeam.guard as sunbeam_guard
 import ops_sunbeam.relation_handlers as sunbeam_rhandlers
 import requests
+from charms.ceph_mon.v0 import ceph_cos_agent
+from charms.operator_libs_linux.v2 import snap
 from ops.main import main
 
 import ceph
@@ -77,6 +78,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.cluster_upgrades = cluster.ClusterUpgrades(self)
         self.maintenance = maintenance.Maintenance(self)
         self.rgw = RadosGWHandler(self)
+        self.cos_agent = ceph_cos_agent.CephCOSAgentProvider(
+            self,
+            refresh_cb=microceph.cos_agent_refresh_cb,
+            departed_cb=microceph.cos_agent_departed_cb,
+        )
 
         # Initialise handlers for events.
         self.framework.observe(self.on.install, self._on_install)
@@ -362,16 +368,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def ready_for_service(self) -> bool:
         """Check if service is ready or not."""
-        if not snap.SnapCache()["microceph"].present:
-            logger.warning("Snap microceph not installed yet.")
-            return False
-
-        if not microceph.is_cluster_member(gethostname()):
-            logger.warning("Microceph not bootstrapped yet.")
-            return False
-
-        if not ceph.is_quorum():
-            logger.debug("Ceph cluster not in quorum, not ready yet")
+        if not microceph.is_ready():
+            logger.warning("microceph snap not ready for service yet.")
             return False
 
         # ready for service if leader has been announced.

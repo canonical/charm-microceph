@@ -19,6 +19,7 @@ from subprocess import CalledProcessError
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import ops_sunbeam.test_utils as test_utils
+from charms.ceph_mon.v0 import ceph_cos_agent
 from ops.testing import Harness
 
 import charm
@@ -129,6 +130,10 @@ class TestCharm(test_utils.CharmTestCase):
     def add_complete_certificate_transfer_relation(self, harness: Harness) -> None:
         """Add complete certificate_transfer relation."""
         harness.add_relation("receive-ca-cert", "keystone", unit_data={"ca": DUMMY_CA_CERT})
+
+    def add_cos_agent_integration(self, harness: Harness) -> None:
+        """Add cos agent integration."""
+        harness.add_relation("cos-agent", harness.charm.app.name)
 
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
@@ -973,3 +978,16 @@ class TestCharm(test_utils.CharmTestCase):
             }
         )
         action_event.fail.assert_called()
+
+    @patch("microceph.is_ready")
+    @patch("microceph.enable_mgr_module")
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    def test_cos_integration(self, ceph_utils, enable_mgr_module, is_ready):
+        """Test integration for COS agent."""
+        is_ready.return_value = True
+        self.harness.set_leader()
+        self.harness.update_config({"rbd-stats-pools": "abcd"})
+
+        self.add_cos_agent_integration(self.harness)
+        enable_mgr_module.assert_called_once_with("prometheus")
+        ceph_utils.mgr_config_set.assert_called_once_with("mgr/prometheus/rbd_stats_pools", "abcd")

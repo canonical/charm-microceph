@@ -40,3 +40,8 @@ options:
       This configuration option will not be enabled on a charm upgrade, and
       cannot be toggled on in an existing installation as it will remove
       tenant access to existing buckets.
+  rbd-stats-pools:
+    type: string
+    default: ""
+    description: |
+      Enable RBD IO statistics for specified rbd pools.
