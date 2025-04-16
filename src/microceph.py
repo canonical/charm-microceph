@@ -125,9 +125,13 @@ def is_cluster_member(hostname: str) -> bool:
     except subprocess.CalledProcessError as e:
         error_not_initialised = "Daemon not yet initialized"
         error_db_not_initialised = "Database is not yet initialized"
+        error_db_waiting_upgrade = "Database is waiting for an upgrade"
         if error_not_initialised in e.stderr or error_db_not_initialised in e.stderr:
             # not a cluster member if daemon not initialised.
             return False
+        elif error_db_waiting_upgrade in e.stderr:
+            # host is a member of cluster being upgraded.
+            return True
         else:
             raise e
 
