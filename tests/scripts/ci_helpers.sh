@@ -19,10 +19,55 @@ function install_deps() {
     date
     sudo apt-get -qq install jq
     sudo snap install juju
+    sudo snap install k8s --classic
     mkdir -p ~/.local/share/juju
-    juju bootstrap localhost
+    juju bootstrap localhost lxd
     juju add-model microceph-test
     date
+}
+
+function bootstrap_k8s() {
+  sudo k8s bootstrap
+  for i in $(seq 1 100); do
+   res=$(sudo k8s kubectl get pods -n kube-system -o json | jq '.items.[].status.phase' | grep "Running" -cv)
+   if [[ $res -ne 0 ]] ; then
+     echo -n '.'
+     sleep 10
+   else
+     echo "k8s bootstrapped successfully"
+     break
+   fi
+  done
+  # fail if unit still present.
+  if [[ $res -ne 0 ]] ; then
+   echo "K8s not bootstrapped yet"
+   sudo k8s status
+   sudo k8s kubectl get pods -n kube-system
+   exit 1
+  fi
+}
+
+function bootstrap_k8s_controller() {
+  sudo k8s kubectl config view --raw | juju add-k8s localk8s --client
+  juju bootstrap localk8s k8s --debug
+}
+
+function deploy_cos() {
+  juju add-model cos
+  juju deploy cos-lite --channel edge --trust
+
+  juju offer prometheus:receive-remote-write
+  juju offer grafana:grafana-dashboard
+  juju offer loki:logging
+}
+
+function deploy_microceph() {
+  date
+  mv ~/artifacts/microceph.charm ./microceph.charm
+  juju deploy ./tests/bundles/multi_node_juju_storage.yaml
+  # wait for charm to bootstrap and OSD devices to enroll.
+  ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
+  date
 }
 
 function install_juju_simple() {

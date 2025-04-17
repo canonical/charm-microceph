@@ -852,3 +852,85 @@ jobs:
         if: ${{ failure() && runner.debug }}
         uses: canonical/action-tmate@main
 
+  cos-integration-test:
+    needs:
+      - lint
+      - unit-test
+      - build
+    name: Charm MicroCeph COS integration test
+    runs-on: [self-hosted, xlarge]
+    steps:
+      - name: Download charm
+        uses: actions/download-artifact@v4
+        with:
+          name: charms
+          path: ~/artifacts/
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.1
+        with:
+          # pin lxd to LTS release.
+          channel: 5.21/stable
+
+      - name: Install dependencies
+        run: ./tests/scripts/ci_helpers.sh install_deps
+
+      - name: Bootstrap K8s
+        run: ./tests/scripts/ci_helpers.sh bootstrap_k8s
+
+      - name: Bootstrap k8s controller
+        run: ./tests/scripts/ci_helpers.sh bootstrap_k8s_controller
+
+      - name: Deploy cos lite
+        run: ./tests/scripts/ci_helpers.sh deploy_cos
+      
+      - name: Deploy MicroCeph charm over LXD
+        run: ./tests/scripts/ci_helpers.sh deploy_microceph
+          
+      - name: Show Juju status
+        run: |
+          set -eux
+          juju status
+
+      - name: Remove Unit microceph/2
+        run: |
+          set -x
+          ./tests/scripts/ci_helpers.sh ensure_osd_count_on_host "juju.*\-2" 3
+          ./tests/scripts/ci_helpers.sh remove_unit_wait "microceph/2"
+
+          # sleep for some time
+          sleep 1m
+
+          ./tests/scripts/ci_helpers.sh ensure_osd_count_on_host "juju.*\-2" 0
+
+      - name: Add another unit
+        run: |
+          set -x
+          juju add-unit microceph -n 1
+          sleep 60s
+          juju wait-for unit microceph/3 --query='workload-message=="(workload) charm is ready"' --timeout=20m
+
+           # "juju" substring is a part of all hosts, so it will fetch total OSD count
+          ./tests/scripts/ci_helpers.sh ensure_osd_count_on_host "juju" 9
+
+      - name: Collect logs
+        if: failure()
+        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: microceph_juju_storage_cluster_test_logs
+          path: logs
+          retention-days: 30
+
+      - name: Setup tmate session
+        if: ${{ failure() && runner.debug }}
+        uses: canonical/action-tmate@main
+
