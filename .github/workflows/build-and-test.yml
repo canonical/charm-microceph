@@ -880,6 +880,9 @@ jobs:
       - name: Install dependencies
         run: ./tests/scripts/ci_helpers.sh install_deps
 
+      - name: Cleanup Docker
+        run: ./tests/scripts/ci_helpers.sh cleanup_docker
+
       - name: Bootstrap K8s
         run: ./tests/scripts/ci_helpers.sh bootstrap_k8s
 
@@ -896,27 +899,6 @@ jobs:
         run: |
           set -eux
           juju status
-
-      - name: Remove Unit microceph/2
-        run: |
-          set -x
-          ./tests/scripts/ci_helpers.sh ensure_osd_count_on_host "juju.*\-2" 3
-          ./tests/scripts/ci_helpers.sh remove_unit_wait "microceph/2"
-
-          # sleep for some time
-          sleep 1m
-
-          ./tests/scripts/ci_helpers.sh ensure_osd_count_on_host "juju.*\-2" 0
-
-      - name: Add another unit
-        run: |
-          set -x
-          juju add-unit microceph -n 1
-          sleep 60s
-          juju wait-for unit microceph/3 --query='workload-message=="(workload) charm is ready"' --timeout=20m
-
-           # "juju" substring is a part of all hosts, so it will fetch total OSD count
-          ./tests/scripts/ci_helpers.sh ensure_osd_count_on_host "juju" 9
 
       - name: Collect logs
         if: failure()

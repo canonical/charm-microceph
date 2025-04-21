@@ -26,10 +26,19 @@ function install_deps() {
     date
 }
 
+function cleanup_docker() {
+  sudo apt purge docker* --yes
+  sudo apt purge containerd* --yes
+  sudo apt autoremove --yes
+  sudo rm -rf /run/containerd
+}
+
 function bootstrap_k8s() {
   sudo k8s bootstrap
+  sudo k8s enable load-balancer
+  sudo k8s enable ingresss
   for i in $(seq 1 100); do
-   res=$(sudo k8s kubectl get pods -n kube-system -o json | jq '.items.[].status.phase' | grep "Running" -cv)
+   res=$(sudo k8s kubectl get pods -n kube-system -o json | jq '.items[].status.phase' | grep "Running" -cv)
    if [[ $res -ne 0 ]] ; then
      echo -n '.'
      sleep 10
@@ -49,25 +58,39 @@ function bootstrap_k8s() {
 
 function bootstrap_k8s_controller() {
   sudo k8s kubectl config view --raw | juju add-k8s localk8s --client
-  juju bootstrap localk8s k8s --debug
+ 
+  # Get host IP address for lxdbr0 subnet so juju controller on LXD can connect to k8s controller. 
+  ip=$(lxc network list -f json | jq '.[] | select(.name=="lxdbr0") | .config."ipv4.address"' | tr -d "\"" | cut -d "/" -f 1)
+  juju bootstrap localk8s k8s --debug --config controller-service-type=loadbalancer --config controller-external-ips="[$ip]"
 }
 
 function deploy_cos() {
+  set -eux
   juju add-model cos
   juju deploy cos-lite --channel edge --trust
 
   juju offer prometheus:receive-remote-write
   juju offer grafana:grafana-dashboard
   juju offer loki:logging
+
+  juju wait-for application prometheus --query='name=="prometheus" && (status=="active" || status=="idle")' --timeout=10m
+  juju wait-for application grafana --query='name=="grafana" && (status=="active" || status=="idle")' --timeout=10m
+  juju wait-for application loki --query='name=="loki" && (status=="active" || status=="idle")' --timeout=10m
 }
 
 function deploy_microceph() {
   date
   mv ~/artifacts/microceph.charm ./microceph.charm
+  juju switch lxd
   juju deploy ./tests/bundles/multi_node_juju_storage.yaml
   # wait for charm to bootstrap and OSD devices to enroll.
   ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
   date
+}
+
+function deploy_grafana_agent() {
+  date
+
 }
 
 function install_juju_simple() {
