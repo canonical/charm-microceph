@@ -19,7 +19,7 @@ function install_deps() {
     date
     sudo apt-get -qq install jq
     sudo snap install juju
-    sudo snap install k8s --classic
+    sudo snap install microk8s --channel 1.32-strict/stable
     mkdir -p ~/.local/share/juju
     juju bootstrap localhost lxd
     juju add-model microceph-test
@@ -34,11 +34,9 @@ function cleanup_docker() {
 }
 
 function bootstrap_k8s() {
-  sudo k8s bootstrap
-  sudo k8s enable load-balancer
-  sudo k8s enable ingresss
+  sudo microk8s  enable hostpath-storage
   for i in $(seq 1 100); do
-   res=$(sudo k8s kubectl get pods -n kube-system -o json | jq '.items[].status.phase' | grep "Running" -cv)
+   res=$(sudo microk8s kubectl get pods -n kube-system -o json | jq '.items[].status.phase' | grep "Running" -cv)
    if [[ $res -ne 0 ]] ; then
      echo -n '.'
      sleep 10
@@ -50,24 +48,23 @@ function bootstrap_k8s() {
   # fail if unit still present.
   if [[ $res -ne 0 ]] ; then
    echo "K8s not bootstrapped yet"
-   sudo k8s status
-   sudo k8s kubectl get pods -n kube-system
+   sudo microk8s status
+   sudo microk8s kubectl get pods -n kube-system
    exit 1
   fi
 }
 
 function bootstrap_k8s_controller() {
-  sudo k8s kubectl config view --raw | juju add-k8s localk8s --client
+  set -eux
+  sudo microk8s kubectl config view --raw | juju add-k8s localk8s --client
  
-  # Get host IP address for lxdbr0 subnet so juju controller on LXD can connect to k8s controller. 
-  ip=$(lxc network list -f json | jq '.[] | select(.name=="lxdbr0") | .config."ipv4.address"' | tr -d "\"" | cut -d "/" -f 1)
-  juju bootstrap localk8s k8s --debug --config controller-service-type=loadbalancer --config controller-external-ips="[$ip]"
+  juju bootstrap localk8s k8s --debug #--config controller-service-type=loadbalancer --config controller-external-ips="[$ip]"
 }
 
 function deploy_cos() {
   set -eux
   juju add-model cos
-  juju deploy cos-lite --channel edge --trust
+  juju deploy cos-lite --trust
 
   juju offer prometheus:receive-remote-write
   juju offer grafana:grafana-dashboard
@@ -85,12 +82,52 @@ function deploy_microceph() {
   juju deploy ./tests/bundles/multi_node_juju_storage.yaml
   # wait for charm to bootstrap and OSD devices to enroll.
   ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
+  juju status
   date
 }
 
 function deploy_grafana_agent() {
+  set -eux
   date
+  juju switch lxd
+  juju deploy grafana-agent --base ubuntu@24.04
+  juju integrate grafana-agent microceph
 
+  # wait for grafana-agent to be ready for integration
+  juju wait-for application grafana-agent --query='name=="grafana-agent" && (status=="blocked" || status=="idle")' --timeout=20m
+  
+  # Integrate with cos services
+  juju integrate grafana-agent k8s:cos.prometheus
+  juju integrate grafana-agent k8s:cos.grafana
+  juju integrate grafana-agent k8s:cos.loki
+
+  juju wait-for unit grafana-agent/0 --query='workload-message=="tracing: off"' --timeout=20m
+}
+
+function verify_o11y_services() {
+  set -eux
+  date
+  juju switch k8s
+  prom_addr=$(juju status --format json | jq '.applications.prometheus.address' | tr -d "\"")
+  graf_addr=$(juju status --format json | jq '.applications.grafana.address' | tr -d "\"")
+
+  # verify prometheus metrics are populated
+  prom_status=$(curl "http://${prom_addr}:9090/api/v1/query?query=ceph_health_detail" | jq '.status')
+  if [ $prom_status -neq "success" ]; then
+    echo "Prometheus query for ceph_health_detail returned $prom_status"
+    exit 1
+  fi
+
+  grafana_pass=$(juju run grafana/0 get-admin-password --format json | jq '."grafana/0".results."admin-password"' | tr -d "\"")
+  curl http://admin:${grafana_pass}@${graf_addr}:3000/api/search| jq '.[].title' | jq -s '.' > dashboards.json
+
+  # compare the dashboard outputs
+  cat ./dashboards.json 
+  git diff --no-index ./dashboards.json ./tests/scripts/assets/ref_dashboards.json
+  if [ $? -neq 0 ]; then
+    echo "Required Dashboards are not configured"
+    exit 1
+  fi
 }
 
 function install_juju_simple() {

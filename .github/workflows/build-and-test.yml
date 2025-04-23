@@ -894,6 +894,12 @@ jobs:
       
       - name: Deploy MicroCeph charm over LXD
         run: ./tests/scripts/ci_helpers.sh deploy_microceph
+
+      - name: Deploy and Integrate grafana-agent
+        run: ./tests/scripts/ci_helpers.sh deploy_grafana_agent
+
+      - name: Test Metrics and Dashboards
+        run: ./tests/scripts/ci_helpers.sh verify_o11y_services
           
       - name: Show Juju status
         run: |
@@ -902,7 +908,7 @@ jobs:
 
       - name: Collect logs
         if: failure()
-        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs
+        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs || true
 
       - name: Upload logs
         if: failure()
