@@ -58,7 +58,7 @@ function bootstrap_k8s_controller() {
   set -eux
   sudo microk8s kubectl config view --raw | juju add-k8s localk8s --client
  
-  juju bootstrap localk8s k8s --debug #--config controller-service-type=loadbalancer --config controller-external-ips="[$ip]"
+  juju bootstrap localk8s k8s --debug
 }
 
 function deploy_cos() {
@@ -105,27 +105,38 @@ function deploy_grafana_agent() {
 }
 
 function verify_o11y_services() {
-  set -eux
+  set -ux
   date
   juju switch k8s
   prom_addr=$(juju status --format json | jq '.applications.prometheus.address' | tr -d "\"")
   graf_addr=$(juju status --format json | jq '.applications.grafana.address' | tr -d "\"")
 
   # verify prometheus metrics are populated
-  prom_status=$(curl "http://${prom_addr}:9090/api/v1/query?query=ceph_health_detail" | jq '.status')
-  if [ $prom_status -neq "success" ]; then
+  prom_status=$(curl "http://${prom_addr}:9090/api/v1/query?query=ceph_health_detail" | jq '.status' | tr -d "\"")
+  if [[ "$prom_status" != "success" ]]; then
     echo "Prometheus query for ceph_health_detail returned $prom_status"
     exit 1
   fi
 
   grafana_pass=$(juju run grafana/0 get-admin-password --format json | jq '."grafana/0".results."admin-password"' | tr -d "\"")
-  curl http://admin:${grafana_pass}@${graf_addr}:3000/api/search| jq '.[].title' | jq -s '.' > dashboards.json
-
-  # compare the dashboard outputs
-  cat ./dashboards.json 
+  
+  for i in $(seq 1 20); do
+    curl http://admin:${grafana_pass}@${graf_addr}:3000/api/search| jq '.[].title' | jq -s '.' > dashboards.json
+    cat ./dashboards.json 
+  
+    # compare the dashboard outputs
+    git diff --no-index ./dashboards.json ./tests/scripts/assets/ref_dashboards.json
+    if [ $? -eq 0 ]; then
+      echo "Dashboards match expectations"
+      break 
+    fi
+    echo "."
+    sleep 1m
+  done
+  
   git diff --no-index ./dashboards.json ./tests/scripts/assets/ref_dashboards.json
   if [ $? -neq 0 ]; then
-    echo "Required Dashboards are not configured"
+    echo "Required dashboards still not present."
     exit 1
   fi
 }
