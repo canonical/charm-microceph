@@ -399,7 +399,7 @@ def list_mgr_modules() -> dict:
        2. always_on_modules
        3. enabled_modules
     """
-    cmd = ["ceph", "mgr", "module", "ls", "--format", "json"]
+    cmd = ["microceph.ceph", "mgr", "module", "ls", "--format", "json"]
     return json.loads(_run_cmd(cmd=cmd))
 
 
@@ -412,7 +412,7 @@ def enable_mgr_module(module: str):
         logger.info("nothing to do, %s module is not disabled", module)
         return
 
-    cmd = ["ceph", "mgr", "module", "enable", module]
+    cmd = ["microceph.ceph", "mgr", "module", "enable", module]
     _run_cmd(cmd=cmd)
 
 
@@ -423,7 +423,7 @@ def disable_mgr_module(module: str):
         logger.info("nothing to do, %s module is not enabled or is always on", module)
         return
 
-    cmd = ["ceph", "mgr", "module", "disable", module]
+    cmd = ["microceph.ceph", "mgr", "module", "disable", module]
     _run_cmd(cmd=cmd)
 
 

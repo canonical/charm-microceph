@@ -207,7 +207,7 @@ class TestBroker(test_utils.CharmTestCase):
         def mock_check_output(*args, **kwargs):
             cmd = args[0]
             if cmd[:9] == [
-                "ceph",
+                "microceph.ceph",
                 "--id",
                 "admin",
                 "fs",

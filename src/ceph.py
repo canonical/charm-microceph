@@ -137,9 +137,9 @@ def monitor_key_get(service, key):
     :rtype: Optional[str]
     """
     try:
-        output = check_output(["ceph", "--id", service, "config-key", "get", str(key)]).decode(
-            "UTF-8"
-        )
+        output = check_output(
+            ["microceph.ceph", "--id", service, "config-key", "get", str(key)]
+        ).decode("UTF-8")
         return output
     except CalledProcessError as e:
         log("Monitor config-key get failed with message: {}".format(e.output))
@@ -158,7 +158,9 @@ def monitor_key_set(service, key, value):
     :raises: CalledProcessError
     """
     try:
-        check_output(["ceph", "--id", service, "config-key", "put", str(key), str(value)])
+        check_output(
+            ["microceph.ceph", "--id", service, "config-key", "put", str(key), str(value)]
+        )
     except CalledProcessError as e:
         log("Monitor config-key put failed with message: {}".format(e.output))
         raise
@@ -176,7 +178,7 @@ def erasure_profile_exists(service, name):
     """
     validator(value=name, valid_type=str)
     try:
-        check_call(["ceph", "--id", service, "osd", "erasure-code-profile", "get", name])
+        check_call(["microceph.ceph", "--id", service, "osd", "erasure-code-profile", "get", name])
         return True
     except CalledProcessError:
         return False
@@ -189,7 +191,7 @@ def pool_exists(service, name):
         out = check_output(
             ['rados', '--id', service, 'lspools']).decode('utf-8')
         """
-        out = check_output(["ceph", "osd", "lspools"]).decode("utf-8")
+        out = check_output(["microceph.ceph", "osd", "lspools"]).decode("utf-8")
     except CalledProcessError:
         return False
 
@@ -207,7 +209,7 @@ def update_pool(client, pool, settings):
     :type settings: Dict[str, str]
     :raises: CalledProcessError
     """
-    cmd = ["ceph", "--id", client, "osd", "pool", "set", pool]
+    cmd = ["microceph.ceph", "--id", client, "osd", "pool", "set", pool]
     for k, v in settings.items():
         # Add --yes-i-really-mean-it flag if setting pool size 1
         extend_cmd = [k, v]
@@ -228,7 +230,7 @@ def set_app_name_for_pool(client, pool, name):
 
     :raises: CalledProcessError if ceph call fails
     """
-    cmd = ["ceph", "--id", client, "osd", "pool", "application", "enable", pool, name]
+    cmd = ["microceph.ceph", "--id", client, "osd", "pool", "application", "enable", pool, name]
     check_call(cmd)
 
 
@@ -237,7 +239,7 @@ def enabled_manager_modules():
 
     :rtype: List[str]
     """
-    cmd = ["ceph", "mgr", "module", "ls"]
+    cmd = ["microceph.ceph", "mgr", "module", "ls"]
     cmd.append("--format=json")
     try:
         modules = check_output(cmd).decode("utf-8")
@@ -258,7 +260,17 @@ def enable_pg_autoscale(service, pool_name):
     :raises: CalledProcessError if the command fails
     """
     check_call(
-        ["ceph", "--id", service, "osd", "pool", "set", pool_name, "pg_autoscale_mode", "on"]
+        [
+            "microceph.ceph",
+            "--id",
+            service,
+            "osd",
+            "pool",
+            "set",
+            pool_name,
+            "pg_autoscale_mode",
+            "on",
+        ]
     )
 
 
@@ -275,7 +287,7 @@ def set_pool_quota(service, pool_name, max_bytes=None, max_objects=None):
     :type max_objects: int
     :raises: subprocess.CalledProcessError
     """
-    cmd = ["ceph", "--id", service, "osd", "pool", "set-quota", pool_name]
+    cmd = ["microceph.ceph", "--id", service, "osd", "pool", "set-quota", pool_name]
     if max_bytes:
         cmd = cmd + ["max_bytes", str(max_bytes)]
     if max_objects:
@@ -292,7 +304,7 @@ def get_osds(service, device_class=None):
     if device_class:
         out = check_output(
             [
-                "ceph",
+                "microceph.ceph",
                 "--id",
                 service,
                 "osd",
@@ -304,7 +316,9 @@ def get_osds(service, device_class=None):
             ]
         ).decode("utf-8")
     else:
-        out = check_output(["ceph", "--id", service, "osd", "ls", "--format=json"]).decode("utf-8")
+        out = check_output(
+            ["microceph.ceph", "--id", service, "osd", "ls", "--format=json"]
+        ).decode("utf-8")
     return json.loads(out)
 
 
@@ -320,7 +334,16 @@ def get_erasure_profile(service, name):
     """
     try:
         out = check_output(
-            ["ceph", "--id", service, "osd", "erasure-code-profile", "get", name, "--format=json"]
+            [
+                "microceph.ceph",
+                "--id",
+                service,
+                "osd",
+                "erasure-code-profile",
+                "get",
+                name,
+                "--format=json",
+            ]
         ).decode("utf-8")
         return json.loads(out)
     except (CalledProcessError, OSError, ValueError):
@@ -695,7 +718,7 @@ class ErasurePool(BasePool):
         m = int(erasure_profile["m"])
         pgs = self.get_pgs(k + m, self.percent_data)
         cmd = [
-            "ceph",
+            "microceph.ceph",
             "--id",
             self.service,
             "osd",
@@ -773,7 +796,7 @@ class ReplicatedPool(BasePool):
     # quantization reaches 128 (due to threshold value 3).
     def _create(self):
         cmd = [
-            "ceph",
+            "microceph.ceph",
             "--id",
             self.service,
             "osd",
@@ -808,7 +831,7 @@ class ReplicatedPool(BasePool):
 def get_osd_count():
     """Return the number of OSDs."""
     try:
-        ret = check_output(["ceph", "osd", "ls"])
+        ret = check_output(["microceph.ceph", "osd", "ls"])
         return ret.decode("utf8").count("\n")
     except Exception as e:
         log("Failed getting the number of OSDs: {}".format(str(e)), WARNING)
@@ -817,13 +840,13 @@ def get_osd_count():
 
 def ceph_user():
     """Return the ceph user name."""
-    return "ceph"
+    return "microceph.ceph"
 
 
 def is_quorum():
     """Check if the monitor is in quorum."""
     asok = "/var/snap/microceph/current/run/ceph-mon.{}.asok".format(socket.gethostname())
-    cmd = ["ceph", "--admin-daemon", asok, "mon_status"]
+    cmd = ["microceph.ceph", "--admin-daemon", asok, "mon_status"]
     if os.path.exists(asok):
         try:
             result = json.loads(str(check_output(cmd).decode("UTF-8")))
@@ -846,4 +869,4 @@ def ceph_config_set(ceph_service: str, key: str, value: str):
 
     :raises: CalledProcessError if config set op fails.
     """
-    check_call(["ceph", "config", "set", ceph_service, key, value])
+    check_call(["microceph.ceph", "config", "set", ceph_service, key, value])

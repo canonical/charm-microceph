@@ -177,7 +177,7 @@ def update_service_permissions(service, service_obj=None, namespace=None):
     if not service_obj:
         service_obj = get_service_groups(service=service, namespace=namespace)
     permissions = pool_permission_list_for_service(service_obj)
-    call = ["ceph", "auth", "caps", "client.{}".format(service)] + permissions
+    call = ["microceph.ceph", "auth", "caps", "client.{}".format(service)] + permissions
     try:
         check_call(call)
     except CalledProcessError as e:
@@ -436,7 +436,7 @@ def ceph_auth_get(key_name):
         output = str(
             check_output(
                 [
-                    "ceph",
+                    "microceph.ceph",
                     "--name",
                     "mon.",
                     "--keyring",
@@ -468,7 +468,7 @@ def get_named_key(name, caps=None, pool_list=None):
     log("Creating new key for {}".format(name), level=DEBUG)
     caps = caps or _default_caps
     cmd = [
-        "ceph",
+        "microceph.ceph",
         "--name",
         "mon.",
         "--keyring",
@@ -495,7 +495,7 @@ def get_named_key(name, caps=None, pool_list=None):
 def is_leader():
     """Check if this node is ceph mon leader."""
     hostname = socket.gethostname()
-    cmd = ["ceph", "tell", f"mon.{hostname}", "mon_status", "--format", "json"]
+    cmd = ["microceph.ceph", "tell", f"mon.{hostname}", "mon_status", "--format", "json"]
     try:
         result = json.loads(str(check_output(cmd).decode("UTF-8")))
     except CalledProcessError:
@@ -539,7 +539,9 @@ def handle_create_cephfs(request, service):
 
     # Finally create CephFS
     try:
-        check_output(["ceph", "--id", service, "fs", "new", cephfs_name, metadata_pool, data_pool])
+        check_output(
+            ["microceph.ceph", "--id", service, "fs", "new", cephfs_name, metadata_pool, data_pool]
+        )
     except CalledProcessError as err:
         if err.returncode == 22:
             log("CephFS already created")
@@ -548,7 +550,7 @@ def handle_create_cephfs(request, service):
             log(err.output, level=ERROR)
             return {"exit-code": 1, "stderr": err.output}
     for pool_name in extra_pools:
-        cmd = ["ceph", "--id", service, "fs", "add_data_pool", cephfs_name, pool_name]
+        cmd = ["microceph.ceph", "--id", service, "fs", "add_data_pool", cephfs_name, pool_name]
         try:
             check_output(cmd)
         except CalledProcessError as err:
@@ -664,7 +666,7 @@ def create_erasure_profile(  # noqa: C901
         return
 
     cmd = [
-        "ceph",
+        "microceph.ceph",
         "--id",
         service,
         "osd",
@@ -714,7 +716,7 @@ def create_erasure_profile(  # noqa: C901
 def delete_pool(service, request):
     """Delete a RADOS pool from ceph."""
     cmd = [
-        "ceph",
+        "microceph.ceph",
         "--id",
         service,
         "osd",
@@ -735,7 +737,7 @@ def rename_pool(service, request):
     :type request: dict
     """
     cmd = [
-        "ceph",
+        "microceph.ceph",
         "--id",
         service,
         "osd",
@@ -757,7 +759,7 @@ def snapshot_pool(service, request):
     :raises: CalledProcessError
     """
     cmd = [
-        "ceph",
+        "microceph.ceph",
         "--id",
         service,
         "osd",
@@ -781,7 +783,7 @@ def remove_pool_snapshot(service, request):
     :raises: CalledProcessError
     """
     cmd = [
-        "ceph",
+        "microceph.ceph",
         "--id",
         service,
         "osd",
@@ -806,7 +808,17 @@ def handle_set_pool_value(request, service, coerce=False):
     key = request.get("key")
     value = request.get("value")
 
-    cmd = ["ceph", "--id", service, "osd", "pool", "set", pool_name, key, str(value).lower()]
+    cmd = [
+        "microceph.ceph",
+        "--id",
+        service,
+        "osd",
+        "pool",
+        "set",
+        pool_name,
+        key,
+        str(value).lower(),
+    ]
     check_call(cmd)
 
 
@@ -1002,7 +1014,7 @@ def handle_put_osd_in_bucket(request, service):
     try:
         check_output(
             [
-                "ceph",
+                "microceph.ceph",
                 "--id",
                 service,
                 "osd",
@@ -1024,7 +1036,14 @@ def handle_set_key_permissions(request, service):
     """Ensure the key has the requested permissions."""
     permissions = request.get("permissions")
     client = request.get("client")
-    call = ["ceph", "--id", service, "auth", "caps", "client.{}".format(client)] + permissions
+    call = [
+        "microceph.ceph",
+        "--id",
+        service,
+        "auth",
+        "caps",
+        "client.{}".format(client),
+    ] + permissions
     try:
         check_call(call)
     except CalledProcessError as e:
@@ -1092,7 +1111,7 @@ def handle_create_cephfs_client(request, service):
     # already exists.
     try:
         cmd = [
-            "ceph",
+            "microceph.ceph",
             "--id",
             service,
             "fs",
@@ -1133,7 +1152,7 @@ def get_osd_weight(osd_id):
     :raises: CalledProcessError if our Ceph command fails.
     """
     try:
-        tree = check_output(["ceph", "osd", "tree", "--format=json"])
+        tree = check_output(["microceph.ceph", "osd", "tree", "--format=json"])
         tree = tree.decode("UTF-8")
         try:
             json_tree = json.loads(tree)
