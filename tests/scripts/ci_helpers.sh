@@ -105,7 +105,7 @@ function deploy_grafana_agent() {
 }
 
 function verify_o11y_services() {
-  set -ux
+  set -eux
   date
   juju switch k8s
   prom_addr=$(juju status --format json | jq '.applications.prometheus.address' | tr -d "\"")
@@ -119,14 +119,16 @@ function verify_o11y_services() {
   fi
 
   grafana_pass=$(juju run grafana/0 get-admin-password --format json | jq '."grafana/0".results."admin-password"' | tr -d "\"")
-  
+
+  # check if expected dashboards are populated in grafana
+  expected_dashboard_count=$(wc -l < ./tests/scripts/assets/expected_dashboard.txt)
   for i in $(seq 1 20); do
-    curl http://admin:${grafana_pass}@${graf_addr}:3000/api/search| jq '.[].title' | jq -s '.' > dashboards.json
+    curl http://admin:${grafana_pass}@${graf_addr}:3000/api/search| jq '.[].title' | jq -s 'sort' > dashboards.json
     cat ./dashboards.json 
-  
+
     # compare the dashboard outputs
-    git diff --no-index ./dashboards.json ./tests/scripts/assets/ref_dashboards.json
-    if [ $? -eq 0 ]; then
+    match_count=$(grep -F -c -f ./tests/scripts/assets/expected_dashboard.txt dashboards.json || true) 
+    if [[ $match_count -eq $expected_dashboard_count ]]; then
       echo "Dashboards match expectations"
       break 
     fi
@@ -134,9 +136,10 @@ function verify_o11y_services() {
     sleep 1m
   done
   
-  git diff --no-index ./dashboards.json ./tests/scripts/assets/ref_dashboards.json
-  if [ $? -neq 0 ]; then
+  match_count=$(grep -F -c -f ./tests/scripts/assets/expected_dashboard.txt dashboards.json || true) 
+  if [[ $match_count -ne $expected_dashboard_count ]]; then
     echo "Required dashboards still not present."
+    cat ./dashboards.json
     exit 1
   fi
 }
