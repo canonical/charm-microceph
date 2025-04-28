@@ -88,11 +88,22 @@ function deploy_grafana_agent() {
 }
 
 function check_http_endpoints_up() {
-  set -eux
+  set -ux
 
   juju switch k8s
   prom_addr=$(juju status --format json | jq '.applications.prometheus.address' | tr -d "\"")
   graf_addr=$(juju status --format json | jq '.applications.grafana.address' | tr -d "\"")
+
+  for i in $(seq 1 20); do
+    prom_http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://$prom_addr:9090/graph")
+    grafana_http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://$graf_addr:3000/login")
+    if [[ $prom_http_code -eq 200 && $grafana_http_code -eq 200 ]]; then
+      echo "Prometheus and Grafana HTTP endpoints are up"
+      break
+    fi
+    echo "."
+    sleep 30s
+  done
 
   prom_http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://$prom_addr:9090/graph")
   if [[ $prom_http_code -ne 200 ]]; then
