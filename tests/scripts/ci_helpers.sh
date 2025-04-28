@@ -87,6 +87,26 @@ function deploy_grafana_agent() {
   juju wait-for unit grafana-agent/0 --query='workload-message=="tracing: off"' --timeout=20m
 }
 
+function check_http_endpoints_up() {
+  set -eux
+
+  juju switch k8s
+  prom_addr=$(juju status --format json | jq '.applications.prometheus.address' | tr -d "\"")
+  graf_addr=$(juju status --format json | jq '.applications.grafana.address' | tr -d "\"")
+
+  prom_http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://$prom_addr:9090/graph")
+  if [[ $prom_http_code -ne 200 ]]; then
+    echo "Prometheus HTTP endpoint not up: HTTP($prom_http_code)"
+    exit 1
+  fi
+
+  grafana_http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://$graf_addr:3000/login")
+  if [[ $grafana_http_code -ne 200 ]]; then
+    echo "Grafana HTTP endpoint not up: HTTP($grafana_http_code)"
+    exit 1
+  fi
+}
+
 function verify_o11y_services() {
   set -eux
   date

@@ -893,6 +893,9 @@ jobs:
 
       - name: Deploy cos lite
         run: ./tests/scripts/ci_helpers.sh deploy_cos
+
+      - name: Deploy cos lite
+        run: ./tests/scripts/ci_helpers.sh check_http_endpoints_up
       
       - name: Deploy MicroCeph charm over LXD
         run: ./tests/scripts/ci_helpers.sh deploy_microceph
