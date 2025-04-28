@@ -19,7 +19,6 @@ function install_deps() {
     date
     sudo apt-get -qq install jq
     sudo snap install juju
-    sudo snap install microk8s --channel 1.32-strict/stable
     mkdir -p ~/.local/share/juju
     juju bootstrap localhost lxd
     juju add-model microceph-test
@@ -34,24 +33,8 @@ function cleanup_docker() {
 }
 
 function bootstrap_k8s() {
-  sudo microk8s  enable hostpath-storage
-  for i in $(seq 1 100); do
-   res=$(sudo microk8s kubectl get pods -n kube-system -o json | jq '.items[].status.phase' | grep "Running" -cv)
-   if [[ $res -ne 0 ]] ; then
-     echo -n '.'
-     sleep 10
-   else
-     echo "k8s bootstrapped successfully"
-     break
-   fi
-  done
-  # fail if unit still present.
-  if [[ $res -ne 0 ]] ; then
-   echo "K8s not bootstrapped yet"
-   sudo microk8s status
-   sudo microk8s kubectl get pods -n kube-system
-   exit 1
-  fi
+  sudo microk8s enable hostpath-storage
+  sudo microk8s status --wait-ready
 }
 
 function bootstrap_k8s_controller() {
@@ -112,13 +95,21 @@ function verify_o11y_services() {
   graf_addr=$(juju status --format json | jq '.applications.grafana.address' | tr -d "\"")
 
   # verify prometheus metrics are populated
-  prom_status=$(curl "http://${prom_addr}:9090/api/v1/query?query=ceph_health_detail" | jq '.status' | tr -d "\"")
+  curl_output=$(curl "http://${prom_addr}:9090/api/v1/query?query=ceph_health_detail")
+  prom_status=$(echo $curl_output | jq '.status' | tr -d "\"")
   if [[ "$prom_status" != "success" ]]; then
-    echo "Prometheus query for ceph_health_detail returned $prom_status"
+    echo "Prometheus query for ceph_health_detail returned $curl_output"
     exit 1
   fi
 
-  grafana_pass=$(juju run grafana/0 get-admin-password --format json | jq '."grafana/0".results."admin-password"' | tr -d "\"")
+  get_admin_action=$(juju run grafana/0 get-admin-password --format json --wait 5m)
+  action_status=$(echo $get_admin_action | jq '."grafana/0".status' | tr -d "\"")
+  if [[ $action_status != "completed" ]]; then
+    echo "Failed to fetch admin password from grafana: $get_admin_action"
+    exit 1
+  fi
+
+  grafana_pass=$(echo $get_admin_action | jq '."grafana/0".results."admin-password"' | tr -d "\"")
 
   # check if expected dashboards are populated in grafana
   expected_dashboard_count=$(wc -l < ./tests/scripts/assets/expected_dashboard.txt)
