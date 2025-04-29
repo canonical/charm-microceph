@@ -15,7 +15,6 @@
 """Tests for Microceph helper functions."""
 
 import unittest
-from socket import gethostname
 from unittest.mock import patch
 
 import microceph
@@ -158,9 +157,11 @@ class TestMicroCeph(unittest.TestCase):
         assert "rgw_keystone_accepted_roles" in configs_deleted
 
     @patch("microceph._run_cmd")
-    def test_join_cluster(self, run_cmd):
+    @patch("microceph.gethostname")
+    def test_join_cluster(self, gethn, run_cmd):
         """Test if cluster join is idempotent."""
-        run_cmd.return_value = gethostname()
+        gethn.return_value = "host"
+        run_cmd.return_value = "long status that contains host"
         microceph.join_cluster("token", "10.10.10.10")
         run_cmd.assert_called_with(["microceph", "status"])
 
