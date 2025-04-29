@@ -217,8 +217,13 @@ def bootstrap_cluster(micro_ip: str = None, public_net: str = None, cluster_net:
     _run_cmd(cmd=cmd)
 
 
-def join_cluster(token: str, micro_ip: str = None, **kwargs):
+def join_cluster(token: str, micro_ip: str = "", **kwargs):
     """Join node to MicroCeph cluster."""
+    hostname = gethostname()
+    if is_cluster_member(hostname):
+        logger.debug("microceph unit host %s already a microcluster member", hostname)
+        return
+
     cmd = ["microceph", "cluster", "join", token]
 
     if micro_ip:
