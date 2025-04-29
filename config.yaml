@@ -45,3 +45,8 @@ options:
     default: ""
     description: |
       Enable RBD IO statistics for specified rbd pools.
+  enable-perf-metrics:
+    type: boolean
+    default: false
+    description: |
+      Include Ceph performance metrics in the prometheus endpoint.

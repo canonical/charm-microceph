@@ -16,7 +16,7 @@
 
 from pathlib import Path
 from subprocess import CalledProcessError
-from unittest.mock import MagicMock, PropertyMock, mock_open, patch
+from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch
 
 import ops_sunbeam.test_utils as test_utils
 from charms.ceph_mon.v0 import ceph_cos_agent
@@ -135,13 +135,15 @@ class TestCharm(test_utils.CharmTestCase):
         """Add cos agent integration."""
         harness.add_relation("cos-agent", harness.charm.app.name)
 
+    @patch.object(ceph_cos_agent, "CephCOSAgentProvider")
+    @patch.object(ceph_cos_agent, "ceph_utils")
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
     @patch.object(Path, "chmod")
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
     def test_mandatory_relations(
-        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient
+        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient, _utils, _cos_agent
     ):
         """Test the mandatory charm relations."""
         cclient.from_socket().cluster.list_services.return_value = []
@@ -171,12 +173,15 @@ class TestCharm(test_utils.CharmTestCase):
         # Assert RGW update configs is not called
         cclient.from_socket().cluster.update_config.assert_not_called()
 
+    @patch.object(ceph_cos_agent, "ceph_utils")
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
     @patch.object(Path, "chmod")
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
-    def test_all_relations(self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient):
+    def test_all_relations(
+        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient, _utils
+    ):
         """Test all the charms relations."""
         cclient.from_socket().cluster.list_services.return_value = []
 
@@ -208,6 +213,7 @@ class TestCharm(test_utils.CharmTestCase):
         # Assert RGW update configs is not called
         cclient.from_socket().cluster.update_config.assert_not_called()
 
+    @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("relation_handlers.Client", MagicMock())
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
@@ -215,7 +221,7 @@ class TestCharm(test_utils.CharmTestCase):
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
     def test_all_relations_with_enable_rgw_config(
-        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient
+        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient, _utils
     ):
         """Test all the charms relations with rgw enabled."""
         cclient.from_socket().cluster.list_services.return_value = []
@@ -258,8 +264,8 @@ class TestCharm(test_utils.CharmTestCase):
 
         # Check config rgw_swift_account_in_url is not updated since
         # namespace-projects is False by default.
-        for call in cclient.from_socket().cluster.update_config.mock_calls:
-            assert call.args[0] != "rgw_swift_account_in_url"
+        for mock_call in cclient.from_socket().cluster.update_config.mock_calls:
+            assert mock_call.args[0] != "rgw_swift_account_in_url"
 
         # Check config rgw_keystone_verify_ssl is updated since certificate
         # transfer relation is set
@@ -267,6 +273,7 @@ class TestCharm(test_utils.CharmTestCase):
             "rgw_keystone_verify_ssl", str(True).lower(), True
         )
 
+    @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("relation_handlers.Client", MagicMock())
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
@@ -274,7 +281,7 @@ class TestCharm(test_utils.CharmTestCase):
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
     def test_all_relations_with_enable_rgw_config_and_namespace_projects(
-        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient
+        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient, _utils
     ):
         """Test all the charms relations with rgw and namespace_projects enabled."""
         cclient.from_socket().cluster.list_services.return_value = []
@@ -329,6 +336,7 @@ class TestCharm(test_utils.CharmTestCase):
             "rgw_keystone_verify_ssl", str(True).lower(), True
         )
 
+    @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("relation_handlers.Client", MagicMock())
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
@@ -336,7 +344,7 @@ class TestCharm(test_utils.CharmTestCase):
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
     def test_relations_without_certificate_transfer(
-        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient
+        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient, _utils
     ):
         """Test all the charms relations without certificate transfer relation."""
         cclient.from_socket().cluster.list_services.return_value = []
@@ -710,12 +718,13 @@ class TestCharm(test_utils.CharmTestCase):
         )
         action_event.fail.assert_called()
 
+    @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("relation_handlers.Client", MagicMock())
     @patch.object(microceph, "Client")
     @patch.object(microceph, "subprocess")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
     def test_get_rgw_endpoints_action_after_traefik_is_integrated(
-        self, mock_file, subprocess, cclient
+        self, mock_file, subprocess, cclient, _utils
     ):
         """Test action get_rgw_endpoints after traefik is integrated."""
         cclient.from_socket().cluster.list_services.return_value = []
@@ -981,13 +990,19 @@ class TestCharm(test_utils.CharmTestCase):
 
     @patch("microceph.is_ready")
     @patch("microceph.enable_mgr_module")
+    @patch.object(microceph, "subprocess")
     @patch.object(ceph_cos_agent, "ceph_utils")
-    def test_cos_integration(self, ceph_utils, enable_mgr_module, is_ready):
+    def test_cos_integration(self, ceph_utils, _sub, enable_mgr_module, is_ready):
         """Test integration for COS agent."""
         is_ready.return_value = True
         self.harness.set_leader()
-        self.harness.update_config({"rbd-stats-pools": "abcd"})
+        self.harness.update_config({"rbd-stats-pools": "abcd", "enable-perf-metrics": True})
 
         self.add_cos_agent_integration(self.harness)
         enable_mgr_module.assert_called_once_with("prometheus")
-        ceph_utils.mgr_config_set.assert_called_once_with("mgr/prometheus/rbd_stats_pools", "abcd")
+        ceph_utils.mgr_config_set.assert_has_calls(
+            [
+                call("mgr/prometheus/rbd_stats_pools", "abcd"),
+                call("mgr/prometheus/exclude_perf_counters", "False"),
+            ]
+        )
