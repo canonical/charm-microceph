@@ -511,8 +511,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             microceph.bootstrap_cluster(**self._get_bootstrap_params())
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(e.stderr)
-            hostname = gethostname()
-            error_already_exists = f'Failed to initialize local remote entry: A remote with name "{hostname}" already exists'
+            error_already_exists = "Unable to initialize cluster: Database is online"
             error_socket_not_exists = "dial unix /var/snap/microceph/common/state/control.socket: connect: no such file or directory"
 
             if error_socket_not_exists in e.stderr:
