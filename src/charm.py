@@ -517,7 +517,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
             if error_socket_not_exists in e.stderr:
                 event.defer()
-                raise sunbeam_guard.WaitingExceptionError("waiting for microceph service") 
+                raise sunbeam_guard.WaitingExceptionError("waiting for microceph service")
 
             if error_already_exists not in e.stderr:
                 raise e

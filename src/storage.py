@@ -81,7 +81,7 @@ class StorageHandler(Object):
             if not self.charm.ready_for_service():
                 logger.warning("MicroCeph not ready yet, deferring storage event.")
                 event.defer()
-                raise sunbeam_guard.WaitingExceptionError("waiting for microceph service") 
+                raise sunbeam_guard.WaitingExceptionError("waiting for microceph service")
 
             self._clean_stale_osd_data()
 

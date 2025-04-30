@@ -76,7 +76,7 @@ class ClusterNodes(ops.framework.Object):
         if not token:
             logger.info("Token not available, deferring join event.")
             event.defer()
-            raise sunbeam_guard.WaitingExceptionError("waiting for join token") 
+            raise sunbeam_guard.WaitingExceptionError("waiting for join token")
 
         if self.charm.peers.interface.state.joined is True:
             logger.info("Unit has already joined the cluster")

@@ -23,8 +23,8 @@ import json
 import logging
 from typing import Callable, Dict, List, Optional, Tuple
 
-import requests
 import ops_sunbeam.guard as sunbeam_guard
+import requests
 from ops.charm import CharmBase, RelationEvent
 from ops.framework import EventBase, EventSource, Handle, Object, ObjectEvents, StoredState
 from ops_sunbeam.interfaces import OperatorPeers
@@ -311,7 +311,7 @@ class MicroClusterPeerHandler(BasePeerHandler):
         if not self.is_leader_ready():
             logger.debug("Add node event, deferring the event as leader not ready")
             event.defer()
-            raise sunbeam_guard.WaitingExceptionError("waiting for charm leader") 
+            raise sunbeam_guard.WaitingExceptionError("waiting for charm leader")
 
         if not self.model.unit.is_leader():
             logger.debug("Ignoring Add node event as this is not leader unit")
@@ -332,7 +332,7 @@ class MicroClusterPeerHandler(BasePeerHandler):
         if not self.is_leader_ready():
             logger.debug("Remove node event, deferring the event as leader not ready")
             event.defer()
-            raise sunbeam_guard.WaitingExceptionError("waiting for charm leader") 
+            raise sunbeam_guard.WaitingExceptionError("waiting for charm leader")
 
         if not self.model.unit.is_leader():
             logger.debug("Ignoring Remove node event as this is not leader unit")
@@ -345,7 +345,7 @@ class MicroClusterPeerHandler(BasePeerHandler):
         if not self.is_leader_ready():
             logger.debug("Upgrade request event, deferring the event as leader not ready")
             event.defer()
-            raise sunbeam_guard.WaitingExceptionError("waiting for charm leader") 
+            raise sunbeam_guard.WaitingExceptionError("waiting for charm leader")
 
         self.upgrade_callback(event)
 
@@ -433,12 +433,12 @@ class CephClientProvides(Object):
         if not self.charm.ready_for_service():
             logger.info("Not processing request as service is not yet ready")
             event.defer()
-            raise sunbeam_guard.WaitingExceptionError("waiting for microceph service") 
+            raise sunbeam_guard.WaitingExceptionError("waiting for microceph service")
 
         if get_osd_count() == 0:
             logger.info("Storage not available, deferring event.")
             event.defer()
-            raise sunbeam_guard.WaitingExceptionError("waiting for storage to be attached") 
+            raise sunbeam_guard.WaitingExceptionError("waiting for storage to be attached")
 
         self._handle_client_relation(event.relation, event.unit)
 
@@ -641,7 +641,7 @@ class CephClientProviderHandler(RelationHandler):
         if not self.can_service(event):
             logger.info("Deferring handling of relation: %s" % self.relation_name)
             event.defer()
-            raise sunbeam_guard.WaitingExceptionError("waiting for microceph service") 
+            raise sunbeam_guard.WaitingExceptionError("waiting for microceph service")
 
         logger.info(f"Processing broker req {event.broker_req}")
         broker_result = process_requests(event.broker_req)
