@@ -24,6 +24,7 @@ from socket import gethostname
 from typing import Tuple
 
 import requests
+import ops_sunbeam.guard as sunbeam_guard
 from charms.operator_libs_linux.v2 import snap
 from tenacity import retry, stop_after_attempt, wait_fixed
 
@@ -69,15 +70,14 @@ def is_ready() -> bool:
 
 def cos_agent_refresh_cb(event):
     """Callback for cos-agent relation change."""
-    logger.info("Entered CEPH COS AGENT REFRESH")
+    with sunbeam_guard.guard("microceph", "cos_agent"):
+        if not is_ready():
+            logger.debug("not bootstrapped, defer _on_refresh: %s", event)
+            event.defer()
+            raise sunbeam_guard.WaitingExceptionError("waiting for microceph service") 
 
-    if not is_ready():
-        logger.debug("not bootstrapped, defer _on_refresh: %s", event)
-        event.defer()
-        return
-
-    logger.debug("refreshing cos_agent relation")
-    enable_ceph_monitoring()
+        logger.debug("refreshing cos_agent relation")
+        enable_ceph_monitoring()
 
 
 def cos_agent_departed_cb(event):
