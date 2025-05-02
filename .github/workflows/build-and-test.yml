@@ -496,12 +496,12 @@ jobs:
             exit 1
           fi
 
-  juju-upgrade-test:
+  snap-upgrade-test:
     needs:
       - lint
       - unit-test
       - build
-    name: Juju upgrade test
+    name: snap upgrade test
     runs-on: [self-hosted, xlarge]
     steps:
 
@@ -528,7 +528,7 @@ jobs:
       - name: Install MicroCeph charm
         run: |
           date
-          juju deploy -n 3 ~/artifacts/microceph.charm --config snap-channel=quincy/stable
+          juju deploy -n 3 ~/artifacts/microceph.charm --config snap-channel=reef/stable
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           date
 
@@ -546,20 +546,20 @@ jobs:
           juju status
           juju status blocked | egrep '^microceph/.*Cannot upgrade.*to non/exist'
           # set back
-          juju config microceph snap-channel=quincy/stable
+          juju config microceph snap-channel=reef/stable
           sleep 10
 
       - name: Test upgrading with unhealthy cluster blocks
         run: |
           set -eux
-          juju config microceph snap-channel=quincy/edge
+          juju config microceph snap-channel=reef/edge
           sleep 10
           juju wait-for application microceph --query='status=="blocked"'
           juju status
           juju status blocked | egrep '^microceph/.*Cannot upgrade, ceph health not ok'
           # Should be in WARN as we don't have OSDs
           juju ssh microceph/0 -- sudo ceph -s
-          juju config microceph snap-channel=quincy/stable
+          juju config microceph snap-channel=reef/stable
           juju wait-for application microceph --query='name=="microceph" && (status=="active" || status=="idle")' --timeout=20m
 
       - name: Add disks for health
@@ -573,7 +573,7 @@ jobs:
         run: |
           set -eux
           date
-          target="reef/stable"
+          target="squid/stable"
           juju config microceph snap-channel=$target
           sleep 60
           # Initial wait
@@ -605,10 +605,10 @@ jobs:
       - name: Test that downgrade blocks
         run: |
           set -eux
-          juju config microceph snap-channel=quincy/stable
+          juju config microceph snap-channel=reef/stable
           juju wait-for application microceph --query='status=="blocked"'
           juju status
-          juju status blocked | egrep '^microceph/.*Cannot upgrade.*to quincy/stable'
+          juju status blocked | egrep '^microceph/.*Cannot upgrade.*to reef/stable'
 
       - name: Collect logs
         if: failure()
