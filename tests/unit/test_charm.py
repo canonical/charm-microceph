@@ -228,7 +228,7 @@ class TestCharm(test_utils.CharmTestCase):
 
         self.harness.set_leader()
         self.harness.update_config({"snap-channel": "1.0/stable", "enable-rgw": "*"})
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
@@ -290,7 +290,7 @@ class TestCharm(test_utils.CharmTestCase):
         self.harness.update_config(
             {"snap-channel": "1.0/stable", "enable-rgw": "*", "namespace-projects": True}
         )
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
@@ -353,7 +353,7 @@ class TestCharm(test_utils.CharmTestCase):
         self.harness.update_config(
             {"snap-channel": "1.0/stable", "enable-rgw": "*", "namespace-projects": True}
         )
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         subprocess.run.assert_any_call(
@@ -401,7 +401,7 @@ class TestCharm(test_utils.CharmTestCase):
     @patch("ceph.check_output")
     def test_add_osds_action_with_device_id(self, _chk, subprocess):
         """Test action add_osds."""
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
         self.harness._charm.peers.interface.state.joined = True
 
         action_event = MagicMock()
@@ -422,7 +422,7 @@ class TestCharm(test_utils.CharmTestCase):
     @patch("ceph.check_output")
     def test_add_osds_action_with_already_added_device_id(self, _chk, subprocess):
         """Test action add_osds."""
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
         self.harness._charm.peers.interface.state.joined = True
 
         disk = "/dev/sdb"
@@ -449,7 +449,7 @@ class TestCharm(test_utils.CharmTestCase):
     @patch("ceph.check_output")
     def test_add_osds_action_with_loop_spec(self, _chk, subprocess):
         """Test action add_osds with loop file spec."""
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
         self.harness._charm.peers.interface.state.joined = True
 
         action_event = MagicMock()
@@ -468,7 +468,7 @@ class TestCharm(test_utils.CharmTestCase):
 
     def test_add_osds_action_node_not_bootstrapped(self):
         """Test action add_osds when node not bootstrapped."""
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
 
         action_event = MagicMock()
         action_event.params = {"device-id": "/dev/sdb"}
@@ -487,7 +487,7 @@ class TestCharm(test_utils.CharmTestCase):
 
     def _test_list_disks_action(self, microceph_cmd_output, expected_disks):
         """Test action list_disks."""
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
         self.harness._charm.peers.interface.state.joined = True
 
         action_event = MagicMock()
@@ -498,7 +498,7 @@ class TestCharm(test_utils.CharmTestCase):
 
     def test_list_disks_action_node_not_bootstrapped(self):
         """Test action list_disks when node not bootstrapped."""
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
 
         action_event = MagicMock()
         self.harness.charm.storage._list_disks_action(action_event)
@@ -709,7 +709,7 @@ class TestCharm(test_utils.CharmTestCase):
 
     def test_get_rgw_endpoints_action_node_not_bootstrapped(self):
         """Test action get_rgw_endpoints when node not bootstrapped."""
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
 
         action_event = MagicMock()
         self.harness.charm.rgw._get_rgw_endpoints_action(action_event)
@@ -732,7 +732,7 @@ class TestCharm(test_utils.CharmTestCase):
         self.harness.update_config(
             {"snap-channel": "1.0/stable", "enable-rgw": "*", "namespace-projects": True}
         )
-        test_utils.add_complete_peer_relation(self.harness)
+        self.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
 
