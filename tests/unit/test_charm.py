@@ -18,6 +18,7 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch
 
+import ops_sunbeam.guard as sunbeam_guard
 import ops_sunbeam.test_utils as test_utils
 from charms.ceph_mon.v0 import ceph_cos_agent
 from ops.testing import Harness
@@ -59,6 +60,9 @@ class _MicroCephCharm(charm.MicroCephCharm):
         super().__init__(framework)
 
     def configure_ceph(self, event):
+        # check if configure_ceph is called from unit tests.
+        if isinstance(event, MagicMock):
+            super().configure_ceph(event)
         return True
 
 
@@ -987,6 +991,14 @@ class TestCharm(test_utils.CharmTestCase):
             }
         )
         action_event.fail.assert_called()
+
+    @patch.object(microceph, "subprocess")
+    @patch("charm.microceph_client.Client")
+    def test_waiting_exception_raised(self, _client, _sub):
+        """Tests whether waiting exception is raised for waiting."""
+        with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+            event = MagicMock()
+            self.harness.charm.configure_ceph(event)
 
     @patch("microceph.is_ready")
     @patch("microceph.enable_mgr_module")
