@@ -650,7 +650,7 @@ jobs:
         uses: canonical/setup-lxd@v0.1.1
         with:
           # pin lxd since there were some recurring issues in recent releases.
-          channel: 5.0/stable
+          channel: 5.21/stable
 
       - name: Seed preliminary LXD profile
         run: ./tests/scripts/ci_helpers.sh seed_lxd_profile ./tests/scripts/assets/lxd-preseed.yaml
@@ -664,6 +664,9 @@ jobs:
           ./tests/scripts/ci_helpers.sh seed_lxd_profile ./tests/scripts/assets/lxd-preseed-cloud-init.yaml
           # Configure Juju spaces
           ./tests/scripts/ci_helpers.sh setup_juju_spaces
+
+      - name: Prepare 3 virtual machines 
+        run: ./tests/scripts/ci_helpers.sh prepare_3_vms
 
       - name: Install MicroCeph charm
         run: |

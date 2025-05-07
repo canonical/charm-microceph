@@ -249,6 +249,39 @@ function wait_for_microceph_bootstrap() {
     juju wait-for application microceph --query='name=="microceph" && (status=="active" || status=="idle")' --timeout=10m
 }
 
+function prepare_3_vms() {
+  set -ux
+
+  lxc launch --vm ubuntu:24.04 node01 -c limits.memory=2GB -c limits.cpu=2
+  lxc launch --vm ubuntu:24.04 node02 -c limits.memory=2GB -c limits.cpu=2
+  lxc launch --vm ubuntu:24.04 node03 -c limits.memory=2GB -c limits.cpu=2
+
+  for i in $(seq 1 20); do
+    echo $i
+    ready_count=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196" -c)
+    if [[ $ready_count -eq 3 ]]; then
+      echo "ready count 3 reached"
+      break;
+    fi
+    echo "."
+    sleep 10s
+  done
+
+    ready_count=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196" -c)
+  if [[ $ready_count -ne 3 ]]; then
+    echo "ready count ($ready_count) did not reach under timeout";
+    exit 1
+  fi
+
+  lxc ls
+  vm_ips=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196")
+  for vm_ip in $vm_ips; do
+    ssh -o "StrictHostKeyChecking=no" "ubuntu@$vm_ip" -f ls
+    juju add-machine "ssh:ubuntu@$vm_ip" --private-key ./tests/scripts/assets/id_rsa
+    sleep 10s
+  done
+}
+
 function juju_crashdump() {
     local model=${1:-microceph-test}
     if ! snap list | grep -q "^juju-crashdump"; then
