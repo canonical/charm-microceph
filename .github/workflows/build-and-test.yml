@@ -697,10 +697,8 @@ jobs:
           retention-days: 30
 
       - name: Setup tmate session
-        if: ${{ failure() && runner.debug }}
+        if: ${{ failure() }}
         uses: canonical/action-tmate@main
-
-
 
   juju-mds-test:
     needs:
