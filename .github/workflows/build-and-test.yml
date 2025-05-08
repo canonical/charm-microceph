@@ -670,7 +670,7 @@ jobs:
           set -eux
           date
           mv ~/artifacts/microceph.charm ./tests/scripts/assets/
-          juju deploy ./tests/scripts/assets/juju_spaces_bundle.yaml
+          juju deploy microceph --bind "cluster=cluster public=alpha" --storage osd-standalone=10G,1 -n 3 --to 0,1,2
           # wait for charm to bootstrap and OSD devices to enroll.
           juju status
           juju wait-for application microceph --query='name=="microceph" && (status=="active" || status=="idle")' --timeout=40m
