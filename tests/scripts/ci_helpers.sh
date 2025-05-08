@@ -280,9 +280,10 @@ function wait_for_microceph_bootstrap() {
 function prepare_3_vms() {
   set -ux
 
-  lxc launch --vm ubuntu:24.04 node01 -c limits.memory=2GB -c limits.cpu=2
-  lxc launch --vm ubuntu:24.04 node02 -c limits.memory=2GB -c limits.cpu=2
-  lxc launch --vm ubuntu:24.04 node03 -c limits.memory=2GB -c limits.cpu=2
+  lxc launch --vm ubuntu:24.04 node01 -c limits.memory=8GB -c limits.cpu=4 -d root,size=32GB
+  lxc launch --vm ubuntu:24.04 node02 -c limits.memory=8GB -c limits.cpu=4 -d root,size=32GB
+  lxc launch --vm ubuntu:24.04 node03 -c limits.memory=8GB -c limits.cpu=4 -d root,size=32GB
+
 
   for i in $(seq 1 20); do
     echo $i
