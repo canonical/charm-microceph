@@ -628,7 +628,7 @@ jobs:
 
   juju-network-spaces-test:
     needs:
-      - lint
+      # - lint
       - unit-test
       - build
     name: Juju Network spaces test
