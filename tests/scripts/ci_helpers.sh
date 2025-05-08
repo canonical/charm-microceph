@@ -242,6 +242,34 @@ function seed_lxd_profile() {
     lxc network list
 }
 
+function prepare_environment() {
+  set -ux
+  date
+  sudo snap install juju
+  mkdir -p ~/.local/share/juju
+  
+  declare -i i=0
+  while [[ $i -lt 20 ]]; do
+      seed_lxd_profile ./tests/scripts/assets/lxd-preseed.yaml
+      if [[ $? -eq 0 ]]; then
+        echo "LXD profile seeding successful."
+        break
+      fi
+      echo "failed $i attempt, retrying in 5 seconds";
+      sleep 5s
+      i=$((i + 1));
+  done
+
+  if [[ $i -eq 20 ]]; then
+      echo "Timeout reached, failed to seed lxd profile."
+      exit -1
+  fi
+
+  juju bootstrap localhost lxd
+
+  chmod 600 ./tests/scripts/assets/id_rsa*
+}
+
 function wait_for_microceph_bootstrap() {
     # wait for install hook to trigger on one unit.
     juju wait-for unit microceph/0 --query='workload-message=="(install) (bootstrap) Service not bootstrapped"' --timeout=20m
@@ -275,9 +303,10 @@ function prepare_3_vms() {
 
   lxc ls
   vm_ips=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196")
+  stat -c "%a %n" ./tests/scripts/assets/*
   for vm_ip in $vm_ips; do
-    ssh -o "StrictHostKeyChecking=no" "ubuntu@$vm_ip" -f ls
-    juju add-machine "ssh:ubuntu@$vm_ip" --private-key ./tests/scripts/assets/id_rsa
+    ssh -o "StrictHostKeyChecking=no" "ubuntu@$vm_ip" -i ./tests/scripts/assets/id_rsa -f ls
+    juju add-machine "ssh:ubuntu@$vm_ip" --private-key ./tests/scripts/assets/id_rsa --public-key ./tests/scripts/assets/id_rsa.pub
     sleep 10s
   done
 }

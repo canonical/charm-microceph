@@ -652,11 +652,8 @@ jobs:
           # pin lxd since there were some recurring issues in recent releases.
           channel: 5.21/stable
 
-      - name: Seed preliminary LXD profile
-        run: ./tests/scripts/ci_helpers.sh seed_lxd_profile ./tests/scripts/assets/lxd-preseed.yaml
-
-      - name: Install dependencies
-        run: ./tests/scripts/ci_helpers.sh install_juju_simple
+      - name: Prepare Juju and LXD
+        run: ./tests/scripts/ci_helpers.sh prepare_environment
 
       - name: Configure Juju spaces
         run: |
@@ -673,11 +670,10 @@ jobs:
           set -eux
           date
           mv ~/artifacts/microceph.charm ./tests/scripts/assets/
-          juju deploy ./tests/scripts/assets/juju-spaces-bundle.yaml
+          juju deploy ./tests/scripts/assets/juju_spaces_bundle.yaml
           # wait for charm to bootstrap and OSD devices to enroll.
-          sleep 10m
           juju status
-          juju wait-for unit microceph/0 --query='workload-message=="(workload) charm is ready"' --timeout=20m
+          juju wait-for application microceph --query='name=="microceph" && (status=="active" || status=="idle")' --timeout=40m
           bash ./tests/scripts/ci_helpers.sh check_osd_count microceph/0 3
           date
 
