@@ -18,7 +18,6 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch
 
-import ops_sunbeam.guard as sunbeam_guard
 import ops_sunbeam.test_utils as test_utils
 from charms.ceph_mon.v0 import ceph_cos_agent
 from ops.testing import Harness
@@ -60,9 +59,6 @@ class _MicroCephCharm(charm.MicroCephCharm):
         super().__init__(framework)
 
     def configure_ceph(self, event):
-        # check if configure_ceph is called from unit tests.
-        if isinstance(event, MagicMock):
-            super().configure_ceph(event)
         return True
 
 
@@ -232,7 +228,7 @@ class TestCharm(test_utils.CharmTestCase):
 
         self.harness.set_leader()
         self.harness.update_config({"snap-channel": "1.0/stable", "enable-rgw": "*"})
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
@@ -294,7 +290,7 @@ class TestCharm(test_utils.CharmTestCase):
         self.harness.update_config(
             {"snap-channel": "1.0/stable", "enable-rgw": "*", "namespace-projects": True}
         )
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
@@ -357,7 +353,7 @@ class TestCharm(test_utils.CharmTestCase):
         self.harness.update_config(
             {"snap-channel": "1.0/stable", "enable-rgw": "*", "namespace-projects": True}
         )
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         subprocess.run.assert_any_call(
@@ -405,7 +401,7 @@ class TestCharm(test_utils.CharmTestCase):
     @patch("ceph.check_output")
     def test_add_osds_action_with_device_id(self, _chk, subprocess):
         """Test action add_osds."""
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
         self.harness._charm.peers.interface.state.joined = True
 
         action_event = MagicMock()
@@ -426,7 +422,7 @@ class TestCharm(test_utils.CharmTestCase):
     @patch("ceph.check_output")
     def test_add_osds_action_with_already_added_device_id(self, _chk, subprocess):
         """Test action add_osds."""
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
         self.harness._charm.peers.interface.state.joined = True
 
         disk = "/dev/sdb"
@@ -453,7 +449,7 @@ class TestCharm(test_utils.CharmTestCase):
     @patch("ceph.check_output")
     def test_add_osds_action_with_loop_spec(self, _chk, subprocess):
         """Test action add_osds with loop file spec."""
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
         self.harness._charm.peers.interface.state.joined = True
 
         action_event = MagicMock()
@@ -472,7 +468,7 @@ class TestCharm(test_utils.CharmTestCase):
 
     def test_add_osds_action_node_not_bootstrapped(self):
         """Test action add_osds when node not bootstrapped."""
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
 
         action_event = MagicMock()
         action_event.params = {"device-id": "/dev/sdb"}
@@ -491,7 +487,7 @@ class TestCharm(test_utils.CharmTestCase):
 
     def _test_list_disks_action(self, microceph_cmd_output, expected_disks):
         """Test action list_disks."""
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
         self.harness._charm.peers.interface.state.joined = True
 
         action_event = MagicMock()
@@ -502,7 +498,7 @@ class TestCharm(test_utils.CharmTestCase):
 
     def test_list_disks_action_node_not_bootstrapped(self):
         """Test action list_disks when node not bootstrapped."""
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
 
         action_event = MagicMock()
         self.harness.charm.storage._list_disks_action(action_event)
@@ -713,7 +709,7 @@ class TestCharm(test_utils.CharmTestCase):
 
     def test_get_rgw_endpoints_action_node_not_bootstrapped(self):
         """Test action get_rgw_endpoints when node not bootstrapped."""
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
 
         action_event = MagicMock()
         self.harness.charm.rgw._get_rgw_endpoints_action(action_event)
@@ -736,7 +732,7 @@ class TestCharm(test_utils.CharmTestCase):
         self.harness.update_config(
             {"snap-channel": "1.0/stable", "enable-rgw": "*", "namespace-projects": True}
         )
-        self.add_complete_peer_relation(self.harness)
+        test_utils.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
 
@@ -991,14 +987,6 @@ class TestCharm(test_utils.CharmTestCase):
             }
         )
         action_event.fail.assert_called()
-
-    @patch.object(microceph, "subprocess")
-    @patch("charm.microceph_client.Client")
-    def test_waiting_exception_raised(self, _client, _sub):
-        """Tests whether waiting exception is raised for waiting."""
-        with self.assertRaises(sunbeam_guard.WaitingExceptionError):
-            event = MagicMock()
-            self.harness.charm.configure_ceph(event)
 
     @patch("microceph.is_ready")
     @patch("microceph.enable_mgr_module")
