@@ -516,7 +516,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
             if error_socket_not_exists in e.stderr:
                 event.defer()
-                raise sunbeam_guard.WaitingExceptionError("waiting for microceph service")
+                return
 
             if error_already_exists not in e.stderr:
                 raise e
@@ -628,7 +628,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Configure Ceph."""
         if not self.ready_for_service():
             event.defer()
-            raise sunbeam_guard.WaitingExceptionError("waiting for microceph service")
+            return
 
         try:
             default_rf = self.model.config.get("default-pool-size")

@@ -77,24 +77,24 @@ class StorageHandler(Object):
 
     def _on_osd_standalone_attached(self, event: StorageAttachedEvent):
         """Storage attached handler for osd-standalone."""
+        if not self.charm.ready_for_service():
+            logger.warning("MicroCeph not ready yet, deferring storage event.")
+            event.defer()
+            return
+
+        self._clean_stale_osd_data()
+
+        enroll = []
+
+        logger.debug(f"storage on unit: {self._fetch_filtered_storages([self.standalone])}")
+
+        for storage in self._fetch_filtered_storages([self.standalone]):
+            logger.debug(f"Processing {storage}")
+            if not self._get_osd_id(name=storage):
+                enroll.append(storage)
+
+        logger.debug(f"Enroll list {enroll}")
         with sunbeam_guard.guard(self.charm, self.name):
-            if not self.charm.ready_for_service():
-                logger.warning("MicroCeph not ready yet, deferring storage event.")
-                event.defer()
-                raise sunbeam_guard.WaitingExceptionError("waiting for microceph service")
-
-            self._clean_stale_osd_data()
-
-            enroll = []
-
-            logger.debug(f"storage on unit: {self._fetch_filtered_storages([self.standalone])}")
-
-            for storage in self._fetch_filtered_storages([self.standalone]):
-                logger.debug(f"Processing {storage}")
-                if not self._get_osd_id(name=storage):
-                    enroll.append(storage)
-
-            logger.debug(f"Enroll list {enroll}")
             self.charm.status.set(MaintenanceStatus("Enrolling OSDs"))
             self._enroll_disks_in_batch(enroll)
             self.charm.status.set(ActiveStatus("charm is ready"))
