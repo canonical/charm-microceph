@@ -21,6 +21,10 @@ storage_pools:
   driver: dir
 profiles:
 - config:
+    cloud-init.user-data: |
+      #cloud-config
+      ssh_authorized_keys:
+        - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC4n4kUm9hHw/wrn3DNuvoRUY1MXGUNTEFw8bfOvsi0D1tKVWmSdJRXJMOt/Gf9GL0d3tBPD6Uyl9FnyJ1XS2Mfnhj+UnwWt6hznWiMeKAGe3Zk30YWN2EO1QorHSz3CNsTRnf18Wu4Pz2J1+Z4hdyzL52DNBYkh8k1aspVX1+6lcGN2l9LDW2IAAvlh0EQ57majEFyzu+/XVzRG+mbEH+ByvRGClj0N7rQs6PYPCLd5vbBkyeh3dQfWx/nzxZM1clFl59wUgCYoLtvQwQltmqlhGhaS3QVWiXX18DuPLZsefMWDRcfQknMsyRrxSluYdB/9TfEXxRitZdon1dKReFxO8lOaq7kq0mP2EbSmi+/nG7e4DF46CVBnajIfZOuJ+JuNu1undhNUNGi+DwaTJ/7IMuh0vVpIBWrsWgz/OVWSXAdlIelHsElhBfIOjs7G230z6KWjZOGs+Tyd0UpbVekcixMw1b0TyejZ2O0FTsYTLkNS3dQXOytJBiRk+7rMkM=
     cloud-init.network-config: |
       #cloud-config
       network:
