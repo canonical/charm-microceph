@@ -1,5 +1,5 @@
 output "charm_name" {
-  value = var.charm_name
+  value = var.app_name
 }
 
 output "s3_endpoints" {
