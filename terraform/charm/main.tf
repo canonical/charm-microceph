@@ -21,8 +21,9 @@ resource "juju_application" "microceph" {
 
 resource "null_resource" "juju_wait" {
   depends_on = [juju_application.microceph]
-
-  command = "juju wait-for model ${var.model} --query='forEach(units, unit => unit.workload-status==\"active\")' --timeout 60m --summary"
+  provisioner "local-exec" {
+    command = "juju wait-for model ${var.model} --query='forEach(units, unit => unit.workload-status==\"active\")' --timeout 60m --summary"
+  }
 }
 
 data "external" "s3_endpoints" {
