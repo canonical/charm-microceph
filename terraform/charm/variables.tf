@@ -16,6 +16,31 @@ variable "channel" {
   default     = "squid/beta"
 }
 
+variable "config" {
+  description = "Application config. Details about available options can be found at https://charmhub.io/ceph-radosgw/configurations."
+  type        = map(string)
+  default     = {}
+}
+
+variable "constraints" {
+  description = "Juju constraints to apply for this application."
+  type        = string
+  default     = "arch=amd64"
+}
+
+variable "endpoint_bindings" {
+  description = "Ednpoint bindings for juju spaces"
+  type = set(object({
+    space    = string
+    endpoint = optional(string, null)
+  }, {}))
+}
+
+variable "model" {
+  description = "Reference to a `juju_model`."
+  type        = string
+}
+
 variable "resources" {
   description = "Resources to use with the application."
   type        = map(string)
@@ -28,31 +53,14 @@ variable "revision" {
   default     = null
 }
 
-variable "units" {
-  description = "Number of units to deploy"
-  type        = number
-  default     = 1
-}
-
-variable "config" {
-  description = "Application config. Details about available options can be found at https://charmhub.io/ceph-radosgw/configurations."
-  type        = map(string)
-  default     = {}
-}
-
 variable "storage" {
   description = "Storage configuration for this application."
   type        = map(string)
   default     = {}
 }
 
-variable "constraints" {
-  description = "Juju constraints to apply for this application."
-  type        = string
-  default     = "arch=amd64"
-}
-
-variable "model" {
-  description = "Reference to a `juju_model`."
-  type        = string
+variable "units" {
+  description = "Number of units to deploy"
+  type        = number
+  default     = 1
 }
