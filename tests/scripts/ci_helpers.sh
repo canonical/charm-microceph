@@ -5,7 +5,7 @@ function check_osd_count() {
     local count="${2?missing}"
 
     echo $USER
-    for i in $(seq 1 20); do
+    for i in $(seq 1 50); do
       osd_count=$(juju exec --unit ${unit} -- microceph disk list --json | jq '.ConfiguredDisks | length')
       if [[ $osd_count -ne $count ]] ; then
           echo "Expected OSDs $count, Actual ${osd_count}. waiting..."
@@ -207,11 +207,11 @@ function remove_unit_wait() {
 
   juju remove-unit $unit_name --no-prompt
   # wait and check if the unit is still present.
-  for i in $(seq 1 40); do
+  for i in $(seq 1 50); do
     res=$( ( juju status | grep -cF "$unit_name" ) || true )
     if [[ $res -gt 0 ]] ; then
       echo -n '.'
-      sleep 5
+      sleep 10
     else
       echo "Unit removed successfully"
       break
@@ -317,8 +317,8 @@ function wait_for_vms() {
     # echo $vm
     start=$SECONDS
     until lxc exec "$vm" -- true &>/dev/null; do
-      (( SECONDS - start >= timeout )) && { 
-        echo "timeout waiting for agent on $vm"; return 1; 
+      (( SECONDS - start >= timeout )) && {
+        echo "timeout waiting for agent on $vm"; return 1;
       }
       sleep $interval
     done

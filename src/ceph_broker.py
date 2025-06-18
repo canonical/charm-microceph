@@ -1094,32 +1094,32 @@ def handle_create_cephfs_client(request, service):
     """
     fs_name = request.get("fs_name")
     client_id = request.get("client_id")
-    # TODO: fs allows setting write permissions for a list of paths.
     path = request.get("path")
     perms = request.get("perms")
+
     # Need all parameters
     if not fs_name or not client_id or not path or not perms:
         msg = "Missing fs_name, client_id, path or perms params"
         log(msg, level=ERROR)
         return {"exit-code": 1, "stderr": msg}
 
-    client = "client.{}".format(client_id)
-
     # Try to authorize the client.
-    # `ceph fs authorize` already returns the correct error
-    # message if the filesystem doesn't exist or if the client
-    # already exists.
+    # `ceph auth get-or-create` should correctly
+    # handle if the user already exists.
     try:
         cmd = [
             "microceph.ceph",
             "--id",
             service,
-            "fs",
-            "authorize",
-            fs_name,
-            client,
-            path,
-            perms,
+            "auth",
+            "get-or-create",
+            "client.{}".format(client_id),
+            "mds",
+            f"allow {perms} fsname={fs_name} path={path}",
+            "mon",
+            f"allow r fsname={fs_name}",
+            "osd",
+            f"allow {perms} tag cephfs data={fs_name}",
             "-f",
             "json",
         ]
