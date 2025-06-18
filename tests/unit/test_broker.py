@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import json
-import textwrap
 from unittest.mock import DEFAULT, MagicMock, patch
 
 import ops_sunbeam.test_utils as test_utils
@@ -204,37 +203,41 @@ class TestBroker(test_utils.CharmTestCase):
     @patch.object(broker, "check_output")
     @patch.object(broker, "log")
     def test_create_cephfs_client(self, mock_log, check_output):
+        client_entity_info = {
+            "entity": "client.fs-client",
+            "key": "fs-client-key",
+            "caps": {
+                "mds": "allow rw fsname=filesystem",
+                "mon": "allow r fsname=filesystem",
+                "osd": "allow rw tag cephfs data=filesystem",
+            },
+        }
+
         def mock_check_output(*args, **kwargs):
             cmd = args[0]
-            if cmd[:9] == [
+
+            if cmd[:14] == [
                 "microceph.ceph",
                 "--id",
                 "admin",
-                "fs",
-                "authorize",
-                "filesystem",
+                "auth",
+                "get-or-create",
                 "client.fs-client",
-                "/",
-                "rw",
+                "mds",
+                "allow rw fsname=filesystem path=/",
+                "mon",
+                "allow r fsname=filesystem",
+                "osd",
+                "allow rw tag cephfs data=filesystem",
+                "-f",
+                "json",
             ]:
-                return textwrap.dedent(
-                    """
-                [
-                    {
-                        "entity": "client.fs-client",
-                        "key": "fs-client-key",
-                        "caps": {
-                            "mds": "allow rw fsname=filesystem",
-                            "mon": "allow r fsname=filesystem",
-                            "osd": "allow rw tag cephfs data=filesystem"
-                        }
-                    }
-                ]
-                """
-                )
+                return json.dumps([client_entity_info])
+
             return DEFAULT
 
         check_output.side_effect = mock_check_output
+
         reqs = json.dumps(
             {
                 "api-version": 1,
@@ -248,7 +251,7 @@ class TestBroker(test_utils.CharmTestCase):
                         "perms": "rw",
                     }
                 ],
-            }
+            },
         )
         rc = json.loads(broker.process_requests(reqs))
         self.assertEqual(rc["exit-code"], 0)
