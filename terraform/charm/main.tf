@@ -26,6 +26,7 @@ resource "null_resource" "juju_wait" {
   }
 }
 
-data "external" "s3_endpoints" {
-  depends_on = [null_resource.juju_wait]
-}
+#WIP
+#data "external" "s3_endpoints" {
+#  depends_on = [null_resource.juju_wait]
+#}
