@@ -19,7 +19,7 @@ variable "microceph" {
     constraints = optional(string)
     resources   = optional(map(string))
     revision    = optional(string)
-    units       = optional(number)
+    units       = number
     endpoint_bindings = optional(set(object({
       space    = string
       endpoint = optional(string)
@@ -27,12 +27,8 @@ variable "microceph" {
   })
 
   default = {
-    app_name          = null
-    config            = {}
-    constraints       = null
-    resources         = {}
-    revision          = null
-    units             = 3
-    endpoint_bindings = []
+    base    = "24.04"
+    channel = "squid/stable"
+    units   = 3
   }
 }
