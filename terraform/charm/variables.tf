@@ -32,7 +32,7 @@ variable "endpoint_bindings" {
   description = "Ednpoint bindings for juju spaces"
   type = set(object({
     space    = string
-    endpoint = optional(string, null)
+    endpoint = optional(string)
   }))
   default = []
 }
