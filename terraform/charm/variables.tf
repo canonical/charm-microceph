@@ -33,7 +33,7 @@ variable "endpoint_bindings" {
   type = set(object({
     space    = string
     endpoint = optional(string, null)
-  }, {}))
+  }))
 }
 
 variable "model" {
