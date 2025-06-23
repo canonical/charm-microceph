@@ -19,6 +19,7 @@ variable "microceph" {
     constraints = optional(string)
     resources   = optional(map(string))
     revision    = optional(string)
+    storage     = optional(map(string))
     units       = number
     endpoint_bindings = optional(set(object({
       space    = string
