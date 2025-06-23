@@ -34,6 +34,7 @@ variable "endpoint_bindings" {
     space    = string
     endpoint = optional(string, null)
   }))
+  default = []
 }
 
 variable "model" {
