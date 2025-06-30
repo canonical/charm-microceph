@@ -9,7 +9,7 @@ pydantic<2
 cosl==0.0.55
 requests<2.32 # https://github.com/psf/requests/issues/6707 (similar issue with http+unix)
 git+https://opendev.org/openstack/sunbeam-charms#egg=ops-sunbeam&subdirectory=ops-sunbeam
-git+https://github.com/openstack/charms.ceph#egg=charms_ceph
+git+https://github.com/canonical/ceph-charms#egg=charms_ceph&subdirectory=charms.ceph
 
 # Used for communication with snapd socket
 requests-unixsocket # Apache 2
