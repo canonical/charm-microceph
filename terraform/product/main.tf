@@ -12,3 +12,14 @@ module "microceph" {
   units             = var.microceph.units
   model             = var.model
 }
+
+resource "null_resource" "deployment_time" {
+  triggers = {
+    timestamp   = timestamp()
+    ceph_config = var.microceph
+  }
+
+  lifecycle {
+    ignore_changes = [triggers.timestamp]
+  }
+}
