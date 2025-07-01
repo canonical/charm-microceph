@@ -22,11 +22,21 @@ resource "juju_application" "microceph" {
 resource "null_resource" "juju_wait" {
   depends_on = [juju_application.microceph]
   provisioner "local-exec" {
-    command = "juju wait-for model ${var.model} --query='forEach(units, unit => unit.workload-status==\"active\")' --timeout 60m --summary"
+    cmd = "juju wait-for model ${var.model} --query='forEach(units, unit => unit.workload-status==\"active\")' --timeout 60m --summary"
   }
 }
 
-#WIP
-#data "external" "s3_endpoints" {
-#  depends_on = [null_resource.juju_wait]
-#}
+resource "null_resource" "add_osds" {
+  depends_on = [null_resource.juju_wait]
+  provisioner "local-exec" {
+    cmd = "./add_osds"
+  }
+}
+
+
+data "external" "s3_endpoints" {
+  depends_on = [null_resource.juju_wait]
+  provisioner "local-exec" {
+    cmd = "./get_s3_endpoints.sh"
+  }
+}

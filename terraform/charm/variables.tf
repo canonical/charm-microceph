@@ -6,7 +6,7 @@ variable "app_name" {
 
 variable "base" {
   description = "Ubuntu bases to deploy the charm onto"
-  type        = string
+  type        = optional(string)
   default     = "ubuntu@24.04"
 }
 
@@ -29,10 +29,10 @@ variable "constraints" {
 }
 
 variable "endpoint_bindings" {
-  description = "Ednpoint bindings for juju spaces"
+  description = "Endpoint bindings for juju spaces"
   type = set(object({
     space    = string
-    endpoint = optional(string)
+    endpoint = optional(map(string))
   }))
   default = []
 }
@@ -40,6 +40,11 @@ variable "endpoint_bindings" {
 variable "model" {
   description = "Reference to a `juju_model`."
   type        = string
+}
+
+variable "machines" {
+  description = "List of juju_machine resources to use for deployment"
+  type        = set(tring)
 }
 
 variable "resources" {
