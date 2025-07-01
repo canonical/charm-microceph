@@ -21,7 +21,7 @@ variable "microceph" {
     revision    = optional(string)
     storage     = optional(map(string))
     units       = number
-    endpoint_bindings = optional(map(string))
+    endpoint_bindings = optional(set(string))
   })
 
   default = {
