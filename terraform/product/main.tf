@@ -10,7 +10,7 @@ module "microceph" {
   revision          = var.microceph.revision
   storage           = var.microceph.storage
   units             = var.microceph.units
-  model             = var.model
+  model             = var.model_name
 }
 
 resource "null_resource" "deployment_time" {
