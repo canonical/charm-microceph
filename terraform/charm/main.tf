@@ -29,12 +29,12 @@ resource "null_resource" "juju_wait" {
 resource "null_resource" "add_osds" {
   depends_on = [null_resource.juju_wait]
   provisioner "local-exec" {
-    command = "./add_osds"
+    command = "${path.module}/add_osds"
   }
 }
 
 
 data "external" "s3_endpoints" {
   depends_on = [null_resource.juju_wait]
-  program    = ["./get_s3_endpoints.sh"]
+  program    = ["${path.module}/get_s3_endpoints.sh"]
 }
