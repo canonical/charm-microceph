@@ -16,7 +16,7 @@ module "microceph" {
 resource "null_resource" "deployment_time" {
   triggers = {
     timestamp   = timestamp()
-    ceph_config = var.microceph
+    ceph_config = jsonencode(var.microceph)
   }
 
   lifecycle {
