@@ -29,10 +29,10 @@ variable "constraints" {
 
 variable "endpoint_bindings" {
   description = "Endpoint bindings for juju spaces"
-  type = optional(set(object({
+  type = set(object({
     space    = string
     endpoint = optional(string)
-  })))
+  }))
   default = []
 }
 
