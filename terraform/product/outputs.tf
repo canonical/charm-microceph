@@ -11,7 +11,7 @@ output "provides" {
 }
 
 output "model_info" {
-  valude = {
+  value = {
     model_name = var.model_name
   }
 }
