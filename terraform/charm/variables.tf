@@ -6,8 +6,7 @@ variable "app_name" {
 
 variable "base" {
   description = "Ubuntu bases to deploy the charm onto"
-  type        = optional(string)
-  default     = "ubuntu@24.04"
+  type        = string
 }
 
 variable "channel" {
