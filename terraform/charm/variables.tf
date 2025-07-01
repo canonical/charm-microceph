@@ -29,7 +29,7 @@ variable "constraints" {
 
 variable "endpoint_bindings" {
   description = "Endpoint bindings for juju spaces"
-  endpoint_bindings = optional(set(object({
+  type = optional(set(object({
     space    = string
     endpoint = optional(string)
   })))
