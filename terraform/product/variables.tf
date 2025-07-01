@@ -1,4 +1,4 @@
-variable "model" {
+variable "model_name" {
   description = "Reference to a `juju_model`."
   type        = string
 }
@@ -21,10 +21,7 @@ variable "microceph" {
     revision    = optional(string)
     storage     = optional(map(string))
     units       = number
-    endpoint_bindings = optional(set(object({
-      space    = string
-      endpoint = optional(string)
-    })))
+    endpoint_bindings = optional(map(string))
   })
 
   default = {
