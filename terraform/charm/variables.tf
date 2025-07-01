@@ -44,7 +44,7 @@ variable "model" {
 
 variable "machines" {
   description = "List of juju_machine resources to use for deployment"
-  type        = set(tring)
+  type        = set(string)
 }
 
 variable "resources" {
