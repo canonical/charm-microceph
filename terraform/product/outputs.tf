@@ -6,7 +6,7 @@ output "charms" {
 
 output "provides" {
   value = {
-    sass = module.microceph.juju_offer.ceph
+    sass = module.microceph.outputs.provides
   }
 }
 
