@@ -74,6 +74,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         super().__init__(framework)
 
         # Initialise Modules.
+        self.payload = snap.SnapCache()["microceph"]
         self.storage = StorageHandler(self)
         self.cluster_nodes = cluster.ClusterNodes(self)
         self.cluster_upgrades = cluster.ClusterUpgrades(self)
@@ -94,27 +95,13 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def _on_install(self, event: ops.framework.EventBase) -> None:
         config = self.model.config.get
-        cmd = [
-            "snap",
-            "install",
-            "microceph",
-            "--channel",
-            config("snap-channel"),
-        ]
-
-        logger.debug(f'Running command {" ".join(cmd)}')
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=900)
-        logger.debug(f"Command finished. stdout={process.stdout}, " f"stderr={process.stderr}")
-
-        cmd = ["sudo", "snap", "alias", "microceph.ceph", "ceph"]
-        logger.debug(f'Running command {" ".join(cmd)}')
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=180)
-        logger.debug(f"Command finished. stdout={process.stdout}, " f"stderr={process.stderr}")
 
         try:
-            snap.SnapCache()["microceph"].hold()
-        except Exception:
-            logger.exception("Failed to hold microceph refresh: ")
+            self.payload.ensure(snap.SnapState.Present, channel=config("snap-channel"))
+            self.payload.alias("ceph", "ceph")
+            self.payload.hold()
+        except Exception as e:
+            logger.exception("Failed to install microceph snap: %s", str(e))
 
         self.channel = self.model.config.get("snap-channel")
 
@@ -123,10 +110,14 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         try:
             microceph.remove_cluster_member(gethostname(), is_force=True)
         except subprocess.CalledProcessError as e:
+            last_unit_error = "Cannot leave a cluster with 1 members"
             # NOTE: Depending upon the state of the cluster, forcefully removing
-            # a host may result in errors even if the request was successful.
-            if microceph.is_cluster_member(gethostname()):
+            # a host may result in errors even if the request was successful. Also,
+            # microcluster does not allow the last cluster unit to remove itself.
+            if microceph.is_cluster_member(gethostname()) and last_unit_error not in e.stderr:
                 raise e
+        finally:
+            self.payload.ensure(snap.SnapState.Absent)
 
     def _on_peer_relation_created(self, event: ops.framework.EventBase) -> None:
         logging.debug(f"Peer relation created: {event}")
