@@ -36,7 +36,5 @@ resource "null_resource" "add_osds" {
 
 data "external" "s3_endpoints" {
   depends_on = [null_resource.juju_wait]
-  provisioner "local-exec" {
-    command = "./get_s3_endpoints.sh"
-  }
+  program    = ["./get_s3_endpoints.sh"]
 }
