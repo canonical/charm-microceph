@@ -199,6 +199,12 @@ jobs:
             exit 1
           fi
 
+      - name: Remove remaining units
+        run: |
+          set -x
+          ./tests/scripts/ci_helpers.sh remove_unit_wait "microceph/1"
+          ./tests/scripts/ci_helpers.sh remove_unit_wait "microceph/0"
+
       - name: Collect logs
         if: failure()
         run: ./tests/scripts/ci_helpers.sh collect_microceph_logs
