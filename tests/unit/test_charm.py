@@ -102,6 +102,7 @@ class TestCharm(testbase.TestBaseCharm):
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
+        self.add_ceph_nfs_relation(self.harness)
 
         subprocess.run.assert_any_call(
             [
@@ -143,6 +144,7 @@ class TestCharm(testbase.TestBaseCharm):
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
+        self.add_ceph_nfs_relation(self.harness)
 
         subprocess.run.assert_any_call(
             [
@@ -205,6 +207,7 @@ class TestCharm(testbase.TestBaseCharm):
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
+        self.add_ceph_nfs_relation(self.harness)
 
         subprocess.run.assert_any_call(
             [

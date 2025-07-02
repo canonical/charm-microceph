@@ -33,9 +33,9 @@ from ops_sunbeam.relation_handlers import BasePeerHandler, RelationHandler
 
 import microceph
 from ceph import get_osd_count
-from ceph_broker import Capabilities
+from ceph_broker import Capabilities, get_named_key
 from ceph_broker import is_leader as is_ceph_mon_leader
-from ceph_broker import process_requests
+from ceph_broker import process_requests, remove_named_key
 from microceph_client import Client
 
 logger = logging.getLogger(__name__)
@@ -619,12 +619,7 @@ class CephClientProvides(Object):
         if not self.model.unit.is_leader():
             return
         mon_key = "ceph-mon-public-addresses"
-        client = Client.from_socket()
-        try:
-            addrs = client.cluster.get_mon_addresses()
-        except requests.HTTPError:
-            logger.debug("Mon api call failed, fall back to legacy method")
-            addrs = microceph.get_mon_public_addresses()
+        addrs = _get_mon_addresses()
 
         for relation in self.framework.model.relations[self.relation_name]:
             relation.data[self.model.app][mon_key] = json.dumps(addrs)
@@ -742,16 +737,9 @@ class CephRadosGWProviderHandler(CephClientProviderHandler):
         self.key_name = relation.data[unit]["key_name"]
         return self.key_name, caps
 
-    @staticmethod
-    def _get_fsid():
-        with open("/var/snap/microceph/current/conf/ceph.conf", "r") as f:
-            for line in f:
-                if line.startswith("fsid") and "=" in line:
-                    return line.split("=")[1].strip()
-
     def update_broker_data(self, data, event):
         """For RadosGW, we want to change the key name and set the FSID."""
-        data["fsid"] = self._get_fsid()
+        data["fsid"] = _get_fsid()
         data[self.key_name + "_key"] = data.pop("key")
 
 
@@ -788,14 +776,283 @@ class CephMdsProviderHandler(CephClientProviderHandler):
         self.mds_name = relation.data[unit]["mds-name"]
         return self.mds_name, caps
 
-    @staticmethod
-    def _get_fsid():
-        with open("/var/snap/microceph/current/conf/ceph.conf", "r") as f:
-            for line in f:
-                if line.startswith("fsid") and "=" in line:
-                    return line.split("=")[1].strip()
-
     def update_broker_data(self, data, event):
         """For ceph-mds, we want to change the key name and set the FSID."""
-        data["fsid"] = self._get_fsid()
+        data["fsid"] = _get_fsid()
         data[self.mds_name + "_mds_key"] = data.pop("key")
+
+
+class CephNfsConnectedEvent(RelationEvent):
+    """ceph-nfs connected event."""
+
+    pass
+
+
+class CephNfsGoneAwayEvent(RelationEvent):
+    """ceph-nfs relation has gone-away event."""
+
+    pass
+
+
+class CephNfsReconcileEvent(RelationEvent):
+    """ceph-nfs relation reconciliation event."""
+
+    pass
+
+
+class CephNfsEvents(ObjectEvents):
+    """Events class for `on`."""
+
+    ceph_nfs_connected = EventSource(CephNfsConnectedEvent)
+    ceph_nfs_goneaway = EventSource(CephNfsGoneAwayEvent)
+    ceph_nfs_reconcile = EventSource(CephNfsReconcileEvent)
+
+
+class CephNfsClientProvides(Object):
+    """Interface for ceph-nfs-client provider."""
+
+    on = CephNfsEvents()
+
+    def __init__(self, charm, relation_name="ceph-nfs"):
+        super().__init__(charm, relation_name)
+
+        self.charm = charm
+        self.this_unit = self.model.unit
+        self.relation_name = relation_name
+
+        # React to ceph-nfs relations.
+        self.framework.observe(
+            charm.on[self.relation_name].relation_joined, self._on_relation_changed
+        )
+        self.framework.observe(
+            charm.on[self.relation_name].relation_changed, self._on_relation_changed
+        )
+        self.framework.observe(
+            charm.on[self.relation_name].relation_departed, self._on_relation_departed
+        )
+
+        # React to ceph peers relations.
+        self.framework.observe(charm.on["peers"].relation_departed, self._on_ceph_peers)
+        self.framework.observe(charm.on["peers"].relation_changed, self._on_ceph_peers)
+
+    def _on_relation_changed(self, event):
+        """Prepare relation for data from requiring side."""
+        if not self.model.unit.is_leader():
+            return
+
+        logger.info("_on_relation_changed event")
+
+        if not self.charm.ready_for_service():
+            logger.info("Not processing request as service is not yet ready")
+            event.defer()
+            return
+
+        if get_osd_count() == 0:
+            logger.info("Storage not available, deferring event.")
+            event.defer()
+            return
+
+        self.on.ceph_nfs_connected.emit(event.relation)
+
+    def _on_relation_departed(self, event):
+        """Cleanup relation after departure."""
+        if not self.model.unit.is_leader():
+            return
+
+        logger.info("_on_relation_departed event")
+        self.on.ceph_nfs_goneaway.emit(event.relation)
+
+    def _on_ceph_peers(self, event):
+        """Handle ceph peers relation events."""
+        # Mon addrs might have changed, update the relation data.
+        # Additionally, new nodes may have been added, which could be added to
+        # NFS clusters.
+        if not self.model.unit.is_leader():
+            return
+
+        monkey = "mon-hosts"
+        addrs = _get_mon_addresses()
+
+        for relation in self.framework.model.relations[self.relation_name]:
+            relation.data[self.model.app][monkey] = json.dumps(addrs)
+
+            # New nodes may have been added, add them to NFS clusters as
+            # needed.
+            self.on.ceph_nfs_reconcile.emit(relation)
+
+
+class CephNfsProviderHandler(RelationHandler):
+    """Handler for the ceph-nfs relation."""
+
+    def __init__(
+        self,
+        charm: CharmBase,
+        relation_name: str,
+        callback_f: Callable,
+    ):
+        super().__init__(charm, relation_name, callback_f)
+
+    def setup_event_handler(self) -> Object:
+        """Configure event handlers for an ceph-nfs-client interface."""
+        logger.debug("Setting up ceph-nfs-client event handler")
+
+        ceph_nfs = CephNfsClientProvides(
+            self.charm,
+            self.relation_name,
+        )
+        self.framework.observe(ceph_nfs.on.ceph_nfs_reconcile, self._on_ceph_nfs_reconcile)
+        self.framework.observe(ceph_nfs.on.ceph_nfs_connected, self._on_ceph_nfs_connected)
+        self.framework.observe(ceph_nfs.on.ceph_nfs_goneaway, self._on_ceph_nfs_goneaway)
+
+        return ceph_nfs
+
+    def _cluster_id(self, relation) -> str:
+        return relation.app.name
+
+    def _on_ceph_nfs_reconcile(self, event: EventBase) -> None:
+        self._on_ceph_nfs_connected(event)
+
+    def _on_ceph_nfs_connected(self, event: EventBase) -> None:
+        if not self.model.unit.is_leader():
+            return
+
+        logger.info("Processing ceph-nfs connected")
+        if not self._service_relation(event.relation):
+            logger.error("An error occurred while handling the ceph-nfs relation, deferring.")
+            event.defer()
+
+    def _service_relation(self, relation) -> bool:
+        cluster_id = self._cluster_id(relation)
+        if not self._ensure_nfs_cluster(cluster_id):
+            logger.error("Could not create the NFS Cluster '%s'", cluster_id)
+            return False
+
+        volume_name = f"{cluster_id}-vol"
+        microceph.create_fs_volume(volume_name)
+
+        client_name = f"client.{relation.app.name}"
+        caps = {"mon": ["allow r"], "mgr": ["allow rw"]}
+        client_key = get_named_key(client_name, caps)
+        addrs = _get_mon_addresses()
+
+        relation_data = relation.data[self.model.app]
+        relation_data.update(
+            {
+                "fsid": _get_fsid(),
+                "mon-hosts": json.dumps(addrs),
+                "keyring": client_key,
+                "volume": volume_name,
+                "client": client_name,
+                "cluster-id": cluster_id,
+            }
+        )
+
+        return True
+
+    def _ensure_nfs_cluster(self, cluster_id) -> bool:
+        client = Client.from_socket()
+        services = client.cluster.list_services()
+
+        nfs_service_name = f"nfs.{cluster_id}"
+        nfs_services = [s for s in services if s["service"] == nfs_service_name]
+
+        nodes_in_cluster = len(nfs_services)
+        if nodes_in_cluster >= 3:
+            # We're only adding up to 3 nodes in the cluster.
+            logger.info(
+                "NFS Cluster '%s' already exists, and there are >= 3 nodes in it.", cluster_id
+            )
+            return True
+
+        # Find potential candidates for the NFS cluster. We can only enable
+        # NFS once per host.
+        all_nfs_services = [s for s in services if "nfs" in s["service"]]
+        exclude_hosts = [s["location"] for s in all_nfs_services]
+
+        all_hosts = set([s["location"] for s in services])
+        candidates = [h for h in all_hosts if h not in exclude_hosts]
+
+        for candidate in candidates:
+            try:
+                microceph.enable_nfs(candidate, cluster_id)
+
+                nodes_in_cluster += 1
+                if nodes_in_cluster == 3:
+                    break
+            except Exception as ex:
+                logger.error(
+                    "Could not enable nfs (cluster_id '%s') on host '%s': %s",
+                    cluster_id,
+                    candidate,
+                    ex,
+                )
+
+        if nodes_in_cluster == 0:
+            logger.error("Could not create NFS Cluster '%s' on any host", cluster_id)
+            return False
+
+        if nodes_in_cluster < 3:
+            logger.warning(
+                "NFS cluster '%s' is enabled only on %d / 3 nodes.", cluster_id, nodes_in_cluster
+            )
+            return True
+
+        logger.info("NFS cluster '%s' is enabled on 3 / 3 nodes.", cluster_id)
+        return True
+
+    def _on_ceph_nfs_goneaway(self, event: EventBase) -> None:
+        if not self.model.unit.is_leader():
+            return
+
+        logger.info("Processing ceph-nfs goneaway")
+
+        cluster_id = self._cluster_id(event.relation)
+        self._remove_nfs_cluster(cluster_id)
+
+        client_name = f"client.{event.relation.app.name}"
+        remove_named_key(client_name)
+
+        # Because a relation departed, that means the nodes associated with it
+        # are now free, which means that we can allocate them to the other NFS
+        # clusters as needed.
+        other_relations = [
+            r for r in self.model.relations[self.relation_name] if r != event.relation
+        ]
+        for relation in other_relations:
+            self._service_relation(relation)
+
+    def _remove_nfs_cluster(self, cluster_id):
+        client = Client.from_socket()
+        services = client.cluster.list_services()
+
+        nfs_service_name = f"nfs.{cluster_id}"
+        nfs_services = [s for s in services if s["service"] == nfs_service_name]
+
+        for service in nfs_services:
+            host = service["location"]
+            try:
+                microceph.disable_nfs(host, cluster_id)
+            except Exception as ex:
+                logger.error(
+                    "Could not disable nfs (cluster_id '%s') on host '%s': %s",
+                    cluster_id,
+                    host,
+                    ex,
+                )
+                raise
+
+
+def _get_mon_addresses():
+    client = Client.from_socket()
+    try:
+        return client.cluster.get_mon_addresses()
+    except requests.HTTPError:
+        logger.debug("Mon api call failed, fall back to legacy method")
+        return microceph.get_mon_public_addresses()
+
+
+def _get_fsid():
+    with open("/var/snap/microceph/current/conf/ceph.conf", "r") as f:
+        for line in f:
+            if line.startswith("fsid") and "=" in line:
+                return line.split("=")[1].strip()
