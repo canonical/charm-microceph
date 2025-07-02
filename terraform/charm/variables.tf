@@ -82,13 +82,14 @@ variable "osd_disks" {
 
 variable "radosgw_user" {
   type = object({
-    user_id  = string
+    user_id      = string
     display_name = string
   })
   description = "Name of the radosgw user"
 }
 
 variable "s3_buckets" {
-  type        = string
-  description = "comma seperated values of bucket names to create"
+  type        = set(string)
+  description = "set of bucket names to create"
+  default     = []
 }

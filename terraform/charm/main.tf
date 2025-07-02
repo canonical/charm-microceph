@@ -29,19 +29,48 @@ resource "null_resource" "juju_wait" {
 resource "null_resource" "add_osds" {
   depends_on = [null_resource.juju_wait]
   provisioner "local-exec" {
-    command = "${path.module}/add_osds ${var.osd_disks.path} ${var.osd_disks.loop_spec}"
+    command = "${path.module}/add_osds.py ${var.osd_disks.path} ${var.osd_disks.loop_spec}"
+  }
+}
+
+
+resource "null_resource" "install_s3cmd" {
+  depends_on = [null_resource.add_osds]
+  provisioner "local-exec" {
+    command = "{path.module}/install_s3cmd.sh"
+  }
+
+  triggers = {
+    always_run = "deploy_once"
+  }
+}
+data "external" "s3_endpoints" {
+  depends_on = [null_resource.add_osds]
+  program    = ["${path.module}/get_s3_endpoints.sh"]
+
+  query = {
+    app_name = var.app_name
   }
 }
 
 data "external" "s3_user" {
   depends_on = [null_resource.add_osds]
-  program    = ["${path.module}/create_s3_user.sh"]
+  program    = ["bash", "${path.module}/create_s3_user.sh"]
+
+  query = {
+    user_id      = var.s3_user.user_id
+    display_name = var.s3_user.display_name
+  }
 }
 resource "null_resource" "s3_buckets" {
+  for_each   = var.s3_buckets
   depends_on = [data.external.s3_user]
-  provisioner
-}
-data "external" "s3_endpoints" {
-  depends_on = [null_resource.juju_wait]
-  program    = ["${path.module}/get_s3_endpoints.sh"]
+  environmet = {
+    S3_ACCESS_KEY  = locals.access_key
+    S3_SECRETS_KEY = locals.secrets_key
+    ENDPOINT       = locals.endpoint
+  }
+  provisioner "local-exec" {
+
+  }
 }

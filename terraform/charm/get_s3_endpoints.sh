@@ -1,3 +1,4 @@
 #!/bin/bash
 set -euo pipefail
-exit 1
+APP=$1
+juju status "${APP}"/leader --format=json | jq -r '"{endpoint: \"" + (.applications | .[].units | .[] | .["public-address"] // .address) + "\"}"'
