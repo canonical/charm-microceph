@@ -29,11 +29,18 @@ resource "null_resource" "juju_wait" {
 resource "null_resource" "add_osds" {
   depends_on = [null_resource.juju_wait]
   provisioner "local-exec" {
-    command = "${path.module}/add_osds"
+    command = "${path.module}/add_osds ${var.osd_disks.path} ${var.osd_disks.loop_spec}"
   }
 }
 
-
+data "external" "s3_user" {
+  depends_on = [null_resource.add_osds]
+  program    = ["${path.module}/create_s3_user.sh"]
+}
+resource "null_resource" "s3_buckets" {
+  depends_on = [data.external.s3_user]
+  provisioner
+}
 data "external" "s3_endpoints" {
   depends_on = [null_resource.juju_wait]
   program    = ["${path.module}/get_s3_endpoints.sh"]

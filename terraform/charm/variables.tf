@@ -70,3 +70,22 @@ variable "units" {
   type        = number
   default     = 1
 }
+
+variable "osd_disks" {
+  type = object({
+    path      = string
+    loop_spec = string
+  })
+
+  default = null
+}
+
+variable "radosgw_user" {
+  type        = string
+  description = "Name of the radosgw user"
+}
+
+variable "s3_buckets" {
+  type        = string
+  description = "comma seperated values of bucket names to create"
+}
