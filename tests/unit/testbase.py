@@ -94,11 +94,10 @@ class TestBaseCharm(test_utils.CharmTestCase):
             app_data={"external_host": "dummy-ip", "scheme": "http"},
         )
 
-    def add_complete_peer_relation(self, harness: Harness) -> None:
+    def add_complete_peer_relation(self, harness: Harness, unit_data=None) -> None:
         """Add complete peer relation data."""
-        rel_id = harness.add_relation(
-            "peers", harness.charm.app.name, unit_data={"public-address": "dummy-ip"}
-        )
+        unit_data = unit_data or {"public-address": "dummy-ip"}
+        rel_id = harness.add_relation("peers", harness.charm.app.name, unit_data=unit_data)
         return rel_id
 
     def add_complete_certificate_transfer_relation(self, harness: Harness) -> None:
@@ -108,3 +107,11 @@ class TestBaseCharm(test_utils.CharmTestCase):
     def add_cos_agent_integration(self, harness: Harness) -> None:
         """Add cos agent integration."""
         harness.add_relation("cos-agent", harness.charm.app.name)
+
+    def add_ceph_nfs_relation(self, harness: Harness, app_name="manila-cephfs") -> int:
+        """Add ceph-nfs-client relation."""
+        return harness.add_relation("ceph-nfs", app_name, unit_data={"foo": "lish"})
+
+    def add_unit(self, harness: Harness, rel_id: int, unit_name: str, unit_data={}) -> None:
+        harness.add_relation_unit(rel_id, unit_name)
+        harness.update_relation_data(rel_id, unit_name, unit_data)

@@ -171,3 +171,44 @@ class TestMicroCeph(unittest.TestCase):
         run_cmd.assert_called_with(
             cmd=["microceph", "cluster", "join", "token", "--microceph-ip", "10.10.10.10"]
         )
+
+    @patch("utils.run_cmd")
+    def test_enable_nfs(self, run_cmd):
+        microceph.enable_nfs("foo", "lish", "addr")
+
+        run_cmd.assert_called_once_with(
+            [
+                "microceph",
+                "enable",
+                "nfs",
+                "--target",
+                "foo",
+                "--cluster-id",
+                "lish",
+                "--bind-address",
+                "addr",
+            ]
+        )
+
+    @patch("utils.run_cmd")
+    def test_disable_nfs(self, run_cmd):
+        microceph.disable_nfs("foo", "lish")
+
+        run_cmd.assert_called_once_with(
+            ["microceph", "disable", "nfs", "--target", "foo", "--cluster-id", "lish"]
+        )
+
+    @patch("utils.run_cmd")
+    def test_microceph_has_service(self, run_cmd):
+        output = """Service                  Startup   Current   Notes
+        microceph.nfs            enabled   active    -
+        """
+        run_cmd.return_value = output
+
+        result = microceph.microceph_has_service("foo")
+
+        self.assertFalse(result)
+        run_cmd.assert_called_once_with(["snap", "services", "microceph"])
+
+        result = microceph.microceph_has_service("nfs")
+        self.assertTrue(result)

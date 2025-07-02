@@ -102,6 +102,7 @@ class TestCharm(testbase.TestBaseCharm):
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
+        self.add_ceph_nfs_relation(self.harness)
 
         subprocess.run.assert_any_call(
             [
@@ -125,7 +126,7 @@ class TestCharm(testbase.TestBaseCharm):
         cclient.from_socket().cluster.update_config.assert_not_called()
 
     @patch.object(ceph_cos_agent, "ceph_utils")
-    @patch("relation_handlers.Client", MagicMock())
+    @patch("utils.Client", MagicMock())
     @patch.object(microceph, "Client")
     @patch("utils.subprocess")
     @patch.object(Path, "chmod")
@@ -143,6 +144,7 @@ class TestCharm(testbase.TestBaseCharm):
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
+        self.add_ceph_nfs_relation(self.harness)
 
         subprocess.run.assert_any_call(
             [
@@ -185,7 +187,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
 
     @patch.object(ceph_cos_agent, "ceph_utils")
-    @patch("relation_handlers.Client", MagicMock())
+    @patch("utils.Client", MagicMock())
     @patch.object(microceph, "Client")
     @patch("utils.subprocess")
     @patch.object(Path, "chmod")
@@ -205,6 +207,7 @@ class TestCharm(testbase.TestBaseCharm):
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
+        self.add_ceph_nfs_relation(self.harness)
 
         subprocess.run.assert_any_call(
             [
@@ -248,7 +251,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
 
     @patch.object(ceph_cos_agent, "ceph_utils")
-    @patch("relation_handlers.Client", MagicMock())
+    @patch("utils.Client", MagicMock())
     @patch.object(microceph, "Client")
     @patch("utils.subprocess")
     @patch.object(Path, "chmod")
@@ -630,7 +633,7 @@ class TestCharm(testbase.TestBaseCharm):
         action_event.fail.assert_called()
 
     @patch.object(ceph_cos_agent, "ceph_utils")
-    @patch("relation_handlers.Client", MagicMock())
+    @patch("utils.Client", MagicMock())
     @patch.object(microceph, "Client")
     @patch("utils.subprocess")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")

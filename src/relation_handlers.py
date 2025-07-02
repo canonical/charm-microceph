@@ -25,17 +25,15 @@ from socket import gethostname
 from typing import Callable, Dict, List, Optional, Tuple
 
 import ops
-import requests
 from ops.charm import CharmBase, RelationEvent
 from ops.framework import EventBase, EventSource, Handle, Object, ObjectEvents, StoredState
 from ops_sunbeam.interfaces import OperatorPeers
 from ops_sunbeam.relation_handlers import BasePeerHandler, RelationHandler
 
-import microceph
+import utils
 from ceph import Capabilities, get_osd_count
 from ceph import is_leader as is_ceph_mon_leader
 from ceph_broker import process_requests
-from microceph_client import Client
 
 logger = logging.getLogger(__name__)
 
@@ -618,12 +616,7 @@ class CephClientProvides(Object):
         if not self.model.unit.is_leader():
             return
         mon_key = "ceph-mon-public-addresses"
-        client = Client.from_socket()
-        try:
-            addrs = client.cluster.get_mon_addresses()
-        except requests.HTTPError:
-            logger.debug("Mon api call failed, fall back to legacy method")
-            addrs = microceph.get_mon_public_addresses()
+        addrs = utils.get_mon_addresses()
 
         for relation in self.framework.model.relations[self.relation_name]:
             relation.data[self.model.app][mon_key] = json.dumps(addrs)
@@ -741,16 +734,9 @@ class CephRadosGWProviderHandler(CephClientProviderHandler):
         self.key_name = relation.data[unit]["key_name"]
         return self.key_name, caps
 
-    @staticmethod
-    def _get_fsid():
-        with open("/var/snap/microceph/current/conf/ceph.conf", "r") as f:
-            for line in f:
-                if line.startswith("fsid") and "=" in line:
-                    return line.split("=")[1].strip()
-
     def update_broker_data(self, data, event):
         """For RadosGW, we want to change the key name and set the FSID."""
-        data["fsid"] = self._get_fsid()
+        data["fsid"] = utils.get_fsid()
         data[self.key_name + "_key"] = data.pop("key")
 
 
@@ -787,14 +773,7 @@ class CephMdsProviderHandler(CephClientProviderHandler):
         self.mds_name = relation.data[unit]["mds-name"]
         return self.mds_name, caps
 
-    @staticmethod
-    def _get_fsid():
-        with open("/var/snap/microceph/current/conf/ceph.conf", "r") as f:
-            for line in f:
-                if line.startswith("fsid") and "=" in line:
-                    return line.split("=")[1].strip()
-
     def update_broker_data(self, data, event):
         """For ceph-mds, we want to change the key name and set the FSID."""
-        data["fsid"] = self._get_fsid()
+        data["fsid"] = utils.get_fsid()
         data[self.mds_name + "_mds_key"] = data.pop("key")

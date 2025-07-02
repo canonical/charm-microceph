@@ -41,6 +41,7 @@ import cluster
 import maintenance
 import microceph
 import microceph_client
+from ceph_nfs import CephNfsProviderHandler
 from microceph_client import ClusterServiceUnavailableException
 from radosgw import RadosGWHandler
 from relation_handlers import (
@@ -347,6 +348,12 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             self.radosgw = CephRadosGWProviderHandler(self, self.handle_ceph)
         if self.can_add_handler("mds", handlers):
             self.mds = CephMdsProviderHandler(self, self.handle_ceph)
+        if self.can_add_handler("ceph-nfs", handlers):
+            self.ceph_nfs = CephNfsProviderHandler(
+                self,
+                "ceph-nfs",
+                self.handle_ceph_nfs,
+            )
         if self.can_add_handler("traefik-route-rgw", handlers):
             self.traefik_route_rgw = sunbeam_rhandlers.TraefikRouteHandler(
                 self,
@@ -410,6 +417,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def handle_ceph(self, event) -> None:
         """Callback for interface ceph."""
         logger.info("Callback for ceph interface, ignore")
+
+    def handle_ceph_nfs(self, event) -> None:
+        """Callback for interface ceph-nfs-client."""
+        logger.debug("Callback for ceph-nfs-client interface, ignore")
 
     def upgrade_dispatch(self, event: ops.framework.EventBase) -> None:
         """Dispatch upgrade events."""

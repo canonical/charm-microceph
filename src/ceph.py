@@ -230,6 +230,26 @@ def get_named_key(name, caps=None, pool_list=None):
     return parse_key(str(check_output(cmd).decode("UTF-8")).strip())  # IGNORE:E1103
 
 
+def remove_named_key(name: str) -> None:
+    """Remove a specific named cephx key.
+
+    :param name: String Name of key to remove.
+    """
+    log(f"Removing key {name}", level=DEBUG)
+    cmd = [
+        "microceph.ceph",
+        "--name",
+        "mon.",
+        "--keyring",
+        f"{VAR_LIB_CEPH}/mon/ceph-{socket.gethostname()}/keyring",
+        "auth",
+        "del",
+        name,
+    ]
+
+    check_output(cmd)
+
+
 def is_leader():
     """Check if this node is ceph mon leader."""
     hostname = socket.gethostname()
@@ -1184,3 +1204,15 @@ def ceph_config_set(ceph_service: str, key: str, value: str):
     :raises: CalledProcessError if config set op fails.
     """
     check_call(["microceph.ceph", "config", "set", ceph_service, key, value])
+
+
+def create_fs_volume(volume_name: str) -> None:
+    """Create the FS volume."""
+    cmd = ["microceph.ceph", "fs", "volume", "create", volume_name]
+    utils.run_cmd(cmd)
+
+
+def list_fs_volumes() -> List[dict]:
+    """Returns a list of ceph fs volumes."""
+    cmd = ["microceph.ceph", "fs", "volume", "ls"]
+    return json.loads(utils.run_cmd(cmd))

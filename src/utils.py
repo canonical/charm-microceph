@@ -19,6 +19,11 @@
 import logging
 import subprocess
 
+import requests
+
+import microceph
+from microceph_client import Client
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,3 +36,21 @@ def run_cmd(cmd: list) -> str:
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed executing cmd: {cmd}, error: {e.stderr}")
         raise e
+
+
+def get_mon_addresses():
+    """Get the Ceph mon addresses."""
+    client = Client.from_socket()
+    try:
+        return client.cluster.get_mon_addresses()
+    except requests.HTTPError:
+        logger.debug("Mon api call failed, fall back to legacy method")
+        return microceph.get_mon_public_addresses()
+
+
+def get_fsid():
+    """Get the FSID from ceph.conf."""
+    with open("/var/snap/microceph/current/conf/ceph.conf", "r") as f:
+        for line in f:
+            if line.startswith("fsid") and "=" in line:
+                return line.split("=")[1].strip()

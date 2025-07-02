@@ -28,6 +28,8 @@ extra-bindings:
 provides:
   ceph:
     interface: ceph-client
+  ceph-nfs:
+    interface: ceph-nfs-client
   radosgw:
     interface: ceph-radosgw
   mds:
