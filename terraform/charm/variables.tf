@@ -81,7 +81,10 @@ variable "osd_disks" {
 }
 
 variable "radosgw_user" {
-  type        = string
+  type = object({
+    user_id  = string
+    display_name = string
+  })
   description = "Name of the radosgw user"
 }
 
