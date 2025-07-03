@@ -65,12 +65,13 @@ data "external" "radosgw_user" {
 resource "null_resource" "s3_buckets" {
   for_each   = var.s3_buckets
   depends_on = [data.external.radosgw_user]
-  environmet = {
-    S3_ACCESS_KEY  = locals.access_key
-    S3_SECRETS_KEY = locals.secrets_key
-    ENDPOINT       = locals.endpoint
-  }
-  provisioner "local-exec" {
 
+  provisioner "local-exec" {
+    command  = ["bash -c", "${path.module}/create_s3_bucket.sh"]
+    environmet = {
+      S3_ACCESS_KEY  = locals.access_key
+      S3_SECRETS_KEY = locals.secrets_key
+      ENDPOINT       = locals.endpoint
+    }
   }
 }
