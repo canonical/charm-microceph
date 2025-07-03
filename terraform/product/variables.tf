@@ -23,7 +23,7 @@ varaible "radosgw_user" {
 variable "osd_disks" {
   type = object({
     path      = string
-    loop_spec = string
+    loop_spec = optional(string)
   })
 
   default = null
