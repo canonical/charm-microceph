@@ -3,11 +3,32 @@ variable "model_name" {
   type        = string
 }
 
-variable "enable_radosgw" {
-  description = "whether or not to enable radowsgw"
-  type        = bool
-  default     = false
+
+variable "s3_buckets" {
+  description = "list of s3 buckets to create"
+  type        = set(string)
+  default     = []
 }
+
+varaible "radosgw_user" {
+  description = "details of the user to create for radosgw"
+  type        = object({
+    user_id   = string
+    display_name = string
+  })
+
+  default = {}
+}
+
+variable "osd_disks" {
+  type = object({
+    path      = string
+    loop_spec = string
+  })
+
+  default = null
+}
+
 
 variable "microceph" {
   description = "configuration for the microceph deployment"
