@@ -11,6 +11,9 @@ module "microceph" {
   storage           = var.microceph.storage
   units             = var.microceph.units
   model             = var.model_name
+  radosgw_user      = var.radosgw_user
+  s3_buckets        = var.s3_buckets
+  osd_disks         = var.osd_disks
 }
 
 resource "null_resource" "deployment_time" {
