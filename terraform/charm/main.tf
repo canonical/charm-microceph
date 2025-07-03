@@ -67,8 +67,8 @@ resource "null_resource" "s3_buckets" {
   depends_on = [data.external.radosgw_user]
 
   provisioner "local-exec" {
-    command  = ["bash -c", "${path.module}/create_s3_bucket.sh"]
-    environmet = {
+    command  = "${path.module}/create_s3_bucket.sh"
+    environment = {
       S3_ACCESS_KEY  = locals.access_key
       S3_SECRETS_KEY = locals.secrets_key
       ENDPOINT       = locals.endpoint
