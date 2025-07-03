@@ -53,18 +53,18 @@ data "external" "s3_endpoints" {
   }
 }
 
-data "external" "s3_user" {
+data "external" "radosgw_user" {
   depends_on = [null_resource.add_osds]
-  program    = ["bash", "${path.module}/create_s3_user.sh"]
+  program    = ["bash", "${path.module}/create_radosgw_user.sh"]
 
   query = {
-    user_id      = var.s3_user.user_id
-    display_name = var.s3_user.display_name
+    user_id      = var.radosgw_user.user_id
+    display_name = var.radosgw_user.display_name
   }
 }
 resource "null_resource" "s3_buckets" {
   for_each   = var.s3_buckets
-  depends_on = [data.external.s3_user]
+  depends_on = [data.external.radosgw_user]
   environmet = {
     S3_ACCESS_KEY  = locals.access_key
     S3_SECRETS_KEY = locals.secrets_key
