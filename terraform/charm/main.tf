@@ -46,28 +46,21 @@ resource "null_resource" "install_s3cmd" {
 }
 data "external" "s3_endpoints" {
   depends_on = [null_resource.add_osds]
-  program    = ["${path.module}/get_s3_endpoints.sh"]
-
-  query = {
-    app_name = var.app_name
-  }
+  program    = ["${path.module}/get_s3_endpoints.sh", var.app_name]
 }
 
 data "external" "radosgw_user" {
   depends_on = [null_resource.add_osds]
-  program    = ["bash", "${path.module}/create_radosgw_user.sh"]
-
-  query = {
-    user_id      = var.radosgw_user.user_id
-    display_name = var.radosgw_user.display_name
-  }
+  program    = ["bash", "${path.module}/create_radosgw_user.sh", var.radosgw_user.user_id, var.radosgw_user.display_name ]
 }
+
+
 resource "null_resource" "s3_buckets" {
   for_each   = var.s3_buckets
   depends_on = [data.external.radosgw_user]
 
   provisioner "local-exec" {
-    command  = "${path.module}/create_s3_bucket.sh"
+    command  = "${path.module}/create_s3_bucket.sh ${each.value}"
     environment = {
       S3_ACCESS_KEY  = local.access_key
       S3_SECRETS_KEY = local.secrets_key
