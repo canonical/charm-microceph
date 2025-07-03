@@ -37,7 +37,7 @@ resource "null_resource" "add_osds" {
 resource "null_resource" "install_s3cmd" {
   depends_on = [null_resource.add_osds]
   provisioner "local-exec" {
-    command = "{path.module}/install_s3cmd.sh"
+    command = "${path.module}/install_s3cmd.sh"
   }
 
   triggers = {
