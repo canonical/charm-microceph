@@ -69,9 +69,9 @@ resource "null_resource" "s3_buckets" {
   provisioner "local-exec" {
     command  = "${path.module}/create_s3_bucket.sh"
     environment = {
-      S3_ACCESS_KEY  = locals.access_key
-      S3_SECRETS_KEY = locals.secrets_key
-      ENDPOINT       = locals.endpoint
+      S3_ACCESS_KEY  = local.access_key
+      S3_SECRETS_KEY = local.secrets_key
+      ENDPOINT       = local.endpoint
     }
   }
 }
