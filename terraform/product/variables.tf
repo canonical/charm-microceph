@@ -10,14 +10,14 @@ variable "s3_buckets" {
   default     = []
 }
 
-varaible "radosgw_user" {
+variable "radosgw_user" {
   description = "details of the user to create for radosgw"
-  type        = object({
-    user_id   = string
+  type = object({
+    user_id      = string
     display_name = string
   })
 
-  default = {}
+  default = null
 }
 
 variable "osd_disks" {
