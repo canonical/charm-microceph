@@ -18,11 +18,6 @@ module "microceph" {
 
 resource "null_resource" "deployment_time" {
   triggers = {
-    timestamp   = timestamp()
     ceph_config = jsonencode(var.microceph)
-  }
-
-  lifecycle {
-    ignore_changes = [triggers.timestamp]
   }
 }
