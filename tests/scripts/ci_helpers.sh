@@ -204,13 +204,14 @@ function remove_unit_wait() {
     res=$( ( juju status | grep -cF "$unit_name" ) || true )
     if [[ $res -gt 0 ]] ; then
       echo -n '.'
-      sleep 5
+      sleep 1m
     else
       echo "Unit removed successfully"
       break
     fi
   done
   # fail if unit still present.
+  res=$( ( juju status | grep -cF "$unit_name" ) || true )
   if [[ $res -gt 0 ]] ; then
     echo "Unit still present"
     juju status
