@@ -5,13 +5,20 @@ function check_osd_count() {
     local count="${2?missing}"
 
     echo $USER
+    for i in $(seq 1 20); do
+      osd_count=$(juju exec --unit ${unit} -- microceph disk list --json | jq '.ConfiguredDisks | length')
+      if [[ $osd_count -ne $count ]] ; then
+          echo "Expected OSDs $count, Actual ${osd_count}. waiting..."
+          sleep 10s
+      fi
+    done
 
+    # fail if the OSDs are still not settled.
     osd_count=$(juju exec --unit ${unit} -- microceph disk list --json | jq '.ConfiguredDisks | length')
     if [[ $osd_count -ne $count ]] ; then
         echo "Expected OSDs $count, Actual ${osd_count}"
         exit 1
     fi
-
     juju status
 }
 
