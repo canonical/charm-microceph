@@ -5,13 +5,20 @@ function check_osd_count() {
     local count="${2?missing}"
 
     echo $USER
+    for i in $(seq 1 20); do
+      osd_count=$(juju exec --unit ${unit} -- microceph disk list --json | jq '.ConfiguredDisks | length')
+      if [[ $osd_count -ne $count ]] ; then
+          echo "Expected OSDs $count, Actual ${osd_count}. waiting..."
+          sleep 10s
+      fi
+    done
 
+    # fail if the OSDs are still not settled.
     osd_count=$(juju exec --unit ${unit} -- microceph disk list --json | jq '.ConfiguredDisks | length')
     if [[ $osd_count -ne $count ]] ; then
         echo "Expected OSDs $count, Actual ${osd_count}"
         exit 1
     fi
-
     juju status
 }
 
@@ -242,11 +249,74 @@ function seed_lxd_profile() {
     lxc network list
 }
 
+function prepare_environment() {
+  set -ux
+  date
+  sudo snap install juju
+  mkdir -p ~/.local/share/juju
+  
+  declare -i i=0
+  while [[ $i -lt 20 ]]; do
+      seed_lxd_profile ./tests/scripts/assets/lxd-preseed.yaml
+      if [[ $? -eq 0 ]]; then
+        echo "LXD profile seeding successful."
+        break
+      fi
+      echo "failed $i attempt, retrying in 5 seconds";
+      sleep 5s
+      i=$((i + 1));
+  done
+
+  if [[ $i -eq 20 ]]; then
+      echo "Timeout reached, failed to seed lxd profile."
+      exit -1
+  fi
+
+  juju bootstrap localhost lxd
+
+  chmod 600 ./tests/scripts/assets/id_rsa*
+}
+
 function wait_for_microceph_bootstrap() {
     # wait for install hook to trigger on one unit.
     juju wait-for unit microceph/0 --query='workload-message=="(install) (bootstrap) Service not bootstrapped"' --timeout=20m
     # Now wait for the model to settle.
     juju wait-for application microceph --query='name=="microceph" && (status=="active" || status=="idle")' --timeout=10m
+}
+
+function prepare_3_vms() {
+  set -ux
+
+  lxc launch --vm ubuntu:24.04 node01 -c limits.memory=8GB -c limits.cpu=4 -d root,size=32GB
+  lxc launch --vm ubuntu:24.04 node02 -c limits.memory=8GB -c limits.cpu=4 -d root,size=32GB
+  lxc launch --vm ubuntu:24.04 node03 -c limits.memory=8GB -c limits.cpu=4 -d root,size=32GB
+
+
+  for i in $(seq 1 20); do
+    echo $i
+    ready_count=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196" -c)
+    if [[ $ready_count -eq 3 ]]; then
+      echo "ready count 3 reached"
+      break;
+    fi
+    echo "."
+    sleep 10s
+  done
+
+    ready_count=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196" -c)
+  if [[ $ready_count -ne 3 ]]; then
+    echo "ready count ($ready_count) did not reach under timeout";
+    exit 1
+  fi
+
+  lxc ls
+  vm_ips=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196")
+  stat -c "%a %n" ./tests/scripts/assets/*
+  for vm_ip in $vm_ips; do
+    ssh -o "StrictHostKeyChecking=no" "ubuntu@$vm_ip" -i ./tests/scripts/assets/id_rsa -f ls
+    juju add-machine "ssh:ubuntu@$vm_ip" --private-key ./tests/scripts/assets/id_rsa --public-key ./tests/scripts/assets/id_rsa.pub
+    sleep 10s
+  done
 }
 
 function juju_crashdump() {
