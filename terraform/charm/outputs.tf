@@ -5,6 +5,6 @@ output "app_name" {
 output "provides" {
   value = {
     microceph_endpoints = juju_offer.ceph
-    s3_endpoints        = data.external.s3_endpoints
+    s3_endpoints        = data.external.s3_endpoints.result
   }
 }
