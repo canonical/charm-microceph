@@ -1,6 +1,6 @@
 output "charms" {
   value = {
-    microceph = var.microceph
+    microceph = module.microceph
   }
 }
 
