@@ -1,10 +1,8 @@
 locals {
-  endpoint_bindings = flatten([
-    [for endpoint, space in var.networks :
-      {
-        "space"    = "${space}"
-        "endpoint" = "${endpoint}"
-      }
-    ]
-  ])
+  endpoint_bindings = [for endpoint, space in var.networks :
+    {
+      "space"    = "${space}"
+      "endpoint" = "${endpoint}"
+    }
+  ]
 }
