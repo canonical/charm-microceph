@@ -38,6 +38,7 @@ variable "microceph" {
     channel     = string
     config      = optional(map(string))
     constraints = optional(string)
+    placement   = optional(string, "")
     resources   = optional(map(string))
     revision    = optional(string)
     storage     = optional(map(string))

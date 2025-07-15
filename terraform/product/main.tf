@@ -7,6 +7,7 @@ module "microceph" {
   config            = var.microceph.config
   constraints       = var.microceph.constraints
   endpoint_bindings = local.endpoint_bindings
+  placement         = var.microceph.placement
   revision          = var.microceph.revision
   storage           = var.microceph.storage
   units             = var.microceph.units

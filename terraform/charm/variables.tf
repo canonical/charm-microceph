@@ -47,6 +47,12 @@ variable "machines" {
   default     = []
 }
 
+variable "placement" {
+  description = "target location of the applications units"
+  type        = string
+  default     = ""
+}
+
 variable "resources" {
   description = "Resources to use with the application."
   type        = map(string)
