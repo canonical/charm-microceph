@@ -6,7 +6,7 @@ module "microceph" {
   channel           = var.microceph.channel
   config            = var.microceph.config
   constraints       = var.microceph.constraints
-  endpoint_bindings = var.microceph.endpoint_bindings
+  endpoint_bindings = locals.endpoint_bindings
   revision          = var.microceph.revision
   storage           = var.microceph.storage
   units             = var.microceph.units

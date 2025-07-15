@@ -52,11 +52,11 @@ variable "microceph" {
 }
 
 variable "networks" {
-  type = object ({
-    management      = optional(string) 
+  type = object({
+    management      = optional(string)
     storage         = optional(string)
     storage_cluster = optional(string)
   })
-
+  default     = {}
   description = "network bindings for microceph"
 }
