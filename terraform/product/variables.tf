@@ -42,11 +42,6 @@ variable "microceph" {
     revision    = optional(string)
     storage     = optional(map(string))
     units       = number
-    endpoint_bindings = optional(set(object({
-      space    = string
-      endpoint = optional(string)
-    })))
-
   })
 
   default = {
@@ -54,4 +49,14 @@ variable "microceph" {
     channel = "squid/stable"
     units   = 3
   }
+}
+
+variable "networks" {
+  type = object ({
+    management      = optional(string) 
+    storage         = optional(string)
+    storage_cluster = optional(string)
+  })
+
+  description = "network bindings for microceph"
 }
