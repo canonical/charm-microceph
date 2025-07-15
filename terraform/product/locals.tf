@@ -1,8 +1,8 @@
 locals {
-  endpoint_bindings = [for endpoint, space in var.networks :
+  endpoint_bindings = toset([for endpoint, space in var.networks :
     {
       "space"    = "${space}"
       "endpoint" = "${endpoint}"
     }
-  ]
+  ])
 }
