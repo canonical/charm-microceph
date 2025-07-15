@@ -7,8 +7,8 @@ locals {
   }
   endpoint_bindings = toset(
     flatten(
-      [for endpoints, space in var.networks :
-        [for endpoint in local.bindings[endpoints] :
+      [for network, space in var.networks :
+        [for endpoint in local.bindings[network] :
           {
             "space"    = space
             "endpoint" = endpoint
