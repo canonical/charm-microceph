@@ -51,7 +51,7 @@ data "external" "s3_endpoints" {
 
 data "external" "radosgw_user" {
   depends_on = [null_resource.add_osds]
-  program    = ["bash", "${path.module}/create_radosgw_user.sh", var.radosgw_user.user_id, var.radosgw_user.display_name]
+  program    = ["bash", "${path.module}/create_radosgw_user.sh", var.radosgw_user.user_id, var.radosgw_user.display_name, var.model]
 }
 
 
