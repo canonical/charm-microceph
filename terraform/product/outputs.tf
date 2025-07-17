@@ -6,7 +6,7 @@ output "charms" {
 
 output "provides" {
   value = {
-    sass = module.microceph.provides
+    sass      = module.microceph.provides
     endpoints = local.endpoint_bindings
   }
 }
