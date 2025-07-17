@@ -46,7 +46,7 @@ resource "null_resource" "install_s3cmd" {
 }
 data "external" "s3_endpoints" {
   depends_on = [null_resource.add_osds]
-  program    = ["${path.module}/get_s3_endpoints.sh", var.app_name]
+  program    = ["${path.module}/get_s3_endpoints.sh", var.app_name, var.model]
 }
 
 data "external" "radosgw_user" {
