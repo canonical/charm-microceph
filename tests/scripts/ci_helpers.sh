@@ -284,37 +284,75 @@ function wait_for_microceph_bootstrap() {
     juju wait-for application microceph --query='name=="microceph" && (status=="active" || status=="idle")' --timeout=10m
 }
 
+function wait_for_vms() {
+  local expected=$1
+  local timeout=$2
+  local interval=5
+  local start=$SECONDS
+  local running
+
+  # wait for Running state and inet
+  while :; do
+    running=$(lxc list --format=json \
+      | jq '[ .[]
+          | select(
+              .state.status=="Running" and
+              (.state.network[]?.addresses[]? | select(.family=="inet"))
+            )
+        ] | length')
+    if (( running >= expected )); then
+      echo "$running/$expected VMs are Running"
+      break
+    fi
+
+    if (( SECONDS - start >= timeout )); then
+      echo "timeout after ${timeout}s: only $running/$expected VMs are Running"
+      return 1
+    fi
+    sleep $interval
+  done
+
+  vms=( $(lxc ls -c sn | awk '/RUNNING/ {print $4}') )
+
+  # per-VM agent wait
+  for vm in "${vms[@]}"; do
+    # echo $vm
+    start=$SECONDS
+    until lxc exec "$vm" -- true &>/dev/null; do
+      (( SECONDS - start >= timeout )) && { 
+        echo "timeout waiting for agent on $vm"; return 1; 
+      }
+      sleep $interval
+    done
+  done
+      
+
+  echo "All $expected VMs are up with cloud-init finished."
+}
+
 function prepare_3_vms() {
   set -ux
 
-  lxc launch --vm ubuntu:24.04 node01 -c limits.memory=8GB -c limits.cpu=4 -d root,size=32GB
-  lxc launch --vm ubuntu:24.04 node02 -c limits.memory=8GB -c limits.cpu=4 -d root,size=32GB
-  lxc launch --vm ubuntu:24.04 node03 -c limits.memory=8GB -c limits.cpu=4 -d root,size=32GB
-
-
-  for i in $(seq 1 20); do
-    echo $i
-    ready_count=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196" -c)
-    if [[ $ready_count -eq 3 ]]; then
-      echo "ready count 3 reached"
-      break;
-    fi
-    echo "."
-    sleep 10s
+  for i in $(seq 1..3); do
+    lxc launch --vm ubuntu:24.04 "node0$i" -c limits.memory=8GB -c limits.cpu=4 -d root,size=25GB
   done
 
-    ready_count=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196" -c)
-  if [[ $ready_count -ne 3 ]]; then
-    echo "ready count ($ready_count) did not reach under timeout";
-    exit 1
-  fi
-
+  # wait for vms to be up.
+  wait_for_vms()
   lxc ls
-  vm_ips=$(lxc ls -c t4 | grep "enp5s0" | cut -d "|" -f 3 | cut -d " " -f 2 | grep "10.196")
+
+  ssh-keygen -t rsa -N "" -f ./lxdkey
+  for i in $(seq 1..3); do
+    lxc file push ./lxdkey* "node0$i"/home/ubuntu/.ssh/
+    lxc exec microceph -- sh -c "cat /home/ubuntu/.ssh/lxdkey.pub >> /home/ubuntu/.ssh/authorized_keys"
+    lxc exec microceph -- sh -c "cat /home/ubuntu/.ssh/authorized_keys"
+  done
+
+  vm_ips=$(lxc ls -c t4 | grep "10.196" | cut -d "|" -f 3 | cut -d " " -f 2)
   stat -c "%a %n" ./tests/scripts/assets/*
   for vm_ip in $vm_ips; do
-    ssh -o "StrictHostKeyChecking=no" "ubuntu@$vm_ip" -i ./tests/scripts/assets/id_rsa -f ls
-    juju add-machine "ssh:ubuntu@$vm_ip" --private-key ./tests/scripts/assets/id_rsa --public-key ./tests/scripts/assets/id_rsa.pub
+    ssh -o "StrictHostKeyChecking=no" "ubuntu@$vm_ip" -i ./lxdkey -f ls
+    juju add-machine "ssh:ubuntu@$vm_ip" --private-key ./lxdkey --public-key ./lxdkey.pub
     sleep 10s
   done
 }
