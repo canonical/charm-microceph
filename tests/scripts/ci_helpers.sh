@@ -5,13 +5,20 @@ function check_osd_count() {
     local count="${2?missing}"
 
     echo $USER
+    for i in $(seq 1 20); do
+      osd_count=$(juju exec --unit ${unit} -- microceph disk list --json | jq '.ConfiguredDisks | length')
+      if [[ $osd_count -ne $count ]] ; then
+          echo "Expected OSDs $count, Actual ${osd_count}. waiting..."
+          sleep 10s
+      fi
+    done
 
+    # fail if the OSDs are still not settled.
     osd_count=$(juju exec --unit ${unit} -- microceph disk list --json | jq '.ConfiguredDisks | length')
     if [[ $osd_count -ne $count ]] ; then
         echo "Expected OSDs $count, Actual ${osd_count}"
         exit 1
     fi
-
     juju status
 }
 
@@ -242,11 +249,112 @@ function seed_lxd_profile() {
     lxc network list
 }
 
+function prepare_environment() {
+  set -ux
+  date
+  sudo snap install juju
+  mkdir -p ~/.local/share/juju
+  
+  declare -i i=0
+  while [[ $i -lt 20 ]]; do
+      seed_lxd_profile ./tests/scripts/assets/lxd-preseed.yaml
+      if [[ $? -eq 0 ]]; then
+        echo "LXD profile seeding successful."
+        break
+      fi
+      echo "failed $i attempt, retrying in 5 seconds";
+      sleep 5s
+      i=$((i + 1));
+  done
+
+  if [[ $i -eq 20 ]]; then
+      echo "Timeout reached, failed to seed lxd profile."
+      exit -1
+  fi
+
+  juju bootstrap localhost lxd
+
+  chmod 600 ./tests/scripts/assets/id_rsa*
+}
+
 function wait_for_microceph_bootstrap() {
     # wait for install hook to trigger on one unit.
     juju wait-for unit microceph/0 --query='workload-message=="(install) (bootstrap) Service not bootstrapped"' --timeout=20m
     # Now wait for the model to settle.
     juju wait-for application microceph --query='name=="microceph" && (status=="active" || status=="idle")' --timeout=10m
+}
+
+function wait_for_vms() {
+  local expected=$1
+  local timeout=$2
+  local interval=5
+  local start=$SECONDS
+  local running
+
+  # wait for Running state and inet
+  while :; do
+    running=$(lxc list --format=json \
+      | jq '[ .[]
+          | select(
+              .state.status=="Running" and
+              (.state.network[]?.addresses[]? | select(.family=="inet"))
+            )
+        ] | length')
+    if (( running >= expected )); then
+      echo "$running/$expected VMs are Running"
+      break
+    fi
+
+    if (( SECONDS - start >= timeout )); then
+      echo "timeout after ${timeout}s: only $running/$expected VMs are Running"
+      return 1
+    fi
+    sleep $interval
+  done
+
+  vms=( $(lxc ls -c sn | awk '/RUNNING/ {print $4}') )
+
+  # per-VM agent wait
+  for vm in "${vms[@]}"; do
+    # echo $vm
+    start=$SECONDS
+    until lxc exec "$vm" -- true &>/dev/null; do
+      (( SECONDS - start >= timeout )) && { 
+        echo "timeout waiting for agent on $vm"; return 1; 
+      }
+      sleep $interval
+    done
+  done
+      
+
+  echo "All $expected VMs are up with cloud-init finished."
+}
+
+function prepare_3_vms() {
+  set -ux
+
+  for i in $(seq 1..3); do
+    lxc launch --vm ubuntu:24.04 "node0$i" -c limits.memory=8GB -c limits.cpu=4 -d root,size=25GB
+  done
+
+  # wait for vms to be up.
+  wait_for_vms()
+  lxc ls
+
+  ssh-keygen -t rsa -N "" -f ./lxdkey
+  for i in $(seq 1..3); do
+    lxc file push ./lxdkey* "node0$i"/home/ubuntu/.ssh/
+    lxc exec microceph -- sh -c "cat /home/ubuntu/.ssh/lxdkey.pub >> /home/ubuntu/.ssh/authorized_keys"
+    lxc exec microceph -- sh -c "cat /home/ubuntu/.ssh/authorized_keys"
+  done
+
+  vm_ips=$(lxc ls -c t4 | grep "10.196" | cut -d "|" -f 3 | cut -d " " -f 2)
+  stat -c "%a %n" ./tests/scripts/assets/*
+  for vm_ip in $vm_ips; do
+    ssh -o "StrictHostKeyChecking=no" "ubuntu@$vm_ip" -i ./lxdkey -f ls
+    juju add-machine "ssh:ubuntu@$vm_ip" --private-key ./lxdkey --public-key ./lxdkey.pub
+    sleep 10s
+  done
 }
 
 function juju_crashdump() {
