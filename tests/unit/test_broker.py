@@ -68,6 +68,25 @@ class TestBroker(test_utils.CharmTestCase):
         pool.update.assert_called()
 
     @patch.object(broker, "check_output")
+    @patch("socket.gethostname")
+    def test_remove_named_key(self, gethostname, check_output):
+        gethostname.return_value = "foo"
+
+        broker.remove_named_key("icious")
+
+        cmd = [
+            "microceph.ceph",
+            "--name",
+            "mon.",
+            "--keyring",
+            f"{broker.VAR_LIB_CEPH}/mon/ceph-foo/keyring",
+            "auth",
+            "del",
+            "icious",
+        ]
+        check_output.assert_called_once_with(cmd)
+
+    @patch.object(broker, "check_output")
     @patch.object(broker, "pool_exists")
     def test_create_cephfs(self, pool_exists, check_output):
         req = {}

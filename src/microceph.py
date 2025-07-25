@@ -232,6 +232,30 @@ def join_cluster(token: str, micro_ip: str = "", **kwargs):
     _run_cmd(cmd=cmd)
 
 
+def enable_nfs(target: str, cluster_id: str) -> None:
+    """Enable the NFS service on the target host with the given Cluster ID."""
+    cmd = ["microceph", "enable", "nfs", "--target", target, "--cluster-id", cluster_id]
+    _run_cmd(cmd)
+
+
+def disable_nfs(target: str, cluster_id: str) -> None:
+    """Disable the NFS service on the target host with the given Cluster ID."""
+    cmd = ["microceph", "disable", "nfs", "--target", target, "--cluster-id", cluster_id]
+    _run_cmd(cmd)
+
+
+def create_fs_volume(volume_name: str) -> None:
+    """Create the FS volume."""
+    cmd = ["microceph.ceph", "fs", "volume", "create", volume_name]
+    _run_cmd(cmd)
+
+
+def create_nfs_export(cluster_id: str, pseudopath: str, fsname: str) -> None:
+    """Create an NFS export."""
+    cmd = ["microceph.ceph", "nfs", "export", "create", "cephfs", cluster_id, pseudopath, fsname]
+    _run_cmd(cmd)
+
+
 def enable_rgw() -> None:
     """Enable RGW service."""
     cmd = ["microceph", "enable", "rgw"]

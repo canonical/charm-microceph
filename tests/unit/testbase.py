@@ -108,3 +108,11 @@ class TestBaseCharm(test_utils.CharmTestCase):
     def add_cos_agent_integration(self, harness: Harness) -> None:
         """Add cos agent integration."""
         harness.add_relation("cos-agent", harness.charm.app.name)
+
+    def add_ceph_nfs_relation(self, harness: Harness, app_name="manila-cephfs") -> int:
+        """Add ceph-nfs-client relation."""
+        return harness.add_relation("ceph-nfs", app_name, unit_data={"foo": "lish"})
+
+    def add_unit(self, harness: Harness, rel_id: int, unit_name: str, unit_data={}) -> None:
+        harness.add_relation_unit(rel_id, unit_name)
+        harness.update_relation_data(rel_id, unit_name, unit_data)

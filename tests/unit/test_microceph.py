@@ -171,3 +171,33 @@ class TestMicroCeph(unittest.TestCase):
         run_cmd.assert_called_with(
             cmd=["microceph", "cluster", "join", "token", "--microceph-ip", "10.10.10.10"]
         )
+
+    @patch("microceph._run_cmd")
+    def test_enable_nfs(self, run_cmd):
+        microceph.enable_nfs("foo", "lish")
+
+        run_cmd.assert_called_once_with(
+            ["microceph", "enable", "nfs", "--target", "foo", "--cluster-id", "lish"]
+        )
+
+    @patch("microceph._run_cmd")
+    def test_disable_nfs(self, run_cmd):
+        microceph.disable_nfs("foo", "lish")
+
+        run_cmd.assert_called_once_with(
+            ["microceph", "disable", "nfs", "--target", "foo", "--cluster-id", "lish"]
+        )
+
+    @patch("microceph._run_cmd")
+    def test_create_fs_volume(self, run_cmd):
+        microceph.create_fs_volume("volly")
+
+        run_cmd.assert_called_once_with(["microceph.ceph", "fs", "volume", "create", "volly"])
+
+    @patch("microceph._run_cmd")
+    def test_create_nfs_export(self, run_cmd):
+        microceph.create_nfs_export("foo", "/lish", "fsname")
+
+        run_cmd.assert_called_once_with(
+            ["microceph.ceph", "nfs", "export", "create", "cephfs", "foo", "/lish", "fsname"]
+        )

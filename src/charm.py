@@ -47,6 +47,7 @@ from radosgw import RadosGWHandler
 from relation_handlers import (
     CephClientProviderHandler,
     CephMdsProviderHandler,
+    CephNfsProviderHandler,
     CephRadosGWProviderHandler,
     MicroClusterNewNodeEvent,
     MicroClusterNodeAddedEvent,
@@ -348,6 +349,12 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             self.radosgw = CephRadosGWProviderHandler(self, self.handle_ceph)
         if self.can_add_handler("mds", handlers):
             self.mds = CephMdsProviderHandler(self, self.handle_ceph)
+        if self.can_add_handler("ceph-nfs", handlers):
+            self.ceph_nfs = CephNfsProviderHandler(
+                self,
+                "ceph-nfs",
+                self.handle_ceph_nfs,
+            )
         if self.can_add_handler("traefik-route-rgw", handlers):
             self.traefik_route_rgw = sunbeam_rhandlers.TraefikRouteHandler(
                 self,
@@ -411,6 +418,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def handle_ceph(self, event) -> None:
         """Callback for interface ceph."""
         logger.info("Callback for ceph interface, ignore")
+
+    def handle_ceph_nfs(self, event) -> None:
+        """Callback for interface ceph-nfs-client."""
+        logger.info("Callback for ceph-nfs-client interface, ignore")
 
     def upgrade_dispatch(self, event: ops.framework.EventBase) -> None:
         """Dispatch upgrade events."""
