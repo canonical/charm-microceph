@@ -273,8 +273,6 @@ function prepare_environment() {
   fi
 
   juju bootstrap localhost lxd
-
-  chmod 600 ./tests/scripts/assets/id_rsa*
 }
 
 function wait_for_microceph_bootstrap() {
