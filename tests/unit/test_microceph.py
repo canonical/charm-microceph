@@ -156,7 +156,7 @@ class TestMicroCeph(unittest.TestCase):
         assert "rgw_keystone_url" in configs_deleted
         assert "rgw_keystone_accepted_roles" in configs_deleted
 
-    @patch("microceph._run_cmd")
+    @patch("utils.run_cmd")
     @patch("microceph.gethostname")
     def test_join_cluster(self, gethn, run_cmd):
         """Test if cluster join is idempotent."""

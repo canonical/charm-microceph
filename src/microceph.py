@@ -16,18 +16,16 @@
 
 """Handle Ceph commands."""
 
-import enum
 import json
 import logging
 import subprocess
 from socket import gethostname
-from typing import Tuple
 
 import requests
 from charms.operator_libs_linux.v2 import snap
-from tenacity import retry, stop_after_attempt, wait_fixed
 
 import ceph
+import utils
 from microceph_client import Client, UnrecognizedClusterConfigOption
 
 logger = logging.getLogger(__name__)
@@ -37,17 +35,6 @@ MAJOR_VERSIONS = {
     "18": "reef",
     "19": "squid",
 }
-
-
-def _run_cmd(cmd: list) -> str:
-    """Execute provided command via subprocess."""
-    try:
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=180)
-        logger.debug(f"Command {' '.join(cmd)} finished; Output: {process.stdout}")
-        return process.stdout
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed executing cmd: {cmd}, error: {e.stderr}")
-        raise e
 
 
 def is_ready() -> bool:
@@ -77,7 +64,7 @@ def cos_agent_refresh_cb(event):
         return
 
     logger.debug("refreshing cos_agent relation")
-    enable_ceph_monitoring()
+    ceph.enable_ceph_monitoring()
 
 
 def cos_agent_departed_cb(event):
@@ -89,7 +76,7 @@ def cos_agent_departed_cb(event):
         return
 
     logger.debug("disabling cos_agent relation.")
-    disable_ceph_monitoring()
+    ceph.disable_ceph_monitoring()
 
 
 def remove_cluster_member(name: str, is_force: bool) -> None:
@@ -97,7 +84,7 @@ def remove_cluster_member(name: str, is_force: bool) -> None:
     cmd = ["microceph", "cluster", "remove", name]
     if is_force:
         cmd.append("--force")
-    _run_cmd(cmd)
+    utils.run_cmd(cmd)
 
 
 def get_mon_public_addresses() -> list:
@@ -120,7 +107,7 @@ def is_cluster_member(hostname: str) -> bool:
     """Checks if the provided host is part of the microcluster."""
     cmd = ["microceph", "status"]
     try:
-        output = _run_cmd(cmd)
+        output = utils.run_cmd(cmd)
         return hostname in str(output)
     except subprocess.CalledProcessError as e:
         error_not_initialised = "Daemon not yet initialized"
@@ -214,7 +201,7 @@ def bootstrap_cluster(micro_ip: str = None, public_net: str = None, cluster_net:
     if micro_ip:
         cmd.extend(["--microceph-ip", micro_ip])
 
-    _run_cmd(cmd=cmd)
+    utils.run_cmd(cmd=cmd)
 
 
 def join_cluster(token: str, micro_ip: str = "", **kwargs):
@@ -229,19 +216,19 @@ def join_cluster(token: str, micro_ip: str = "", **kwargs):
     if micro_ip:
         cmd.extend(["--microceph-ip", micro_ip])
 
-    _run_cmd(cmd=cmd)
+    utils.run_cmd(cmd=cmd)
 
 
 def enable_rgw() -> None:
     """Enable RGW service."""
     cmd = ["microceph", "enable", "rgw"]
-    _run_cmd(cmd)
+    utils.run_cmd(cmd)
 
 
 def disable_rgw() -> None:
     """Disable RGW service."""
     cmd = ["microceph", "disable", "rgw"]
-    _run_cmd(cmd)
+    utils.run_cmd(cmd)
 
 
 # Disk CMDs and Helpers
@@ -252,7 +239,7 @@ def add_osd_cmd(spec: str, wal_dev: str = None, db_dev: str = None) -> None:
         cmd.extend(["--wal-device", wal_dev, "--wal-wipe"])
     if db_dev:
         cmd.extend(["--db-device", db_dev, "--db-wipe"])
-    _run_cmd(cmd)
+    utils.run_cmd(cmd)
 
 
 def add_batch_osds(disks: list) -> None:
@@ -266,7 +253,7 @@ def add_batch_osds(disks: list) -> None:
     # The disk add command takes a space separated list
     # of block devices as params.
     cmd.extend(disks)
-    _run_cmd(cmd)
+    utils.run_cmd(cmd)
 
 
 def get_snap_info(snap_name):
@@ -283,7 +270,7 @@ def list_disk_cmd(host_only: bool = False) -> dict:
     cmd = ["microceph", "disk", "list", "--json"]
     if host_only:
         cmd.append("--host-only")
-    return json.loads(_run_cmd(cmd))
+    return json.loads(utils.run_cmd(cmd))
 
 
 def remove_disk_cmd(osd_num: int, force: bool = False) -> None:
@@ -301,7 +288,7 @@ def remove_disk_cmd(osd_num: int, force: bool = False) -> None:
         # and thus, the charms, we need a more hands-off approach, and so
         # failure domains changes are enabled by default.
         cmd.append("--confirm-failure-domain-downgrade")
-    _run_cmd(cmd)
+    utils.run_cmd(cmd)
 
 
 def enroll_disks_as_osds(disks: list) -> None:
@@ -325,7 +312,7 @@ def enroll_disks_as_osds(disks: list) -> None:
 def _get_disk_info(disk: str) -> dict:
     """Fetches disk info from lsblk as a python dict."""
     try:
-        disk_info = json.loads(_run_cmd(["lsblk", disk, "--json"]))["blockdevices"]
+        disk_info = json.loads(utils.run_cmd(["lsblk", disk, "--json"]))["blockdevices"]
         return disk_info[0]
     except subprocess.CalledProcessError as e:
         if "not a block device" in e.stderr:
@@ -392,88 +379,4 @@ def set_pool_size(pools: str, size: int):
     pools_list = pools.split(",")
     cmd = ["sudo", "microceph", "pool", "set-rf", "--size", str(size)]
     cmd.extend(pools_list)
-    _run_cmd(cmd)
-
-
-@retry(wait=wait_fixed(5), stop=stop_after_attempt(10))
-def list_mgr_modules() -> dict:
-    """Returns a python dict of mgr modules.
-
-    available keys:
-       1. disabled_modules
-       2. always_on_modules
-       3. enabled_modules
-    """
-    cmd = ["microceph.ceph", "mgr", "module", "ls", "--format", "json"]
-    return json.loads(_run_cmd(cmd=cmd))
-
-
-def enable_mgr_module(module: str):
-    """Enable requested ceph mgr module."""
-    disabled_modules = [
-        module_info["name"] for module_info in list_mgr_modules()["disabled_modules"]
-    ]
-    if module not in disabled_modules:
-        logger.info("nothing to do, %s module is not disabled", module)
-        return
-
-    cmd = ["microceph.ceph", "mgr", "module", "enable", module]
-    _run_cmd(cmd=cmd)
-
-
-def disable_mgr_module(module: str):
-    """Disable requested ceph mgr module."""
-    enabled_modules = list_mgr_modules()["enabled_modules"]
-    if module not in enabled_modules:
-        logger.info("nothing to do, %s module is not enabled or is always on", module)
-        return
-
-    cmd = ["microceph.ceph", "mgr", "module", "disable", module]
-    _run_cmd(cmd=cmd)
-
-
-def enable_ceph_monitoring():
-    """Enable Monitoring for ceph cluster."""
-    enable_mgr_module("prometheus")
-
-
-def disable_ceph_monitoring():
-    """Disable Monitoring for ceph cluster."""
-    disable_mgr_module("prometheus")
-
-
-class CephHealth(enum.Enum):
-    """Enumerate ceph health status."""
-
-    Ok = "HEALTH_OK"
-    Warn = "HEALTH_WARN"
-    Err = "HEALTH_ERR"
-    Unknown = "HEALTH_UNKNOWN"
-
-    @classmethod
-    def from_string(cls, health_str: str):
-        """Construct a CephHealth object from a string."""
-        for health in cls:
-            if health.value == health_str:
-                return health
-        return cls.Unknown
-
-    def __str__(self):
-        """Return the string representation of the health."""
-        return self.value
-
-
-class CephStatus(object):
-    """Class to handle ceph health checks."""
-
-    def ceph_health(self) -> Tuple[CephHealth, str]:
-        """Return the health of the monitor."""
-        cmd = ["sudo", "microceph.ceph", "health", "detail", "--format=json"]
-        try:
-            output = _run_cmd(cmd)
-        except subprocess.CalledProcessError:
-            # ceph health detail command failed, possibly mon wasn't reachable
-            # as it's restarting. Return unknown health for this case.
-            return CephHealth.Unknown, "fault running ceph health detail command"
-        res = json.loads(output.strip())
-        return CephHealth.from_string(res["status"]), res["checks"]
+    utils.run_cmd(cmd)

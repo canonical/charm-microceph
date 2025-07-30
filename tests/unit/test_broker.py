@@ -190,8 +190,8 @@ class TestBroker(test_utils.CharmTestCase):
         rv = broker.handle_put_osd_in_bucket(req, "admin")
         self.assertIsNone(rv)
 
-    @patch.object(broker, "check_call")
-    @patch.object(broker, "check_output")
+    @patch("ceph.check_call")
+    @patch("ceph.check_output")
     def test_broker_misc(self, check_output, check_call):
         req = {}
         reqs = [req]

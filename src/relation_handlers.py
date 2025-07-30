@@ -32,9 +32,8 @@ from ops_sunbeam.interfaces import OperatorPeers
 from ops_sunbeam.relation_handlers import BasePeerHandler, RelationHandler
 
 import microceph
-from ceph import get_osd_count
-from ceph_broker import Capabilities
-from ceph_broker import is_leader as is_ceph_mon_leader
+from ceph import Capabilities, get_osd_count
+from ceph import is_leader as is_ceph_mon_leader
 from ceph_broker import process_requests
 from microceph_client import Client
 

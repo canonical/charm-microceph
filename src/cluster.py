@@ -30,7 +30,8 @@ from charms.operator_libs_linux.v2 import snap
 import charm
 import microceph
 import relation_handlers
-from microceph import CephHealth, CephStatus
+import utils
+from ceph import CephHealth, CephStatus
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class ClusterNodes(ops.framework.Object):
 
         cmd = ["microceph", "cluster", "add", hostnames[0]]
         try:
-            out = microceph._run_cmd(cmd)
+            out = utils.run_cmd(cmd)
             token = out.strip()
             self.charm.peers.set_app_data({f"{event.unit.name}.join_token": token})
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:

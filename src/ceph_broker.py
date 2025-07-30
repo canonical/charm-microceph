@@ -22,13 +22,10 @@ https://opendev.org/openstack/charms.ceph/src/branch/master/charms_ceph/broker.p
 """
 
 import collections
-import functools
 import json
 import os
-import socket
 from subprocess import CalledProcessError, check_call, check_output
 from tempfile import NamedTemporaryFile
-from typing import Dict, List, TypeAlias
 
 from ceph import (
     DEBUG,
@@ -37,15 +34,18 @@ from ceph import (
     WARNING,
     ErasurePool,
     ReplicatedPool,
+    delete_pool,
     erasure_profile_exists,
+    get_osd_weight,
     get_osds,
     log,
     monitor_key_get,
     monitor_key_set,
     pool_exists,
+    remove_pool_snapshot,
+    rename_pool,
+    snapshot_pool,
 )
-
-VAR_LIB_CEPH = "/var/snap/microceph/common/data"
 
 
 def decode_req_encode_rsp(f):
@@ -397,119 +397,6 @@ def handle_replicated_pool(request, service):
     pool.update()
 
 
-# Below functions are picked from
-# https://opendev.org/openstack/charms.ceph/src/branch/master/charms_ceph/utils.py
-
-LEADER = "leader"
-
-Capabilities: TypeAlias = Dict[str, List[str]]
-
-_default_caps: Capabilities = collections.OrderedDict(
-    [
-        ("mon", ["allow r", 'allow command "osd blacklist"', 'allow command "osd blocklist"']),
-        ("osd", ["allow rwx"]),
-    ]
-)
-
-
-def parse_key(raw_key):
-    """Parse the key."""
-    # get-or-create appears to have different output depending
-    # on whether its 'get' or 'create'
-    # 'create' just returns the key, 'get' is more verbose and
-    # needs parsing
-    key = None
-    if len(raw_key.splitlines()) == 1:
-        key = raw_key
-    else:
-        for element in raw_key.splitlines():
-            if "key" in element:
-                return element.split(" = ")[1].strip()  # IGNORE:E1103
-    return key
-
-
-@functools.lru_cache()
-def ceph_auth_get(key_name):
-    """Get ceph auth key."""
-    try:
-        # Does the key already exist?
-        output = str(
-            check_output(
-                [
-                    "microceph.ceph",
-                    "--name",
-                    "mon.",
-                    "--keyring",
-                    f"{VAR_LIB_CEPH}/mon/ceph-{socket.gethostname()}/keyring",
-                    "auth",
-                    "get",
-                    key_name,
-                ]
-            ).decode("UTF-8")
-        ).strip()
-        return parse_key(output)
-    except CalledProcessError:
-        # Couldn't get the key
-        pass
-
-
-def get_named_key(name, caps=None, pool_list=None):
-    """Retrieve a specific named cephx key.
-
-    :param name: String Name of key to get.
-    :param pool_list: The list of pools to give access to
-    :param caps: dict of cephx capabilities
-    :returns: Returns a cephx key
-    """
-    key = ceph_auth_get(name)
-    if key:
-        return key
-
-    log("Creating new key for {}".format(name), level=DEBUG)
-    caps = caps or _default_caps
-    cmd = [
-        "microceph.ceph",
-        "--name",
-        "mon.",
-        "--keyring",
-        f"{VAR_LIB_CEPH}/mon/ceph-{socket.gethostname()}/keyring",
-        "auth",
-        "get-or-create",
-        name,
-    ]
-    # Add capabilities
-    for subsystem, subcaps in caps.items():
-        if subsystem == "osd":
-            if pool_list:
-                # This will output a string similar to:
-                # "pool=rgw pool=rbd pool=something"
-                pools = " ".join(["pool={0}".format(i) for i in pool_list])
-                subcaps[0] = subcaps[0] + " " + pools
-        cmd.extend([subsystem, "; ".join(subcaps)])
-    ceph_auth_get.cache_clear()
-
-    log("Calling check_output: {}".format(cmd), level=DEBUG)
-    return parse_key(str(check_output(cmd).decode("UTF-8")).strip())  # IGNORE:E1103
-
-
-def is_leader():
-    """Check if this node is ceph mon leader."""
-    hostname = socket.gethostname()
-    cmd = ["microceph.ceph", "tell", f"mon.{hostname}", "mon_status", "--format", "json"]
-    try:
-        result = json.loads(str(check_output(cmd).decode("UTF-8")))
-    except CalledProcessError:
-        return False
-    except ValueError:
-        # Non JSON response from mon_status
-        return False
-
-    if result["state"] == LEADER:
-        return True
-    else:
-        return False
-
-
 # Ceph broker implementation.
 
 
@@ -710,88 +597,6 @@ def create_erasure_profile(  # noqa: C901
         if scalar_mds:
             cmd.append("scalar-mds={}".format(scalar_mds))
 
-    check_call(cmd)
-
-
-def delete_pool(service, request):
-    """Delete a RADOS pool from ceph."""
-    cmd = [
-        "microceph.ceph",
-        "--id",
-        service,
-        "osd",
-        "pool",
-        "delete",
-        request.get("name"),
-        "--yes-i-really-really-mean-it",
-    ]
-    check_call(cmd)
-
-
-def rename_pool(service, request):
-    """Rename a Ceph pool from old_name to new_name.
-
-    :param service: The Ceph user name to run the command under.
-    :type service: str
-    :param request: The request with the old and new names for the pool.
-    :type request: dict
-    """
-    cmd = [
-        "microceph.ceph",
-        "--id",
-        service,
-        "osd",
-        "pool",
-        "rename",
-        request.get("name"),
-        request.get("new-name"),
-    ]
-    check_call(cmd)
-
-
-def snapshot_pool(service, request):
-    """Snapshots a RADOS pool in Ceph.
-
-    :param service: The Ceph user name to run the command under.
-    :type service: str
-    :param request: The request with the pool and snapshot names.
-    :type snapshot_name: dict
-    :raises: CalledProcessError
-    """
-    cmd = [
-        "microceph.ceph",
-        "--id",
-        service,
-        "osd",
-        "pool",
-        "mksnap",
-        request.get("name"),
-        request.get("snapshot-name"),
-    ]
-    check_call(cmd)
-
-
-def remove_pool_snapshot(service, request):
-    """Remove a snapshot from a RADOS pool in Ceph.
-
-    :param service: The Ceph user name to run the command under.
-    :type service: str
-    :param pool_name: Name of pool to remove snapshot from.
-    :type pool_name: str
-    :param snapshot_name: Name of snapshot to remove.
-    :type snapshot_name: str
-    :raises: CalledProcessError
-    """
-    cmd = [
-        "microceph.ceph",
-        "--id",
-        service,
-        "osd",
-        "pool",
-        "rmsnap",
-        request.get("name"),
-        request.get("snapshot-name"),
-    ]
     check_call(cmd)
 
 
@@ -1142,29 +947,3 @@ def save_service(service_name, service):
         key="cephx.services.{}".format(service_name),
         value=json.dumps(service, sort_keys=True),
     )
-
-
-def get_osd_weight(osd_id):
-    """Returns the weight of the specified OSD.
-
-    :returns: Float
-    :raises: ValueError if the monmap fails to parse.
-    :raises: CalledProcessError if our Ceph command fails.
-    """
-    try:
-        tree = check_output(["microceph.ceph", "osd", "tree", "--format=json"])
-        tree = tree.decode("UTF-8")
-        try:
-            json_tree = json.loads(tree)
-            # Make sure children are present in the JSON
-            if not json_tree["nodes"]:
-                return None
-            for device in json_tree["nodes"]:
-                if device["type"] == "osd" and device["name"] == osd_id:
-                    return device["crush_weight"]
-        except ValueError as v:
-            log("Unable to parse ceph tree json: {}. Error: {}".format(tree, v))
-            raise
-    except CalledProcessError as e:
-        log("ceph osd tree command failed with message: {}".format(e))
-        raise

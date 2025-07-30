@@ -49,7 +49,7 @@ class TestCharm(testbase.TestBaseCharm):
     @patch.object(ceph_cos_agent, "CephCOSAgentProvider")
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch.object(microceph, "Client")
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     @patch.object(Path, "chmod")
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
@@ -86,7 +86,7 @@ class TestCharm(testbase.TestBaseCharm):
 
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch.object(microceph, "Client")
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     @patch.object(Path, "chmod")
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
@@ -127,7 +127,7 @@ class TestCharm(testbase.TestBaseCharm):
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("relation_handlers.Client", MagicMock())
     @patch.object(microceph, "Client")
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     @patch.object(Path, "chmod")
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
@@ -187,7 +187,7 @@ class TestCharm(testbase.TestBaseCharm):
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("relation_handlers.Client", MagicMock())
     @patch.object(microceph, "Client")
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     @patch.object(Path, "chmod")
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
@@ -250,7 +250,7 @@ class TestCharm(testbase.TestBaseCharm):
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("relation_handlers.Client", MagicMock())
     @patch.object(microceph, "Client")
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     @patch.object(Path, "chmod")
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
@@ -308,7 +308,7 @@ class TestCharm(testbase.TestBaseCharm):
             "rgw_keystone_verify_ssl", str(False).lower(), True
         )
 
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     @patch("ceph.check_output")
     def test_add_osds_action_with_device_id(self, _chk, subprocess):
         """Test action add_osds."""
@@ -329,7 +329,7 @@ class TestCharm(testbase.TestBaseCharm):
             timeout=180,
         )
 
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     @patch("ceph.check_output")
     def test_add_osds_action_with_already_added_device_id(self, _chk, subprocess):
         """Test action add_osds."""
@@ -356,7 +356,7 @@ class TestCharm(testbase.TestBaseCharm):
         action_event.set_results.assert_called_with(result)
         action_event.fail.assert_called()
 
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     @patch("ceph.check_output")
     def test_add_osds_action_with_loop_spec(self, _chk, subprocess):
         """Test action add_osds with loop file spec."""
@@ -418,7 +418,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
         action_event.fail.assert_called()
 
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     def test_list_disks_action_no_osds_no_disks(self, subprocess):
         self.subprocess = subprocess
         microceph_cmd_output = '{"ConfiguredDisks":[],"AvailableDisks":[]}'
@@ -426,7 +426,7 @@ class TestCharm(testbase.TestBaseCharm):
         expected_disks = {"osds": [], "unpartitioned-disks": []}
         self._test_list_disks_action(microceph_cmd_output, expected_disks)
 
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     def test_list_disks_action_no_osds_1_disk(self, subprocess):
         self.subprocess = subprocess
         microceph_cmd_output = """{
@@ -452,7 +452,7 @@ class TestCharm(testbase.TestBaseCharm):
         }
         self._test_list_disks_action(microceph_cmd_output, expected_disks)
 
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     def test_list_disks_action_1_osd_no_disks(self, subprocess):
         self.subprocess = subprocess
         microceph_cmd_output = """{
@@ -476,7 +476,7 @@ class TestCharm(testbase.TestBaseCharm):
         }
         self._test_list_disks_action(microceph_cmd_output, expected_disks)
 
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     def test_list_disks_action_1_osd_1_disk(self, subprocess):
         self.subprocess = subprocess
         microceph_cmd_output = """{
@@ -512,7 +512,7 @@ class TestCharm(testbase.TestBaseCharm):
         }
         self._test_list_disks_action(microceph_cmd_output, expected_disks)
 
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     def test_list_disks_action_1_osd_no_disks_fqdn(self, subprocess):
         self.subprocess = subprocess
         microceph_cmd_output = """{
@@ -632,7 +632,7 @@ class TestCharm(testbase.TestBaseCharm):
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("relation_handlers.Client", MagicMock())
     @patch.object(microceph, "Client")
-    @patch.object(microceph, "subprocess")
+    @patch("utils.subprocess")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
     def test_get_rgw_endpoints_action_after_traefik_is_integrated(
         self, mock_file, subprocess, cclient, _utils
@@ -900,8 +900,8 @@ class TestCharm(testbase.TestBaseCharm):
         action_event.fail.assert_called()
 
     @patch("microceph.is_ready")
-    @patch("microceph.enable_mgr_module")
-    @patch.object(microceph, "subprocess")
+    @patch("ceph.enable_mgr_module")
+    @patch("utils.subprocess")
     @patch.object(ceph_cos_agent, "ceph_utils")
     def test_cos_integration(self, ceph_utils, _sub, enable_mgr_module, is_ready):
         """Test integration for COS agent."""

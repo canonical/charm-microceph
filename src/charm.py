@@ -41,7 +41,6 @@ import cluster
 import maintenance
 import microceph
 import microceph_client
-from ceph_broker import get_named_key
 from microceph_client import ClusterServiceUnavailableException
 from radosgw import RadosGWHandler
 from relation_handlers import (
@@ -405,7 +404,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             "auth": "cephx",
             "ceph-public-address": self._lookup_system_interfaces(public_addrs),
             "ceph-mon-public-addresses": public_addrs,
-            "key": get_named_key(name=service_name, caps=caps),
+            "key": ceph.get_named_key(name=service_name, caps=caps),
         }
 
     def handle_ceph(self, event) -> None:

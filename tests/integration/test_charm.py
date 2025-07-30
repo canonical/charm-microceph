@@ -20,7 +20,7 @@ import logging
 from pathlib import Path
 
 import pytest
-import utils
+import test_utils
 import yaml
 from pytest_operator.plugin import OpsTest
 
@@ -69,7 +69,7 @@ async def test_broker_request_processed(ops_test: OpsTest):
     cephclient_unit = ops_test.model.applications["cephclient"].units[0]
     microceph_unit = ops_test.model.applications["microceph"].units[0]
 
-    data = utils.get_relation_data(
+    data = test_utils.get_relation_data(
         cephclient_unit.name, "ceph", microceph_unit.name, ops_test.model.name
     )
     broker_rsp_key = f"broker-rsp-{cephclient_unit.name.replace('/', '-')}"
