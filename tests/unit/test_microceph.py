@@ -212,3 +212,52 @@ class TestMicroCeph(unittest.TestCase):
 
         result = microceph.microceph_has_service("nfs")
         self.assertTrue(result)
+
+    @patch.object(microceph, "get_snap_info")
+    def test_can_upgrade_snap(self, get_snap_info):
+        result = microceph.can_upgrade_snap("foo", "")
+        self.assertFalse(result)
+
+        # upgrade to latest is always allowed.
+        result = microceph.can_upgrade_snap("foo", "latest")
+        self.assertTrue(result)
+
+        get_snap_info.return_value = {
+            # trimmed response from https://api.snapcraft.io/v2/snaps/info/microceph
+            "channel-map": [
+                {
+                    "channel": {
+                        "architecture": "amd64",
+                        "risk": "stable",
+                        "track": "squid",
+                    },
+                    "version": "19.2.0",
+                },
+            ],
+        }
+
+        # track must exist.
+        result = microceph.can_upgrade_snap("latest", "squidy")
+        self.assertFalse(result)
+
+        # cannot resolve version.
+        result = microceph.can_upgrade_snap("latest", "squid")
+        self.assertFalse(result)
+
+        # unsupported major version.
+        get_snap_info.return_value["channel-map"] += [
+            {
+                "channel": {
+                    "architecture": "amd64",
+                    "risk": "edge",
+                    "track": "latest",
+                },
+                "version": "1.2.0",
+            },
+        ]
+
+        # can upgrade.
+        get_snap_info.return_value["channel-map"][1]["version"] = "19.2.0"
+
+        result = microceph.can_upgrade_snap("latest", "squid")
+        self.assertTrue(result)
