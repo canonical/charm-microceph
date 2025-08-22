@@ -1,2 +1,2 @@
 #!/bin/bash
-sudo apt-get install s3cmd
+sudo apt-get install -y s3cmd
