@@ -18,6 +18,7 @@
 
 import json
 import logging
+import platform
 import subprocess
 from socket import gethostname
 
@@ -391,8 +392,16 @@ def can_upgrade_snap(current, new: str) -> bool:
 
     # resolve major version if set to latest currently
     if current == "latest":
-        ver = get_snap_info("microceph")["latest"]
-        current = MAJOR_VERSIONS[ver]
+        ver = _get_microceph_latest_major_version()
+        if not ver:
+            logger.warning("Cannot resolve 'latest' track for snap microceph.")
+            return False
+
+        current = MAJOR_VERSIONS.get(ver)
+        if not current:
+            logger.warning(f"Unsupported microceph snap major version '{ver}'")
+            return False
+
         logger.debug(f"Resolved 'latest' track to {current}")
 
     # We must not downgrade the major version of the snap
@@ -402,6 +411,26 @@ def can_upgrade_snap(current, new: str) -> bool:
     succession = alphabet[start_index:] + alphabet[:start_index]
     newer = succession.index(current[0]) <= succession.index(new[0])
     return newer
+
+
+def _get_microceph_latest_major_version():
+    info = get_snap_info("microceph")
+
+    arch = platform.machine()
+    arch_map = {
+        "x86_64": "amd64",
+        "aarch64": "arm64",
+    }
+    arch = arch_map.get(arch, arch)
+
+    for _snap in info["channel-map"]:
+        chan = _snap["channel"]
+        if chan["track"] != "latest" or chan["risk"] != "edge" or chan["architecture"] != arch:
+            continue
+
+        return _snap["version"].split(".")[0]
+
+    return None
 
 
 def set_pool_size(pools: str, size: int):
