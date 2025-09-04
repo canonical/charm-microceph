@@ -82,6 +82,9 @@ LIBAPI = 0
 # to 0 if you are raising the major API version
 LIBPATCH = 1
 
+MON_HOSTS = "mon_hosts"
+CLUSTER_ID = "cluster-id"
+
 logger = logging.getLogger(__name__)
 
 
@@ -152,13 +155,13 @@ class CephNfsRequires(Object):
         if not relation_data:
             return {}
 
-        mon_hosts = json.loads(relation_data["mon-hosts"])
+        mon_hosts = json.loads(relation_data[MON_HOSTS])
 
         return {
             "client": relation_data["client"],
             "keyring": relation_data["keyring"],
-            "mon_hosts": mon_hosts,
-            "cluster-id": relation_data["cluster-id"],
+            MON_HOSTS: mon_hosts,
+            CLUSTER_ID: relation_data[CLUSTER_ID],
             "volume": relation_data["volume"],
             "fsid": relation_data["fsid"],
         }
