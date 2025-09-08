@@ -33,6 +33,16 @@ resource "null_resource" "add_osds" {
   }
 }
 
+data "local_sensitive_file" "ssh_key" {
+  filename = var.ssh_key
+  count    = length(var.ssh_key) > 0 ? 1 : 0
+}
+
+resource "juju_ssh_key" "mykey" {
+  count   = length(var.ssh_key) > 0 ? 1 : 0
+  model   = var.model
+  payload = data.local_sensitive_file.ssh_key[0].content
+}
 
 resource "null_resource" "install_s3cmd" {
   depends_on = [null_resource.add_osds]
@@ -68,16 +78,4 @@ resource "null_resource" "s3_buckets" {
     }
   }
 
-}
-
-
-data "local_sensitive_file" "ssh_key" {
-  filename = var.ssh_key
-  count    = length(var.ssh_key) > 0 ? 1 : 0
-}
-
-resource "juju_ssh_key" "mykey" {
-  count   = length(var.ssh_key) > 0 ? 1 : 0
-  model   = var.model
-  payload = data.local_sensitive_file.ssh_key[0].content
 }
