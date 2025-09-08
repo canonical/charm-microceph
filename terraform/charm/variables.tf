@@ -99,3 +99,9 @@ variable "s3_buckets" {
   description = "set of bucket names to create"
   default     = []
 }
+
+variable "ssh_key" {
+  type = string
+  description = "ssh key to import"
+  default = ""
+}
