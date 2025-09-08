@@ -26,13 +26,6 @@ resource "null_resource" "juju_wait" {
   }
 }
 
-resource "null_resource" "add_osds" {
-  depends_on = [null_resource.juju_wait]
-  provisioner "local-exec" {
-    command = "${path.module}/add_osds.py ${var.osd_disks.path} ${var.osd_disks.loop_spec}"
-  }
-}
-
 data "local_sensitive_file" "ssh_key" {
   filename = var.ssh_key
   count    = length(var.ssh_key) > 0 ? 1 : 0
@@ -43,6 +36,15 @@ resource "juju_ssh_key" "mykey" {
   model   = var.model
   payload = data.local_sensitive_file.ssh_key[0].content
 }
+
+resource "null_resource" "add_osds" {
+  depends_on = [null_resource.juju_wait, resource.juju_ssh_key.mykey]
+  provisioner "local-exec" {
+    command = "${path.module}/add_osds.py ${var.osd_disks.path} ${var.osd_disks.loop_spec}"
+  }
+}
+
+
 
 resource "null_resource" "install_s3cmd" {
   depends_on = [null_resource.add_osds]
