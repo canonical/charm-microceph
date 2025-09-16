@@ -551,6 +551,18 @@ class CephHealth(enum.Enum):
 class CephStatus(object):
     """Class to handle ceph health checks."""
 
+    def service_status(self) -> dict:
+        """Return the service status from Ceph."""
+        cmd = ["sudo", "microceph.ceph", "service", "status"]
+        try:
+            output = utils.run_cmd(cmd)
+        except subprocess.CalledProcessError:
+            # ceph service status command failed, possibly mon wasn't reachable
+            # as it's restarting. Return {} in this case.
+            return {}
+
+        return json.loads(output.strip())
+
     def ceph_health(self) -> Tuple[CephHealth, str]:
         """Return the health of the monitor."""
         cmd = ["sudo", "microceph.ceph", "health", "detail", "--format=json"]

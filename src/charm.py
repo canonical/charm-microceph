@@ -42,6 +42,7 @@ import maintenance
 import microceph
 import microceph_client
 from ceph_nfs import CephNfsProviderHandler
+from ceph_rgw import CEPH_RGW_READY_RELATION, CephRgwProviderHandler
 from microceph_client import ClusterServiceUnavailableException
 from radosgw import RadosGWHandler
 from relation_handlers import (
@@ -353,6 +354,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 self,
                 "ceph-nfs",
                 self.handle_ceph_nfs,
+            )
+        if self.can_add_handler(CEPH_RGW_READY_RELATION, handlers):
+            self.ceph_rgw = CephRgwProviderHandler(
+                self,
+                CEPH_RGW_READY_RELATION,
             )
         if self.can_add_handler("traefik-route-rgw", handlers):
             self.traefik_route_rgw = sunbeam_rhandlers.TraefikRouteHandler(
@@ -695,6 +701,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
             if self.traefik_route_rgw.ready:
                 self._update_service_endpoints()
+
+    def post_config_setup(self):
+        """Configuration steps after services have been setup."""
+        super().post_config_setup()
+        self.ceph_rgw.set_readiness_on_related_units()
 
 
 if __name__ == "__main__":  # pragma: no cover
