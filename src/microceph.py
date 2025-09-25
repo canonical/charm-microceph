@@ -18,6 +18,7 @@
 
 import json
 import logging
+import platform
 import subprocess
 from socket import gethostname
 
@@ -34,6 +35,22 @@ MAJOR_VERSIONS = {
     "17": "quincy",
     "18": "reef",
     "19": "squid",
+}
+
+# platform.machine() returns data from uname, which may have different
+# architecture names than the snap channel architectures. The dict below
+# maps those different names.
+# Ref: https://documentation.ubuntu.com/snapcraft/stable/reference/architectures/#supported-architectures  # noqa
+# Ref: https://wiki.debian.org/ArchitectureSpecificsMemo
+_ARCH_MAP = {
+    "x86_64": "amd64",
+    "aarch64": "arm64",
+    "arm": "armhf",
+    "ppc": "powerpc",
+    "ppcle": "ppc64el",
+    "ppc64le": "ppc64el",
+    "riscv64": "riscv64",
+    "s390x": "s390x",
 }
 
 
@@ -391,8 +408,16 @@ def can_upgrade_snap(current, new: str) -> bool:
 
     # resolve major version if set to latest currently
     if current == "latest":
-        ver = get_snap_info("microceph")["latest"]
-        current = MAJOR_VERSIONS[ver]
+        ver = _get_microceph_latest_major_version()
+        if not ver:
+            logger.warning("Cannot resolve 'latest' track for snap microceph.")
+            return False
+
+        current = MAJOR_VERSIONS.get(ver)
+        if not current:
+            logger.warning(f"Unsupported microceph snap major version '{ver}'")
+            return False
+
         logger.debug(f"Resolved 'latest' track to {current}")
 
     # We must not downgrade the major version of the snap
@@ -402,6 +427,26 @@ def can_upgrade_snap(current, new: str) -> bool:
     succession = alphabet[start_index:] + alphabet[:start_index]
     newer = succession.index(current[0]) <= succession.index(new[0])
     return newer
+
+
+def _get_microceph_latest_major_version():
+    info = get_snap_info("microceph")
+
+    # platform.machine() returns data from uname, which may have different
+    # architecture names than the snap channel architectures.
+    # Ref: https://documentation.ubuntu.com/snapcraft/stable/reference/architectures/#supported-architectures  # noqa
+    # Ref: https://wiki.debian.org/ArchitectureSpecificsMemo
+    arch = platform.machine()
+    arch = _ARCH_MAP.get(arch, arch)
+
+    for _snap in info["channel-map"]:
+        chan = _snap["channel"]
+        if chan["track"] != "latest" or chan["risk"] != "edge" or chan["architecture"] != arch:
+            continue
+
+        return _snap["version"].split(".")[0]
+
+    return None
 
 
 def set_pool_size(pools: str, size: int):
