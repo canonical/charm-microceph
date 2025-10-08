@@ -18,6 +18,7 @@
 
 import json
 import logging
+import shlex
 import subprocess
 from socket import gethostname
 
@@ -47,7 +48,8 @@ def is_ready() -> bool:
         logger.warning("Microceph not bootstrapped yet.")
         return False
 
-    if not ceph.is_quorum():
+    has_mon, _ = microceph_service_status("mon")
+    if has_mon and not ceph.is_quorum():
         logger.debug("Ceph cluster not in quorum, not ready yet")
         return False
 
@@ -259,6 +261,18 @@ def microceph_has_service(service_name) -> bool:
     output = utils.run_cmd(cmd)
 
     return f"microceph.{service_name}" in output
+
+
+def microceph_service_status(service_name) -> tuple[str, str]:
+    """Returns the status of a microceph service."""
+    # shellquote to handle any special characters in service name
+    svc = shlex.quote(service_name)
+    cmd = ["snap", "services", f"microceph.{svc}"]
+    output = utils.run_cmd(cmd)
+    for line in output.splitlines():
+        if f"microceph.{svc}" in line:
+            return tuple(line.split()[1:3])  # startup, current status
+    return ("unknown", "unknown")
 
 
 # Disk CMDs and Helpers
