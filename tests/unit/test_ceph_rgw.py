@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import unittest
 from unittest.mock import PropertyMock, patch
 
@@ -19,6 +20,7 @@ import ops_sunbeam.test_utils as test_utils
 from unit import testbase
 
 import ceph_rgw
+import charm
 
 
 class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
@@ -30,6 +32,10 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
             config_data = f.read()
         with open("metadata.yaml", "r") as f:
             metadata = f.read()
+
+        patcher = patch.object(charm, "ceph_cos_agent")
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
         self.harness = test_utils.get_harness(
             testbase._MicroCephCharm,
@@ -49,8 +55,8 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
         patch_list = [
             # (self.attr_name, thing_to_patch)
             ("ceph_check_output", "ceph.check_output"),
+            ("run_cmd", "utils.run_cmd"),
             ("get_osd_count", "ceph.get_osd_count"),
-            ("list_services", "microceph_client.ClusterService.list_services"),
         ]
 
         for attr_name, thing in patch_list:
@@ -59,7 +65,15 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
             setattr(self, attr_name, mock_obj)
             self.addCleanup(patcher.stop)
 
-        self.list_services.return_value = []
+        self._service_status = {}
+        run_cmd_ret_value = self.run_cmd.return_value
+
+        def _run_cmd(cmd):
+            if cmd == ["sudo", "microceph.ceph", "service", "status"]:
+                return json.dumps(self._service_status)
+            return run_cmd_ret_value
+
+        self.run_cmd.side_effect = _run_cmd
 
     def add_ceph_rgw_relation(self, app_name="consumer") -> int:
         """Add ceph-rgw-client relation."""
@@ -68,11 +82,14 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
         )
 
     def test_ceph_rgw_connected_ready(self):
+        self.harness.update_config({"enable-rgw": "*"})
         self.ready_for_service.return_value = True
-        self.get_osd_count.return_value = 1
-        self.list_services.return_value = [
-            {"service": "rgw"},
-        ]
+        self.get_osd_count.return_value = 3
+        self._service_status = {
+            "rgw": {
+                "9999": {},
+            },
+        }
 
         self.harness.set_leader()
         self.add_ceph_rgw_relation()
@@ -83,22 +100,30 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
 
         self.ready_for_service.assert_called_once()
         self.get_osd_count.assert_called_once()
-        self.list_services.assert_called_once()
+        self.run_cmd.assert_called_with(["sudo", "microceph.ceph", "service", "status"])
 
     def test_set_readiness_on_related_units(self):
+        self.harness.update_config({"enable-rgw": ""})
         self.ready_for_service.return_value = False
         self.get_osd_count.return_value = 0
 
         self.harness.set_leader()
         self.add_ceph_rgw_relation()
 
+        # enable-rgw config is set to "", disabling rgw.
         ceph_rgw_rel = self.harness.model.get_relation("ceph-rgw")
         rel_data = ceph_rgw_rel.data[self.harness.model.app]
         self.assertEqual({"ready": "false"}, rel_data)
 
+        self.ready_for_service.assert_not_called()
+        self.get_osd_count.assert_not_called()
+        self.run_cmd.assert_not_called()
+
+        # rgw enabled, but charm is not yet ready for service.
+        self.harness.update_config({"enable-rgw": "*"})
+
         self.ready_for_service.assert_called_once()
         self.get_osd_count.assert_not_called()
-        self.list_services.assert_not_called()
 
         # ready for service, but no OSDs yet.
         self.ready_for_service.return_value = True
@@ -107,20 +132,28 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
 
         self.assertEqual({"ready": "false"}, rel_data)
         self.get_osd_count.assert_called_once()
-        self.list_services.assert_not_called()
 
-        # has OSDs, but to RGW.
+        # has OSDs, but RF is higher.
         self.get_osd_count.return_value = 1
 
         self.harness.charm.ceph_rgw.set_readiness_on_related_units()
 
         self.assertEqual({"ready": "false"}, rel_data)
-        self.list_services.assert_called_once()
 
-        # service is ready.
-        self.list_services.return_value = [
-            {"service": "rgw"},
-        ]
+        # OSD count at least matches RF, but service is not available yet.
+        self.harness.update_config({"default-pool-size": 1})
+
+        self.harness.charm.ceph_rgw.set_readiness_on_related_units()
+
+        self.assertEqual({"ready": "false"}, rel_data)
+        self.run_cmd.assert_any_call(["sudo", "microceph.ceph", "service", "status"])
+
+        # service is available.
+        self._service_status = {
+            "rgw": {
+                "9999": {},
+            },
+        }
 
         self.harness.charm.ceph_rgw.set_readiness_on_related_units()
 

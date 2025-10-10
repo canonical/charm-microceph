@@ -22,7 +22,6 @@ from ops.charm import CharmBase, RelationEvent
 from ops_sunbeam.relation_handlers import ServiceReadinessProviderHandler
 
 import ceph
-from microceph_client import Client
 
 logger = logging.getLogger(__name__)
 
@@ -49,16 +48,22 @@ class CephRgwProviderHandler(ServiceReadinessProviderHandler):
     @property
     def rgw_ready(self) -> bool:
         """Returns whether rgw is ready."""
+        if not self.charm.config.get("enable-rgw"):
+            return False
+
         if not self.charm.ready_for_service:
             return False
 
-        if ceph.get_osd_count() == 0:
+        osd_count = ceph.get_osd_count()
+        if osd_count == 0:
             return False
 
-        client = Client.from_socket()
-        services = client.cluster.list_services()
-        for service in services:
-            if service["service"] == "rgw":
-                return True
+        if osd_count < self.charm.config.get("default-pool-size"):
+            return False
 
-        return False
+        service_status = ceph.CephStatus().service_status()
+        rgw_services = service_status.get("rgw", {})
+        if len(rgw_services.keys()) == 0:
+            return False
+
+        return True
