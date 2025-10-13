@@ -42,7 +42,7 @@ import maintenance
 import microceph
 import microceph_client
 from ceph_nfs import CephNfsProviderHandler
-from ceph_rgw import CEPH_RGW_RELATION, CephRgwProviderHandler
+from ceph_rgw import CEPH_RGW_READY_RELATION, CephRgwProviderHandler
 from microceph_client import ClusterServiceUnavailableException
 from radosgw import RadosGWHandler
 from relation_handlers import (
@@ -355,10 +355,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 "ceph-nfs",
                 self.handle_ceph_nfs,
             )
-        if self.can_add_handler(CEPH_RGW_RELATION, handlers):
+        if self.can_add_handler(CEPH_RGW_READY_RELATION, handlers):
             self.ceph_rgw = CephRgwProviderHandler(
                 self,
-                CEPH_RGW_RELATION,
+                CEPH_RGW_READY_RELATION,
             )
         if self.can_add_handler("traefik-route-rgw", handlers):
             self.traefik_route_rgw = sunbeam_rhandlers.TraefikRouteHandler(

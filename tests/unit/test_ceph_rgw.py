@@ -76,9 +76,11 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
         self.run_cmd.side_effect = _run_cmd
 
     def add_ceph_rgw_relation(self, app_name="consumer") -> int:
-        """Add ceph-rgw-client relation."""
+        """Add ceph-rgw-ready relation."""
         return self.harness.add_relation(
-            ceph_rgw.CEPH_RGW_RELATION, app_name, unit_data={"foo": "lish"}
+            ceph_rgw.CEPH_RGW_READY_RELATION,
+            app_name,
+            unit_data={"foo": "lish"},
         )
 
     def test_ceph_rgw_connected_ready(self):
@@ -94,7 +96,7 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
         self.harness.set_leader()
         self.add_ceph_rgw_relation()
 
-        ceph_rgw_rel = self.harness.model.get_relation("ceph-rgw")
+        ceph_rgw_rel = self.harness.model.get_relation(ceph_rgw.CEPH_RGW_READY_RELATION)
         rel_data = ceph_rgw_rel.data[self.harness.model.app]
         self.assertEqual({"ready": "true"}, rel_data)
 
@@ -111,7 +113,7 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
         self.add_ceph_rgw_relation()
 
         # enable-rgw config is set to "", disabling rgw.
-        ceph_rgw_rel = self.harness.model.get_relation("ceph-rgw")
+        ceph_rgw_rel = self.harness.model.get_relation(ceph_rgw.CEPH_RGW_READY_RELATION)
         rel_data = ceph_rgw_rel.data[self.harness.model.app]
         self.assertEqual({"ready": "false"}, rel_data)
 

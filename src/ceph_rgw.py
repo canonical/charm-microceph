@@ -25,11 +25,11 @@ import ceph
 
 logger = logging.getLogger(__name__)
 
-CEPH_RGW_RELATION = "ceph-rgw"
+CEPH_RGW_READY_RELATION = "ceph-rgw-ready"
 
 
 class CephRgwProviderHandler(ServiceReadinessProviderHandler):
-    """Handler for the ceph-rgw-client relation."""
+    """Handler for the ceph-rgw-ready relation."""
 
     def __init__(self, charm: CharmBase, relation_name: str):
         super().__init__(charm, relation_name, self.handle_readiness_request_from_event)
@@ -39,10 +39,10 @@ class CephRgwProviderHandler(ServiceReadinessProviderHandler):
         self.interface.set_service_status(event.relation, self.rgw_ready)
 
     def set_readiness_on_related_units(self) -> None:
-        """Set service readiness on ceph-rgw related units."""
+        """Set service readiness on ceph-rgw-ready related units."""
         logger.debug("Set service readiness on all connected placement relations")
         ready = self.rgw_ready
-        for relation in self.framework.model.relations[CEPH_RGW_RELATION]:
+        for relation in self.framework.model.relations[CEPH_RGW_READY_RELATION]:
             self.interface.set_service_status(relation, ready)
 
     @property
