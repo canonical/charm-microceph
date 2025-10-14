@@ -53,6 +53,7 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
             ("remove_named_key", "ceph.remove_named_key"),
             ("get_osd_count", "ceph.get_osd_count"),
             ("list_fs_volumes", "ceph.list_fs_volumes"),
+            ("list_mgr_modules", "ceph.list_mgr_modules"),
             ("broker_check_output", "ceph_broker.check_output"),
             ("enable_nfs", "microceph.enable_nfs"),
             ("disable_nfs", "microceph.disable_nfs"),
@@ -75,6 +76,13 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
         self.list_fs_volumes.return_value = []
         self.get_fsid.return_value = "f00"
         self.get_mon_addresses.return_value = ["foo.lish"]
+        self.list_mgr_modules.return_value = {
+            "disabled_modules": [
+                {
+                    "name": "microceph",
+                },
+            ],
+        }
 
         def _add_service(candidate, cluster_id, _):
             self.list_services.return_value.append(
@@ -271,6 +279,59 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
         self.enable_nfs.assert_not_called()
         self.create_fs_volume.assert_not_called()
         self.assertIsInstance(ceph_nfs_status.status, BlockedStatus)
+
+    def test_relation_data_clear(self):
+        self.harness.set_leader()
+        self.list_services.return_value = [
+            {"service": "mon", "location": "foo1"},
+        ]
+        unit_data = {
+            "public-address": "pub-addr-1",
+            "microceph/1": "foo1",
+        }
+        rel_id = self.add_complete_peer_relation(self.harness, unit_data)
+        self._add_peer_unit(rel_id, 1)
+
+        # Add relation.
+        nfs_rel_id = self.add_ceph_nfs_relation(self.harness)
+
+        expected_data = {
+            "client": "client.manila-cephfs",
+            "keyring": "fa-key",
+            "mon_hosts": '["foo.lish"]',
+            "cluster-id": "manila-cephfs",
+            "volume": "manila-cephfs-vol",
+            "fsid": "f00",
+        }
+        rel_data = self.harness.get_relation_data(nfs_rel_id, self.harness.model.app)
+        self.assertEqual(expected_data, rel_data)
+
+        ceph_nfs_status = self.harness.charm.ceph_nfs.status
+        self.assertIsInstance(ceph_nfs_status.status, ActiveStatus)
+
+        # Add a microceph unit, but ceph orch set backend fails.
+        def _run_cmd(cmd: list[str]):
+            if cmd == ["microceph.ceph", "orch", "set", "backend", "microceph"]:
+                raise Exception("to be expected.")
+            return None
+
+        self.run_cmd.reset_mock()
+        self.run_cmd.side_effect = _run_cmd
+        self.list_services.return_value = [
+            {"service": "mon", "location": "foo1"},
+        ]
+
+        self._add_peer_unit(rel_id, 2)
+
+        self.assertEqual({}, rel_data)
+        self.assertIsInstance(ceph_nfs_status.status, BlockedStatus)
+        self.run_cmd.assert_has_calls(
+            [
+                call(cmd=["microceph.ceph", "mgr", "module", "enable", "microceph"]),
+                call(["microceph.ceph", "orch", "set", "backend", "microceph"]),
+            ],
+            any_order=True,
+        )
 
     def test_peers_updated_rel_data(self):
         self.get_mon_addresses.return_value = []

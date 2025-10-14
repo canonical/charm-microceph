@@ -511,6 +511,12 @@ def disable_mgr_module(module: str):
     utils.run_cmd(cmd=cmd)
 
 
+def set_orch_backend(backend_name: str):
+    """Set the given orch backend."""
+    cmd = ["microceph.ceph", "orch", "set", "backend", backend_name]
+    utils.run_cmd(cmd)
+
+
 def enable_ceph_monitoring():
     """Enable Monitoring for ceph cluster."""
     enable_mgr_module("prometheus")

@@ -230,6 +230,16 @@ class CephNfsProviderHandler(RelationHandler):
             relation_data.clear()
             return False
 
+        try:
+            ceph.enable_mgr_module("microceph")
+            ceph.set_orch_backend("microceph")
+        except Exception as ex:
+            # If the following commands fail, some clients (e.g.: manila) may
+            # not be able to properly provision shares.
+            logger.error("Encountered exception: %s", ex)
+            relation_data.clear()
+            return False
+
         volume_name = f"{cluster_id}-vol"
         self._ensure_fs_volume(volume_name)
 
