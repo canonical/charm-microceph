@@ -36,6 +36,8 @@ provides:
     interface: ceph-mds
   cos-agent:
     interface: cos_agent
+  remote:
+    interface: microceph-remote
 
 requires:
   traefik-route-rgw:
@@ -47,6 +49,8 @@ requires:
   receive-ca-cert:
     interface: certificate_transfer
     optional: true
+  remote:
+    interface: microceph-remote
 
 peers:
   peers:
