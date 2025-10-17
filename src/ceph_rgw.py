@@ -51,7 +51,7 @@ class CephRgwProviderHandler(ServiceReadinessProviderHandler):
         if not self.charm.config.get("enable-rgw"):
             return False
 
-        if not self.charm.ready_for_service:
+        if not self.charm.ready_for_service():
             return False
 
         osd_count = ceph.get_osd_count()

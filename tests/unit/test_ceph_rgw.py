@@ -14,7 +14,7 @@
 
 import json
 import unittest
-from unittest.mock import PropertyMock, patch
+from unittest.mock import patch
 
 import ops_sunbeam.test_utils as test_utils
 from unit import testbase
@@ -46,9 +46,7 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
         self.addCleanup(self.harness.cleanup)
         self.harness.begin()
 
-        patcher = patch.object(
-            testbase._MicroCephCharm, "ready_for_service", new_callable=PropertyMock
-        )
+        patcher = patch.object(self.harness.charm, "ready_for_service")
         self.ready_for_service = patcher.start()
         self.addCleanup(patcher.stop)
 
