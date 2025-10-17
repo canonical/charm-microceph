@@ -1,11 +1,11 @@
 cryptography
-ops<3
+ops<3.4
 pyroute2
 netifaces
 jsonschema
 tenacity
 jinja2
-pydantic<2
+pydantic<2.12
 cosl==0.0.55
 requests<2.32 # https://github.com/psf/requests/issues/6707 (similar issue with http+unix)
 git+https://opendev.org/openstack/sunbeam-charms#egg=ops-sunbeam&subdirectory=ops-sunbeam
