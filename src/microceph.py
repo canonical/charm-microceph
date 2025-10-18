@@ -162,7 +162,9 @@ def update_cluster_configs(configs: dict):
             logger.debug(f"Setting microceph cluster config {key}")
             client.cluster.update_config(key, value, skip_restart)
         except UnrecognizedClusterConfigOption:
-            raise UnrecognizedClusterConfigOption(f"Option {key} not recognized by microceph")
+            raise UnrecognizedClusterConfigOption(
+                f"Option {key} not recognized by microceph"
+            )
 
     # Set config, but restart only on the last item
     items = sorted(configs.items())
@@ -188,7 +190,9 @@ def delete_cluster_configs(configs: list):
             logger.warning(f"Option {key} not recognized by microceph")
 
 
-def bootstrap_cluster(micro_ip: str = None, public_net: str = None, cluster_net: str = None):
+def bootstrap_cluster(
+    micro_ip: str = None, public_net: str = None, cluster_net: str = None
+):
     """Bootstrap MicroCeph cluster."""
     cmd = ["microceph", "cluster", "bootstrap"]
 
@@ -237,7 +241,15 @@ def enable_nfs(target: str, cluster_id: str, bind_addr: str) -> None:
 
 def disable_nfs(target: str, cluster_id: str) -> None:
     """Disable the NFS service on the target host with the given Cluster ID."""
-    cmd = ["microceph", "disable", "nfs", "--target", target, "--cluster-id", cluster_id]
+    cmd = [
+        "microceph",
+        "disable",
+        "nfs",
+        "--target",
+        target,
+        "--cluster-id",
+        cluster_id,
+    ]
     utils.run_cmd(cmd)
 
 
@@ -410,3 +422,28 @@ def set_pool_size(pools: str, size: int):
     cmd = ["sudo", "microceph", "pool", "set-rf", "--size", str(size)]
     cmd.extend(pools_list)
     utils.run_cmd(cmd)
+
+
+def export_cluster_token(remote_name: str) -> str:
+    """Generate cluster token for remote cluster."""
+    return utils.run_cmd(["microceph", "cluster", "export", remote_name])
+
+
+def import_remote_token(local_name, remote_name, remote_token):
+    """Import a remote microceph cluster using token"""
+    return utils.run_cmd(
+        [
+            "microceph",
+            "remote",
+            "import",
+            remote_name,
+            remote_token,
+            "--local-name",
+            local_name,
+        ]
+    )
+
+
+def remove_remote_cluster(remote_name: str):
+    """Remove a remote microceph cluster record."""
+    return utils.run_cmd(["microceph", "remote", "remove", remote_name])

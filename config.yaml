@@ -50,3 +50,8 @@ options:
     default: false
     description: |
       Include Ceph performance metrics in the prometheus endpoint.
+  site-name:
+    type: string
+    default: ""
+    description: |
+      The local site name. This should be unique amongst the connected remote microceph clusters.
