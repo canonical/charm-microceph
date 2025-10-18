@@ -56,6 +56,7 @@ from relation_handlers import (
     collect_peer_data,
 )
 from storage import StorageHandler
+from microceph_remote import MicroCephRemoteHandler
 
 logger = logging.getLogger(__name__)
 CACERT_FILE = "/usr/local/share/ca-certificates/receive-keystone-ca-bundle.crt"
@@ -325,9 +326,15 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         except Exception:
             logger.exception("Failed to get identity-service handler")
 
-    def get_relation_handlers(self, handlers=None) -> List[sunbeam_rhandlers.RelationHandler]:
+    def get_relation_handlers(
+        self, handlers=None
+    ) -> List[sunbeam_rhandlers.RelationHandler]:
         """Relation handlers for the service."""
         handlers = handlers or []
+        if self.can_add_handler("remote", handlers):
+            self.remote = MicroCephRemoteHandler(
+                self, "remote", self.handle_microceph_remote
+            )
         if self.can_add_handler("peers", handlers):
             self.peers = MicroClusterPeerHandler(
                 self,
@@ -421,6 +428,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def handle_ceph_nfs(self, event) -> None:
         """Callback for interface ceph-nfs-client."""
         logger.debug("Callback for ceph-nfs-client interface, ignore")
+
+    def handle_microceph_remote(self, event) -> None:
+        """Callback for interface ceph-nfs-client."""
+        logger.debug("Callback for microceph-remote interface, ignore")
 
     def upgrade_dispatch(self, event: ops.framework.EventBase) -> None:
         """Dispatch upgrade events."""
@@ -525,7 +536,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Bootstrap microceph cluster."""
         try:
             microceph.bootstrap_cluster(**self._get_bootstrap_params())
-            logger.debug(f"Successfully bootstrapped with params {self._get_bootstrap_params()}")
+            logger.debug(
+                f"Successfully bootstrapped with params {self._get_bootstrap_params()}"
+            )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(e.stderr)
             error_already_exists = "Unable to initialize cluster: Database is online"
