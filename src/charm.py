@@ -42,6 +42,7 @@ import cluster
 import maintenance
 import microceph
 import microceph_client
+import utils
 from ceph_nfs import CephNfsProviderHandler
 from ceph_rgw import CEPH_RGW_READY_RELATION, CephRgwProviderHandler
 from microceph_client import ClusterServiceUnavailableException
@@ -106,15 +107,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             "--channel",
             config("snap-channel"),
         ]
-
-        logger.debug(f"Running command {' '.join(cmd)}")
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=900)
-        logger.debug(f"Command finished. stdout={process.stdout}, stderr={process.stderr}")
+        utils.run_cmd(cmd, timeout=900)
 
         cmd = ["sudo", "snap", "alias", "microceph.ceph", "ceph"]
-        logger.debug(f"Running command {' '.join(cmd)}")
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=180)
-        logger.debug(f"Command finished. stdout={process.stdout}, stderr={process.stderr}")
+        utils.run_cmd(cmd)
 
         try:
             snap.SnapCache()["microceph"].hold()
@@ -474,10 +470,13 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Configure the leader unit."""
         logger.debug(f"Configure leader for {event.__repr__}")
         if not self.is_leader_ready():
+            if self.model.config.get("wait-for-adoption"):
+                raise sunbeam_guard.WaitingExceptionError(
+                    "Waiting for bootstrap via adopted ceph cluster"
+                )
+
             logger.debug("Bootstrapping MicroCeph cluster")
             self.bootstrap_cluster(event)
-            # mark bootstrap node also as joined
-            self.peers.interface.state.joined = True
 
         self.set_leader_ready()
         if self.leader_get("namespace-projects") is None:
@@ -555,6 +554,23 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 "micro_ip": format(micro_ip),
             }
 
+    def adopt_cluster(self, fsid, mon_hosts, admin_key):
+        """Bootstrap Microceph cluster using external ceph cluster."""
+        try:
+            network_params = self._get_bootstrap_params()
+            microceph.adopt_ceph_cluster(
+                fsid=fsid,
+                mon_hosts=mon_hosts,
+                admin_key=admin_key,
+                micro_ip=network_params.get("micro_ip", ""),
+                public_net=network_params.get("public_net", ""),
+                cluster_net=network_params.get("cluster_net", ""),
+            )
+            # mark bootstrap node also as joined
+            self.peers.interface.state.joined = True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.error(e.stderr)
+
     def bootstrap_cluster(self, event: ops.framework.EventBase) -> None:
         """Bootstrap microceph cluster."""
         try:
@@ -562,6 +578,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             logger.debug(
                 f"Successfully bootstrapped with params {self._get_bootstrap_params()}"
             )
+            # mark bootstrap node also as joined
+            self.peers.interface.state.joined = True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(e.stderr)
             error_already_exists = "Unable to initialize cluster: Database is online"

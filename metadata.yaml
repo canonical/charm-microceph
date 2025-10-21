@@ -54,6 +54,9 @@ requires:
   remote-requirer:
     interface: microceph-remote
     optional: true
+  adopt-ceph:
+    interface: ceph-remote-admin
+    optional: true
 
 peers:
   peers:
