@@ -20,10 +20,9 @@
 import base64
 import configparser
 import json
-from enum import Enum
 import logging
+from enum import Enum
 from typing import Callable
-
 
 import ops_sunbeam.guard as sunbeam_guard
 from ops.charm import CharmBase, RelationEvent
@@ -31,7 +30,6 @@ from ops.framework import (
     EventSource,
     Object,
     ObjectEvents,
-    StoredState,
 )
 from ops_sunbeam.relation_handlers import RelationHandler
 
@@ -41,37 +39,41 @@ logger = logging.getLogger(__name__)
 
 
 class RemoteRelationDataKeys(Enum):
+    """Keys for the remote relation."""
+
     site_name = "site-name"
     monitors = "monitors"
     token = "token"
 
 
 class MicrocephRemoteDepartedEvent(RelationEvent):
-    """remote departed event"""
+    """Remote departed event."""
 
     pass
 
 
 class MicrocephRemoteReconcileEvent(RelationEvent):
-    """remote reconcile event for absorbing remote application updates"""
+    """Remote reconcile event for absorbing remote application updates."""
 
     pass
 
 
 class MicrocephRemoteUpdateEvent(RelationEvent):
-    """remote update event for updating remote application"""
+    """Remote update event for updating remote application."""
 
     pass
 
 
 class MicrocephRemoteEvent(ObjectEvents):
+    """Remote events."""
+
     microceph_remote_departed = EventSource(MicrocephRemoteDepartedEvent)
     microceph_remote_reconcile = EventSource(MicrocephRemoteReconcileEvent)
     microceph_remote_update = EventSource(MicrocephRemoteUpdateEvent)
 
 
 class MicroCephRemote(Object):
-    """Interface for Remote provider"""
+    """Interface for Remote provider."""
 
     # register events for handler to consume
     on = MicrocephRemoteEvent()
@@ -87,12 +89,8 @@ class MicroCephRemote(Object):
         self.framework.observe(charm.on[relation_name].changed, self._on_changed)
 
         # React to ceph peers to update
-        self.framework.observe(
-            charm.on["peers"].relation_departed, self._on_peer_updated
-        )
-        self.framework.observe(
-            charm.on["peers"].relation_changed, self._on_peer_updated
-        )
+        self.framework.observe(charm.on["peers"].relation_departed, self._on_peer_updated)
+        self.framework.observe(charm.on["peers"].relation_changed, self._on_peer_updated)
 
     def _on_departed(self, event):
         if not self.model.unit.is_leader():
@@ -130,9 +128,7 @@ class MicroCephRemote(Object):
                 self.on.microceph_remote_update.emit(event)
 
             remote_relation_data = event.relation.data.get(event.app)
-            remote_site_name = remote_relation_data.get(
-                RemoteRelationDataKeys.site_name, None
-            )
+            remote_site_name = remote_relation_data.get(RemoteRelationDataKeys.site_name, None)
             remote_token = remote_relation_data.get(RemoteRelationDataKeys.token, None)
             if remote_site_name is not None and remote_token is not None:
                 # remote data available, reconcile if necessary
@@ -153,7 +149,7 @@ class MicroCephRemote(Object):
 
 
 class MicroCephRemoteHandler(RelationHandler):
-    """Handler for remote integration"""
+    """Handler for remote integration."""
 
     def __init__(
         self,
@@ -169,37 +165,28 @@ class MicroCephRemoteHandler(RelationHandler):
 
         microceph_remote = MicroCephRemote(self.charm, self.relation_name)
 
-        self.framework.observe(
-            microceph_remote.on.microceph_remote_departed, self._on_departed
-        )
-        self.framework.observe(
-            microceph_remote.on.microceph_remote_reconcile, self._on_reconcile
-        )
-        self.framework.observe(
-            microceph_remote.on.microceph_remote_update, self._on_updated
-        )
+        self.framework.observe(microceph_remote.on.microceph_remote_departed, self._on_departed)
+        self.framework.observe(microceph_remote.on.microceph_remote_reconcile, self._on_reconcile)
+        self.framework.observe(microceph_remote.on.microceph_remote_update, self._on_updated)
 
         return microceph_remote
 
     @property
     def ready(self) -> bool:
+        """Property: ready check."""
         return True
 
     def _on_departed(self, event):
-        """handle integration cleanup"""
+        """Handle integration cleanup."""
         remote_relation_data = event.relation.data.get(event.app)
-        remote_site_name = remote_relation_data.get(
-            RemoteRelationDataKeys.site_name, None
-        )
+        remote_site_name = remote_relation_data.get(RemoteRelationDataKeys.site_name, None)
 
         remove_remote_cluster(remote_site_name)
 
     def _on_reconcile(self, event):
         # fetch remote app data
         remote_relation_data = event.relation.data.get(event.app)
-        remote_site_name = remote_relation_data.get(
-            RemoteRelationDataKeys.site_name, None
-        )
+        remote_site_name = remote_relation_data.get(RemoteRelationDataKeys.site_name, None)
         remote_token = remote_relation_data.get(RemoteRelationDataKeys.token, None)
         remote_ceph_monitors = decode_monitors_from_cluster_token(remote_token)
         current_monitors = get_cluster_monitors(remote_site_name)
@@ -214,13 +201,11 @@ class MicroCephRemoteHandler(RelationHandler):
 
     def _on_updated(self, event):
         # fetch local app data
-        ## TODO: Fix this as event object would not contain the remote relation databag here.
+        # TODO: Fix this as event object would not contain the remote relation databag here.
         local_relation_data = event.relation.data.get(self.charm.app)
         remote_relation_data = event.relation.data.get(event.app)
 
-        remote_site_name = remote_relation_data.get(
-            RemoteRelationDataKeys.site_name, None
-        )
+        remote_site_name = remote_relation_data.get(RemoteRelationDataKeys.site_name, None)
         local_token = local_relation_data.get(RemoteRelationDataKeys.token, None)
         last_updated_monitors = decode_monitors_from_cluster_token(local_token)
 

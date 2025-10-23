@@ -162,9 +162,7 @@ def update_cluster_configs(configs: dict):
             logger.debug(f"Setting microceph cluster config {key}")
             client.cluster.update_config(key, value, skip_restart)
         except UnrecognizedClusterConfigOption:
-            raise UnrecognizedClusterConfigOption(
-                f"Option {key} not recognized by microceph"
-            )
+            raise UnrecognizedClusterConfigOption(f"Option {key} not recognized by microceph")
 
     # Set config, but restart only on the last item
     items = sorted(configs.items())
@@ -190,9 +188,7 @@ def delete_cluster_configs(configs: list):
             logger.warning(f"Option {key} not recognized by microceph")
 
 
-def bootstrap_cluster(
-    micro_ip: str = None, public_net: str = None, cluster_net: str = None
-):
+def bootstrap_cluster(micro_ip: str = None, public_net: str = None, cluster_net: str = None):
     """Bootstrap MicroCeph cluster."""
     cmd = ["microceph", "cluster", "bootstrap"]
 
@@ -430,7 +426,7 @@ def export_cluster_token(remote_name: str) -> str:
 
 
 def import_remote_token(local_name, remote_name, remote_token):
-    """Import a remote microceph cluster using token"""
+    """Import a remote microceph cluster using token."""
     return utils.run_cmd(
         [
             "microceph",
