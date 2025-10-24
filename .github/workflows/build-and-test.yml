@@ -938,3 +938,98 @@ jobs:
         if: ${{ failure() && runner.debug }}
         uses: canonical/action-tmate@main
 
+  charm-upgrade-test:
+    needs:
+      - lint
+      - unit-test
+      - build
+    name: charm upgrade test
+    runs-on: self-hosted-linux-amd64-noble-xlarge
+    steps:
+
+      - name: Download charm
+        uses: actions/download-artifact@v4
+        with:
+          name: charms
+          path: ~/artifacts/
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.1
+        with:
+          # pin lxd to LTS release.
+          channel: 5.21/stable
+
+      - name: Install dependencies
+        run: ./tests/scripts/ci_helpers.sh install_deps
+
+      - name: Install MicroCeph squid charm from store
+        run: |
+          date
+          juju deploy -n 3 microceph --channel squid/stable
+          ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
+          date
+
+      - name: Show Juju status
+        run: |
+          set -eux
+          juju status
+
+      - name: Add disks for health
+        run: |
+          set -eux
+          for i in 0 1 2 ; do juju run microceph/$i add-osd loop-spec=4G,1 ; done
+          sleep 60
+          juju ssh microceph/0 -- sudo ceph -s
+
+      - name: Test successful upgrade to squid/candidate
+        run: |
+          set -eux
+          date
+          juju refresh microceph --channel squid/candidate
+          sleep 60
+          # Initial wait
+          juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m || true
+          # Get status
+          juju ssh microceph/0 -- sudo ceph -s
+          juju status
+          # Fail if goal status not reached
+          juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=2m
+          date
+
+      - name: Test successful upgrade to locally built charm
+        run: |
+          set -eux
+          date
+          juju refresh microceph --path ~/artifacts/microceph.charm
+          sleep 60
+          # Initial wait
+          juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m || true
+          # Get status
+          juju ssh microceph/0 -- sudo ceph -s
+          juju status
+          # Fail if goal status not reached
+          juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=2m
+          date
+
+
+      - name: Collect logs
+        if: failure()
+        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: microceph_juju_upgrade_test_logs
+          path: logs
+          retention-days: 30
+
+      - name: Setup tmate session
+        if: ${{ failure() && runner.debug }}
+        uses: canonical/action-tmate@main
+
