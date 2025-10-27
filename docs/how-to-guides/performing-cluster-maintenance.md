@@ -6,42 +6,36 @@ MicroCeph provides a simple and consistent workflow to support cluster maintenan
 
 Cluster maintenance requires extra redundancy in ceph services, make sure you have
 
-- at least 4 units of MicroCeph
-- enabled Ceph Monitor on all units.
+- at least 3 units of MicroCeph
 
-For example, a four-node MicroCeph cluster would look something similar to this:
+For example, a three-node MicroCeph cluster would look something similar to this:
 
 ```text
-Model      Controller  Cloud/Region         Version  SLA          Timestamp
-microceph  overlord    localhost/localhost  3.6.3    unsupported  14:09:58+08:00
+Model  Controller  Cloud/Region         Version  SLA          Timestamp
+ceph   overlord    localhost/localhost  3.6.8    unsupported  10:13:41+08:00
 
-App        Version  Status  Scale  Charm      Channel      Rev  Exposed  Message
-microceph           active      4  microceph  latest/edge  103  no
+App        Version  Status  Scale  Charm      Channel       Rev  Exposed  Message
+microceph           active      3  microceph  squid/stable  155  no
 
 Unit          Workload  Agent  Machine  Public address  Ports  Message
-microceph/0   active    idle   0        10.42.75.217
-microceph/1*  active    idle   1        10.42.75.46
-microceph/2   active    idle   2        10.42.75.23
-microceph/3   active    idle   3        10.42.75.189
+microceph/0   active    idle   0        10.42.75.116
+microceph/1*  active    idle   1        10.42.75.230
+microceph/2   active    idle   2        10.42.75.218
 
 Machine  State    Address       Inst id        Base          AZ  Message
-0        started  10.42.75.217  juju-681fff-0  ubuntu@24.04      Running
-1        started  10.42.75.46   juju-681fff-1  ubuntu@24.04      Running
-2        started  10.42.75.23   juju-681fff-2  ubuntu@24.04      Running
-3        started  10.42.75.189  juju-681fff-3  ubuntu@24.04      Running
+0        started  10.42.75.116  juju-6ae532-0  ubuntu@24.04      Running
+1        started  10.42.75.230  juju-6ae532-1  ubuntu@24.04      Running
+2        started  10.42.75.218  juju-6ae532-2  ubuntu@24.04      Running
 
 MicroCeph deployment summary:
-- juju-681fff-0 (10.42.75.217)
+- juju-6ae532-0 (10.42.75.116)
   Services: mds, mgr, mon, osd
   Disks: 1
-- juju-681fff-1 (10.42.75.46)
+- juju-6ae532-1 (10.42.75.230)
   Services: mds, mgr, mon, osd
   Disks: 1
-- juju-681fff-2 (10.42.75.23)
+- juju-6ae532-2 (10.42.75.218)
   Services: mds, mgr, mon, osd
-  Disks: 1
-- juju-681fff-3 (10.42.75.189)
-  Services: mon, osd
   Disks: 1
 ```
 
@@ -63,27 +57,27 @@ juju show-action microceph enter-maintenance
 
 ## Enter maintenance mode
 
-To put unit `microceph/3` into maintenance mode, and optionally disable the OSD service on that node, run
+To put unit `microceph/2` into maintenance mode, and optionally disable the OSD service on that node, run
 
 ```shell
-juju run microceph/3 enter-maintenance stop-osds=True
+juju run microceph/2 enter-maintenance stop-osds=True
 ```
 
 Our sample output looks like this:
 
 ```text
-Running operation 15 with 1 task
-  - task 16 on unit-microceph-3
+Running operation 17 with 1 task
+  - task 18 on unit-microceph-2
 
-Waiting for task 16...
+Waiting for task 18...
 actions:
   step-1:
-    description: Check if osds.[4] in node 'juju-681fff-3' are ok-to-stop.
+    description: Check if osds.[3] in node 'juju-6ae532-2' are ok-to-stop.
     error: ""
     id: check-osd-ok-to-stop-ops
   step-2:
-    description: Check if there are at least 3 mon, 1 mds, and 1 mgr services in the
-      cluster besides those in node 'juju-681fff-3'
+    description: Check if there are at least a majority of mon services, 1 mds service,
+      and 1 mgr service in the cluster besides those in node 'juju-6ae532-2'
     error: ""
     id: check-non-osd-svc-enough-ops
   step-3:
@@ -95,7 +89,7 @@ actions:
     error: ""
     id: assert-noout-flag-set-ops
   step-5:
-    description: Stop osd service in node 'juju-681fff-3'.
+    description: Stop osd service in node 'juju-6ae532-2'.
     error: ""
     id: stop-osd-ops
 errors: ""
@@ -105,35 +99,38 @@ status: success
 After entering maintenance mode, this is the status of the cluster:
 
 ```text
-$ juju ssh microceph/3 -- sudo snap services microceph
-Service               Startup   Current   Notes
-microceph.daemon      enabled   active    -
-microceph.mds         disabled  inactive  -
-microceph.mgr         disabled  inactive  -
-microceph.mon         enabled   active    -
-microceph.osd         disabled  inactive  -
-microceph.rbd-mirror  disabled  inactive  -
-microceph.rgw         disabled  inactive  -
+$ juju ssh microceph/2 -- sudo snap services microceph
+Service                  Startup   Current   Notes
+microceph.cephfs-mirror  disabled  inactive  -
+microceph.daemon         enabled   active    -
+microceph.mds            enabled   active    -
+microceph.mgr            enabled   active    -
+microceph.mon            enabled   active    -
+microceph.nfs            disabled  inactive  -
+microceph.osd            disabled  inactive  -
+microceph.rbd-mirror     disabled  inactive  -
+microceph.rgw            disabled  inactive  -
 
-$ juju ssh microceph/3 -- sudo microceph.ceph -s
+$ juju ssh microceph/2 -- sudo microceph.ceph -s
   cluster:
-    id:     156f1fa0-51a5-4515-a538-2fe32a8803b5
+    id:     91da3928-adbb-4675-8dc0-52bb2a07e027
     health: HEALTH_WARN
+            mons juju-6ae532-0,juju-6ae532-1,juju-6ae532-2 are low on available space
             noout flag(s) set
             1 osds down
             1 host (1 osds) down
             Degraded data redundancy: 2/6 objects degraded (33.333%), 1 pg degraded, 1 pg undersized
 
   services:
-    mon: 4 daemons, quorum juju-681fff-1,juju-681fff-0,juju-681fff-2,juju-681fff-3 (age 25m)
-    mgr: juju-681fff-1(active, since 25m), standbys: juju-681fff-0, juju-681fff-2
-    osd: 4 osds: 3 up (since 100s), 4 in (since 24m)
+    mon: 3 daemons, quorum juju-6ae532-1,juju-6ae532-0,juju-6ae532-2 (age 9m)
+    mgr: juju-6ae532-1(active, since 10m), standbys: juju-6ae532-0, juju-6ae532-2
+    osd: 3 osds: 2 up (since 64s), 3 in (since 7m)
          flags noout
 
   data:
     pools:   1 pools, 1 pgs
     objects: 2 objects, 449 KiB
-    usage:   107 MiB used, 16 GiB / 16 GiB avail
+    usage:   81 MiB used, 12 GiB / 12 GiB avail
     pgs:     2/6 objects degraded (33.333%)
              1 active+undersized+degraded
 ```
@@ -141,30 +138,33 @@ $ juju ssh microceph/3 -- sudo microceph.ceph -s
 Compare the status of the cluster with the cluster status **before** entering maintenance mode:
 
 ```text
-$ juju ssh microceph/3 -- sudo snap services microceph
-Service               Startup   Current   Notes
-microceph.daemon      enabled   active    -
-microceph.mds         disabled  inactive  -
-microceph.mgr         disabled  inactive  -
-microceph.mon         enabled   active    -
-microceph.osd         enabled   active    -
-microceph.rbd-mirror  disabled  inactive  -
-microceph.rgw         disabled  inactive  -
+$ juju ssh microceph/2 -- sudo snap services microceph
+Service                  Startup   Current   Notes
+microceph.cephfs-mirror  disabled  inactive  -
+microceph.daemon         enabled   active    -
+microceph.mds            enabled   active    -
+microceph.mgr            enabled   active    -
+microceph.mon            enabled   active    -
+microceph.nfs            disabled  inactive  -
+microceph.osd            enabled   active    -
+microceph.rbd-mirror     disabled  inactive  -
+microceph.rgw            disabled  inactive  -
 
-$ juju ssh microceph/3 -- sudo microceph.ceph -s
+$ juju ssh microceph/2 -- sudo microceph.ceph -s
   cluster:
-    id:     156f1fa0-51a5-4515-a538-2fe32a8803b5
-    health: HEALTH_OK
+    id:     91da3928-adbb-4675-8dc0-52bb2a07e027
+    health: HEALTH_WARN
+            mons juju-6ae532-0,juju-6ae532-1,juju-6ae532-2 are low on available space
 
   services:
-    mon: 4 daemons, quorum juju-681fff-1,juju-681fff-0,juju-681fff-2,juju-681fff-3 (age 21m)
-    mgr: juju-681fff-1(active, since 22m), standbys: juju-681fff-0, juju-681fff-2
-    osd: 4 osds: 4 up (since 20m), 4 in (since 20m)
+    mon: 3 daemons, quorum juju-6ae532-1,juju-6ae532-0,juju-6ae532-2 (age 12m)
+    mgr: juju-6ae532-1(active, since 12m), standbys: juju-6ae532-0, juju-6ae532-2
+    osd: 3 osds: 3 up (since 50s), 3 in (since 9m)
 
   data:
     pools:   1 pools, 1 pgs
     objects: 2 objects, 449 KiB
-    usage:   107 MiB used, 16 GiB / 16 GiB avail
+    usage:   481 MiB used, 12 GiB / 12 GiB avail
     pgs:     1 active+clean
 ```
 
@@ -174,20 +174,21 @@ $ juju ssh microceph/3 -- sudo microceph.ceph -s
 
 ## Exit maintenance mode for microceph node
 
-To recover unit `microceph/3` from maintenance mode, run
+To recover unit `microceph/2` from maintenance mode, run
 
 ```shell
-juju run microceph/3 exit-maintenance
+juju run microceph/2 exit-maintenance
 ```
 
 Our sample output looks like this:
 
 ```text
-$ juju run microceph/3 exit-maintenance
-Running operation 17 with 1 task
-  - task 18 on unit-microceph-3
+$ juju run microceph/2 exit-maintenance
 
-Waiting for task 18...
+Running operation 19 with 1 task
+  - task 20 on unit-microceph-2
+
+Waiting for task 20...
 actions:
   step-1:
     description: Run `ceph osd unset noout`.
@@ -198,40 +199,43 @@ actions:
     error: ""
     id: assert-noout-flag-unset-ops
   step-3:
-    description: Start osd service in node 'juju-681fff-3'.
+    description: Start osd service in node 'juju-6ae532-2'.
     error: ""
     id: start-osd-ops
 errors: ""
 status: success
 ```
 
-This is the cluster status after exiting maintenance node for unit `microceph/3`
+This is the cluster status after exiting maintenance node for unit `microceph/2`
 
 ```text
-$ juju ssh microceph/3 -- sudo snap services microceph
-Service               Startup   Current   Notes
-microceph.daemon      enabled   active    -
-microceph.mds         disabled  inactive  -
-microceph.mgr         disabled  inactive  -
-microceph.mon         enabled   active    -
-microceph.osd         enabled   active    -
-microceph.rbd-mirror  disabled  inactive  -
-microceph.rgw         disabled  inactive  -
+$ juju ssh microceph/2 -- sudo snap services microceph
+Service                  Startup   Current   Notes
+microceph.cephfs-mirror  disabled  inactive  -
+microceph.daemon         enabled   active    -
+microceph.mds            enabled   active    -
+microceph.mgr            enabled   active    -
+microceph.mon            enabled   active    -
+microceph.nfs            disabled  inactive  -
+microceph.osd            enabled   active    -
+microceph.rbd-mirror     disabled  inactive  -
+microceph.rgw            disabled  inactive  -
 
-$ juju ssh microceph/3 -- sudo microceph.ceph -s
+$ juju ssh microceph/2 -- sudo microceph.ceph -s
   cluster:
-    id:     156f1fa0-51a5-4515-a538-2fe32a8803b5
-    health: HEALTH_OK
+    id:     91da3928-adbb-4675-8dc0-52bb2a07e027
+    health: HEALTH_WARN
+            mons juju-6ae532-0,juju-6ae532-1,juju-6ae532-2 are low on available space
 
   services:
-    mon: 4 daemons, quorum juju-681fff-1,juju-681fff-0,juju-681fff-2,juju-681fff-3 (age 30m)
-    mgr: juju-681fff-1(active, since 31m), standbys: juju-681fff-0, juju-681fff-2
-    osd: 4 osds: 4 up (since 45s), 4 in (since 29m)
+    mon: 3 daemons, quorum juju-6ae532-1,juju-6ae532-0,juju-6ae532-2 (age 16m)
+    mgr: juju-6ae532-1(active, since 16m), standbys: juju-6ae532-0, juju-6ae532-2
+    osd: 3 osds: 3 up (since 4m), 3 in (since 13m)
 
   data:
     pools:   1 pools, 1 pgs
     objects: 2 objects, 449 KiB
-    usage:   508 MiB used, 16 GiB / 16 GiB avail
+    usage:   481 MiB used, 12 GiB / 12 GiB avail
     pgs:     1 active+clean
 ```
 
