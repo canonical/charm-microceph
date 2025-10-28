@@ -17,9 +17,6 @@
 
 """Handle Charm's Remote Integration Events."""
 
-import base64
-import configparser
-import json
 import logging
 from enum import Enum
 from typing import Callable
@@ -101,6 +98,7 @@ class MicroCephRemote(Object):
         # add a check here to go to blocked state if such a relation exists.
 
         # remove remote record
+        logger.debug("Emit: Remote departed event")
         self.on.microceph_remote_departed.emit(event.relation)
 
     def _on_changed(self, event):
@@ -111,23 +109,31 @@ class MicroCephRemote(Object):
 
         with sunbeam_guard.guard(self.charm, self.relation_name):
             if not site_name:
+                logger.debug("Blocking remote relation, site-name not set")
                 event.defer()
                 raise sunbeam_guard.BlockedExceptionError("config site-name not set")
 
+            logger.debug("Processing remote relation changed event")
+
             local_relation_data = event.relation.data.get(self.charm.app)
-            remote_relation_data = event.relation.data.get(event.app)
+            remote_relation_data = event.relation.data.get(event.relation.app)
+
+            # Check local data
             local_site_name = local_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
             local_token = local_relation_data.get(str(RemoteRelationDataKeys.token), None)
 
             if not local_site_name or not local_token:
+                logger.debug("Emit: Remote update remote event")
                 self.on.microceph_remote_update_remote.emit(event.relation)
 
+            # Check remote data
             remote_site_name = remote_relation_data.get(
                 str(RemoteRelationDataKeys.site_name), None
             )
             remote_token = remote_relation_data.get(str(RemoteRelationDataKeys.token), None)
             if remote_site_name is not None and remote_token is not None:
                 # remote data available, reconcile if necessary
+                logger.debug("Emit: Remote reconcile event")
                 self.on.microceph_remote_reconcile.emit(event.relation)
 
     def _on_peer_updated(self, event):
@@ -140,6 +146,7 @@ class MicroCephRemote(Object):
             return
 
         for remote_rel in self.charm.model.relations[self.relation_name]:
+            logger.debug("Emit: Remote update remote remote due to peer update")
             self.on.microceph_remote_update_remote.emit(remote_rel)
 
 
@@ -156,7 +163,7 @@ class MicroCephRemoteHandler(RelationHandler):
 
     def setup_event_handler(self) -> Object:
         """Configure event handlers for an ceph-nfs-client interface."""
-        logger.debug("Setting up ceph-nfs-client event handler")
+        logger.debug(f"Setting up {self.relation_name} event handler")
 
         microceph_remote = MicroCephRemote(self.charm, self.relation_name)
 
@@ -171,25 +178,25 @@ class MicroCephRemoteHandler(RelationHandler):
     @property
     def ready(self) -> bool:
         """Property: ready check."""
+        logger.debug(f"Reporting {self.relation_name} ready")
         return True
 
     def _on_departed(self, event):
         """Handle integration cleanup."""
+        logger.debug("Handling remote departed event")
         remote_relation_data = event.relation.data.get(event.relation.app)
         remote_site_name = remote_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
 
         remove_remote_cluster(remote_site_name)
 
     def _on_reconcile(self, event):
+        logger.debug("Handling remote reconcile event")
         # fetch remote app data
-        remote_relation_data = event.relation.data.get(event.relation.app)
+        remote_relation_data = event.relation.data.get(event.relation.app, None)
         remote_site_name = remote_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
         remote_token = remote_relation_data.get(str(RemoteRelationDataKeys.token), None)
-        remote_ceph_monitors = decode_monitors_from_cluster_token(remote_token)
-        current_monitors = get_cluster_monitors(remote_site_name)
 
-        # if monitors differ, re-import new token
-        if any(monitor not in current_monitors for monitor in remote_ceph_monitors):
+        if remote_site_name and remote_token:
             import_remote_cluster(
                 local_name=self.charm.model.config.get("site-name"),
                 remote_name=remote_site_name,
@@ -197,57 +204,30 @@ class MicroCephRemoteHandler(RelationHandler):
             )
 
     def _on_update_remote(self, event):
-        # fetch local app data
+        logger.debug("Handling remote update event")
 
         local_relation_data = event.relation.data.get(self.charm.app)
         remote_relation_data = event.relation.data.get(event.relation.app)
 
-        remote_site_name = remote_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
+        local_site_name = local_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
+        if not local_site_name:
+            # Set local site name if not set
+            local_relation_data.update(
+                {str(RemoteRelationDataKeys.site_name): self.charm.model.config.get("site-name")}
+            )
+
         local_token = local_relation_data.get(str(RemoteRelationDataKeys.token), None)
-        last_updated_monitors = decode_monitors_from_cluster_token(local_token)
-
-        new_token = get_cluster_export_token(remote_site_name)
-        current_monitors = decode_monitors_from_cluster_token(new_token)
-
-        # if monitors differ, update token
-        if set(last_updated_monitors) != set(current_monitors):
+        remote_site_name = remote_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
+        # remote site name is required to generate token
+        if not local_token and remote_site_name:
+            new_token = get_cluster_export_token(remote_site_name)
             local_relation_data.update({str(RemoteRelationDataKeys.token): new_token})
-
-
-def decode_monitors_from_cluster_token(token) -> list:
-    """Decode remote import token to read monitor IPs."""
-    if not token:
-        return []
-
-    json_b_str = base64.b64decode(token.encode("ascii"))
-    import_dict = json.loads(json_b_str.decode("utf-8"))
-
-    return [value for key, value in import_dict.items() if key.startswith("mon.host")]
-
-
-def get_cluster_monitors(cluster_name) -> list:
-    """Get monitors of a given cluster."""
-    if not cluster_name:
-        return []
-
-    remote_config = configparser.ConfigParser()
-    remote_config.read(f"/var/snap/microceph/current/conf/{cluster_name}.conf")
-
-    try:
-        monitors = remote_config["global"]["mon host"]
-        # work around ipv6 bracket enclosure
-        monitors = monitors.replace("[", "")
-        monitors = monitors.replace("]", "")
-
-        return monitors.split(",")
-    except KeyError:
-        return []
 
 
 def get_cluster_export_token(remote_name) -> str:
     """Get new cluster token for remote."""
     if not remote_name:
-        return ""
+        raise sunbeam_guard.BlockedExceptionError("Remote site name empty")
 
     return microceph.export_cluster_token(remote_name)
 
@@ -259,6 +239,8 @@ def import_remote_cluster(local_name, remote_name, remote_token) -> None:
             f"Aborting remote import, all values from remote name({remote_name}), local name({local_name}) and token required"
         )
         return
+
+    logger.debug(f"Importing remote cluster {remote_name} into local cluster {local_name}")
 
     microceph.import_remote_token(
         local_name=local_name,
@@ -272,6 +254,8 @@ def remove_remote_cluster(remote_name) -> None:
     if not remote_name:
         logger.error(f"Aborting remote removal, remote name({remote_name}) required")
         return
+
+    logger.debug(f"Removing remote cluster {remote_name}")
 
     microceph.remove_remote_cluster(
         remote_name=remote_name,

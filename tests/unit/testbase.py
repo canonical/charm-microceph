@@ -115,7 +115,7 @@ class TestBaseCharm(test_utils.CharmTestCase):
     def add_ceph_remote_relation(self, harness: Harness) -> int:
         """Add ceph-remote-client relation."""
         return harness.add_relation(
-            "remote",
+            "remote-requirer",
             "microceph",
             app_data={
                 "site-name": "secondary",

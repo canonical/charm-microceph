@@ -36,7 +36,7 @@ provides:
     interface: ceph-mds
   cos-agent:
     interface: cos_agent
-  remote:
+  remote-provider:
     interface: microceph-remote
 
 requires:
@@ -49,7 +49,7 @@ requires:
   receive-ca-cert:
     interface: certificate_transfer
     optional: true
-  remote:
+  remote-requirer:
     interface: microceph-remote
     optional: true
 
