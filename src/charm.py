@@ -427,15 +427,15 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def handle_ceph(self, event) -> None:
         """Callback for interface ceph."""
-        logger.info("Callback for ceph interface, ignore")
+        logger.info("Callback for ceph interface, (noop)")
 
     def handle_ceph_nfs(self, event) -> None:
         """Callback for interface ceph-nfs-client."""
-        logger.debug("Callback for ceph-nfs-client interface, ignore")
+        logger.debug("Callback for ceph-nfs-client interface, (noop)")
 
     def handle_microceph_remote(self, event) -> None:
         """Callback for interface ceph-nfs-client."""
-        logger.debug("Callback for microceph-remote interface, ignore")
+        logger.debug("Callback for microceph-remote interface, (noop)")
 
     def upgrade_dispatch(self, event: ops.framework.EventBase) -> None:
         """Dispatch upgrade events."""

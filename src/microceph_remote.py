@@ -81,25 +81,32 @@ class MicroCephRemote(Object):
         self.relation_name = relation_name
 
         self.framework.observe(charm.on[relation_name].relation_joined, self._on_changed)
-        self.framework.observe(charm.on[relation_name].relation_departed, self._on_departed)
+        self.framework.observe(charm.on[relation_name].relation_broken, self._on_broken)
         self.framework.observe(charm.on[relation_name].relation_changed, self._on_changed)
 
         # React to ceph peers to update
         self.framework.observe(charm.on["peers"].relation_departed, self._on_peer_updated)
         self.framework.observe(charm.on["peers"].relation_changed, self._on_peer_updated)
 
-    def _on_departed(self, event):
+    def _on_broken(self, event):
         if not self.model.unit.is_leader():
             logger.debug("Not the leader, ignoring remote event")
             return
 
-        # TODO: (utkarshbhatthere):
-        # When specific workload based integrations are implemented,
-        # add a check here to go to blocked state if such a relation exists.
+        with sunbeam_guard.guard(self.charm, self.relation_name):
+            is_ready = self.charm.ready_for_service()
+            if not is_ready:
+                logger.debug("Microceph not ready, deferring remote relation changed event")
+                event.defer()
+                raise sunbeam_guard.WaitingExceptionError(f"cluster not ready: {is_ready}")
 
-        # remove remote record
-        logger.debug("Emit: Remote departed event")
-        self.on.microceph_remote_departed.emit(event.relation)
+            # TODO: (utkarshbhatthere):
+            # When specific workload based integrations are implemented,
+            # add a check here to go to blocked state if such a relation exists.
+
+            # remove remote record
+            logger.debug("Emit: Remote departed event")
+            self.on.microceph_remote_departed.emit(event.relation)
 
     def _on_changed(self, event):
         if not self.model.unit.is_leader():
@@ -108,6 +115,12 @@ class MicroCephRemote(Object):
         site_name = self.charm.model.config.get("site-name")
 
         with sunbeam_guard.guard(self.charm, self.relation_name):
+            is_ready = self.charm.ready_for_service()
+            if not is_ready:
+                logger.debug("Microceph not ready, deferring remote relation changed event")
+                event.defer()
+                raise sunbeam_guard.WaitingExceptionError(f"cluster not ready: {is_ready}")
+
             if not site_name:
                 logger.debug("Blocking remote relation, site-name not set")
                 event.defer()
@@ -122,6 +135,12 @@ class MicroCephRemote(Object):
             local_site_name = local_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
             local_token = local_relation_data.get(str(RemoteRelationDataKeys.token), None)
 
+            logger.debug(
+                "Data for local site: Name=%s, isToken=%s",
+                local_site_name,
+                local_token is not None,
+            )
+
             if not local_site_name or not local_token:
                 logger.debug("Emit: Remote update remote event")
                 self.on.microceph_remote_update_remote.emit(event.relation)
@@ -131,6 +150,13 @@ class MicroCephRemote(Object):
                 str(RemoteRelationDataKeys.site_name), None
             )
             remote_token = remote_relation_data.get(str(RemoteRelationDataKeys.token), None)
+
+            logger.debug(
+                "Data for remote site: Name=%s, isToken=%s",
+                remote_site_name,
+                remote_token is not None,
+            )
+
             if remote_site_name is not None and remote_token is not None:
                 # remote data available, reconcile if necessary
                 logger.debug("Emit: Remote reconcile event")
@@ -211,13 +237,18 @@ class MicroCephRemoteHandler(RelationHandler):
 
         local_site_name = local_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
         if not local_site_name:
-            # Set local site name if not set
-            local_relation_data.update(
-                {str(RemoteRelationDataKeys.site_name): self.charm.model.config.get("site-name")}
-            )
+            local_site_name = self.charm.model.config.get("site-name")
+            logger.debug("Updating local site name(%s) in remote relation data", local_site_name)
+            local_relation_data.update({str(RemoteRelationDataKeys.site_name): local_site_name})
 
         local_token = local_relation_data.get(str(RemoteRelationDataKeys.token), None)
         remote_site_name = remote_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
+
+        logger.debug(
+            "For Remote site: %s, isLocalToken=%s",
+            remote_site_name,
+            local_token is not None,
+        )
         # remote site name is required to generate token
         if not local_token and remote_site_name:
             new_token = get_cluster_export_token(remote_site_name)

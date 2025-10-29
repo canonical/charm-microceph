@@ -112,11 +112,13 @@ class TestBaseCharm(test_utils.CharmTestCase):
         """Add ceph-nfs-client relation."""
         return harness.add_relation("ceph-nfs", app_name, unit_data={"foo": "lish"})
 
-    def add_ceph_remote_relation(self, harness: Harness) -> int:
+    def add_ceph_remote_relation(
+        self, harness: Harness, relation_name: str = "remote-requirer"
+    ) -> int:
         """Add ceph-remote-client relation."""
         return harness.add_relation(
-            "remote-requirer",
-            "microceph",
+            relation_name,
+            "remote-microceph",
             app_data={
                 "site-name": "secondary",
                 "token": "eyJmc2lkIjoiNGM4Mzc1ZDYtMWNlZi00MzJhLWJkMTYtMDU3Y2I4YTJmNjdmIiwia2V5cmluZy5jbGllbnQucHJpbWFyeSI6IkFRQ2NPdjlvVUtLWE1CQUFLWlNBc25mSGgrMG95dkdjUEhEYzNBPT0iLCJtb24uaG9zdC53b3JrYm9vayI6IjE5Mi4xNjguMS41OSIsInB1YmxpY19uZXR3b3JrIjoiMTkyLjE2OC4xLjU5LzI0In0=",
