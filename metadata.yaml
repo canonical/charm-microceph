@@ -31,7 +31,7 @@ provides:
   ceph-nfs:
     interface: ceph-nfs-client
   ceph-rgw-ready:
-    interface: ceph-rgw-ready
+    interface: ceph-rgw-client
   radosgw:
     interface: ceph-radosgw
   mds:
