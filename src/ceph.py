@@ -553,12 +553,15 @@ class CephStatus(object):
 
     def service_status(self) -> dict:
         """Return the service status from Ceph."""
+        # NOTE: ceph service status returns json output without an explicit
+        # --format flag.
         cmd = ["sudo", "microceph.ceph", "service", "status"]
         try:
             output = utils.run_cmd(cmd)
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as ex:
             # ceph service status command failed, possibly mon wasn't reachable
             # as it's restarting. Return {} in this case.
+            logger.debug("Failed to run command: '%s'. Error: %s", " ".join(cmd), ex)
             return {}
 
         return json.loads(output.strip())
