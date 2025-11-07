@@ -89,6 +89,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         # Initialise handlers for events.
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.stop, self._on_stop)
+        self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self.on.set_pool_size_action, self._set_pool_size_action)
         self.framework.observe(self.on.peers_relation_created, self._on_peer_relation_created)
         self.framework.observe(self.on["peers"].relation_departed, self._on_peer_relation_departed)
@@ -128,6 +129,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             # a host may result in errors even if the request was successful.
             if microceph.is_cluster_member(gethostname()):
                 raise e
+
+    def _on_update_status(self, event: ops.framework.EventBase) -> None:
+        """Update status event handler."""
+        if self.unit.is_leader():
+            self.ceph_rgw.set_readiness_on_related_units()
 
     def _on_peer_relation_created(self, event: ops.framework.EventBase) -> None:
         logging.debug(f"Peer relation created: {event}")

@@ -128,7 +128,7 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
         # ready for service, but no OSDs yet.
         self.ready_for_service.return_value = True
 
-        self.harness.charm.ceph_rgw.set_readiness_on_related_units()
+        self.harness.charm.on.update_status.emit()
 
         self.assertEqual({"ready": "false"}, rel_data)
         self.get_osd_count.assert_called_once()
@@ -136,14 +136,14 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
         # has OSDs, but RF is higher.
         self.get_osd_count.return_value = 1
 
-        self.harness.charm.ceph_rgw.set_readiness_on_related_units()
+        self.harness.charm.on.update_status.emit()
 
         self.assertEqual({"ready": "false"}, rel_data)
 
         # OSD count at least matches RF, but service is not available yet.
         self.harness.update_config({"default-pool-size": 1})
 
-        self.harness.charm.ceph_rgw.set_readiness_on_related_units()
+        self.harness.charm.on.update_status.emit()
 
         self.assertEqual({"ready": "false"}, rel_data)
         self.run_cmd.assert_any_call(["sudo", "microceph.ceph", "service", "status"])
@@ -155,7 +155,7 @@ class TestCephRgwClientProviderHandler(testbase.TestBaseCharm):
             },
         }
 
-        self.harness.charm.ceph_rgw.set_readiness_on_related_units()
+        self.harness.charm.on.update_status.emit()
 
         self.assertEqual({"ready": "true"}, rel_data)
 
