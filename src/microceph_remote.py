@@ -132,8 +132,8 @@ class MicroCephRemote(Object):
             remote_relation_data = event.relation.data.get(event.relation.app)
 
             # Check local data
-            local_site_name = local_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
-            local_token = local_relation_data.get(str(RemoteRelationDataKeys.token), None)
+            local_site_name = local_relation_data.get(RemoteRelationDataKeys.site_name.value, None)
+            local_token = local_relation_data.get(RemoteRelationDataKeys.token.value, None)
 
             logger.debug(
                 "Data for local site: Name=%s, isToken=%s",
@@ -149,7 +149,7 @@ class MicroCephRemote(Object):
             remote_site_name = remote_relation_data.get(
                 str(RemoteRelationDataKeys.site_name), None
             )
-            remote_token = remote_relation_data.get(str(RemoteRelationDataKeys.token), None)
+            remote_token = remote_relation_data.get(RemoteRelationDataKeys.token.value, None)
 
             logger.debug(
                 "Data for remote site: Name=%s, isToken=%s",
@@ -211,7 +211,7 @@ class MicroCephRemoteHandler(RelationHandler):
         """Handle integration cleanup."""
         logger.debug("Handling remote departed event")
         remote_relation_data = event.relation.data.get(event.relation.app)
-        remote_site_name = remote_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
+        remote_site_name = remote_relation_data.get(RemoteRelationDataKeys.site_name.value, None)
 
         remove_remote_cluster(remote_site_name)
 
@@ -219,8 +219,8 @@ class MicroCephRemoteHandler(RelationHandler):
         logger.debug("Handling remote reconcile event")
         # fetch remote app data
         remote_relation_data = event.relation.data.get(event.relation.app, None)
-        remote_site_name = remote_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
-        remote_token = remote_relation_data.get(str(RemoteRelationDataKeys.token), None)
+        remote_site_name = remote_relation_data.get(RemoteRelationDataKeys.site_name.value, None)
+        remote_token = remote_relation_data.get(RemoteRelationDataKeys.token.value, None)
 
         if remote_site_name and remote_token:
             import_remote_cluster(
@@ -235,14 +235,14 @@ class MicroCephRemoteHandler(RelationHandler):
         local_relation_data = event.relation.data.get(self.charm.app)
         remote_relation_data = event.relation.data.get(event.relation.app)
 
-        local_site_name = local_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
+        local_site_name = local_relation_data.get(RemoteRelationDataKeys.site_name.value, None)
         if not local_site_name:
             local_site_name = self.charm.model.config.get("site-name")
             logger.debug("Updating local site name(%s) in remote relation data", local_site_name)
-            local_relation_data.update({str(RemoteRelationDataKeys.site_name): local_site_name})
+            local_relation_data.update({RemoteRelationDataKeys.site_name.value: local_site_name})
 
-        local_token = local_relation_data.get(str(RemoteRelationDataKeys.token), None)
-        remote_site_name = remote_relation_data.get(str(RemoteRelationDataKeys.site_name), None)
+        local_token = local_relation_data.get(RemoteRelationDataKeys.token.value, None)
+        remote_site_name = remote_relation_data.get(RemoteRelationDataKeys.site_name.value, None)
 
         logger.debug(
             "For Remote site: %s, isLocalToken=%s",
@@ -252,7 +252,7 @@ class MicroCephRemoteHandler(RelationHandler):
         # remote site name is required to generate token
         if not local_token and remote_site_name:
             new_token = get_cluster_export_token(remote_site_name)
-            local_relation_data.update({str(RemoteRelationDataKeys.token): new_token})
+            local_relation_data.update({RemoteRelationDataKeys.token.value: new_token})
 
 
 def get_cluster_export_token(remote_name) -> str:
