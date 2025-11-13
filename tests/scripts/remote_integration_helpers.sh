@@ -6,12 +6,13 @@ function wait_for_remote_enlistment() {
   local remote="${2?missing}"
 
   declare -i i=0
-  while [[ $i -lt 20 ]]; do
-    remotes=$(juju ssh primary/0 -- "sudo microceph remote list --json")
+  while [[ $i -lt 40 ]]; do
+    remotes=$(juju ssh $unit -- "sudo microceph remote list --json")
     if [[ $? -ne 0 ]]; then
       echo "remote list command failed, retrying in 5 seconds"
-      sleep 30s
+      sleep 60s
       i=$((i + 1))
+      juju show-unit $unit
       continue
     fi
 
