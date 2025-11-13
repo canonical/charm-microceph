@@ -826,7 +826,7 @@ jobs:
           juju wait-for unit primary/0 --query='workload-status=="blocked"' --timeout=10m
           juju wait-for unit secondary/0 --query='workload-status=="blocked"' --timeout=10m
 
-          juju config primary  site-name="primary"
+          juju config primary site-name="primary"
           juju config secondary site-name="secondary"
 
 

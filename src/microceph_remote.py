@@ -147,7 +147,7 @@ class MicroCephRemote(Object):
 
             # Check remote data
             remote_site_name = remote_relation_data.get(
-                str(RemoteRelationDataKeys.site_name), None
+                RemoteRelationDataKeys.site_name.value, None
             )
             remote_token = remote_relation_data.get(RemoteRelationDataKeys.token.value, None)
 

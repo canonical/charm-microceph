@@ -28,7 +28,7 @@ function wait_for_remote_enlistment() {
     i=$((i + 1))
   done
 
-  if [[ $i -eq 20 ]]; then
+  if [[ $i -gt 30 ]]; then
     echo "Timeout reached, failed to enlist remote."
     exit -1
   fi
