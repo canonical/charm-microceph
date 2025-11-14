@@ -852,6 +852,7 @@ jobs:
         run: |
           set -eux
           bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/0 secondary
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/1 secondary
           bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment secondary/0 primary
 
       - name: Collect logs
