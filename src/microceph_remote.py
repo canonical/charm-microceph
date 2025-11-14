@@ -169,6 +169,7 @@ class MicroCephRemote(Object):
 
         if not self.charm.model.config.get("site-name", None):
             # site name is not set
+            logger.debug("site name not set, skipping remote update due to peer update")
             return
 
         for remote_rel in self.charm.model.relations[self.relation_name]:
@@ -188,7 +189,7 @@ class MicroCephRemoteHandler(RelationHandler):
         super().__init__(charm, relation_name, callback_f)
 
     def setup_event_handler(self) -> Object:
-        """Configure event handlers for an ceph-nfs-client interface."""
+        """Configure event handlers for remote interface."""
         logger.debug(f"Setting up {self.relation_name} event handler")
 
         microceph_remote = MicroCephRemote(self.charm, self.relation_name)

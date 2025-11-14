@@ -808,8 +808,8 @@ jobs:
           set -eux
           date
           # Deploy 2 microceph clusters named primary and secondary
-          juju deploy ~/artifacts/microceph.charm primary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=50G mem=8G"
-          juju deploy ~/artifacts/microceph.charm secondary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=50G mem=8G"
+          juju deploy ~/artifacts/microceph.charm primary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=25G mem=8G"
+          juju deploy ~/artifacts/microceph.charm secondary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=25G mem=8G"
           # wait for charm to bootstrap and OSD devices to enroll.
           juju wait-for unit primary/0 --timeout '30m' --query='workload-message=="(workload) charm is ready"'
           juju wait-for unit secondary/0 --timeout '15m' --query='workload-message=="(workload) charm is ready"'
@@ -833,7 +833,22 @@ jobs:
           juju wait-for unit primary/0 --query='workload-status=="active"' --timeout=10m
           juju wait-for unit secondary/0 --query='workload-status=="active"' --timeout=10m
 
+          juju status --relations
+
       - name: Wait for token exchange and remote enlisting
+        run: |
+          set -eux
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/0 secondary
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment secondary/0 primary
+
+      - name: Scale up the primary cluster
+        run: |
+          set -eux
+          juju add-unit primary -n 1
+          # wait for new unit to be active/idle
+          juju wait-for unit primary/1 --query='workload-status=="active"' --timeout=20m
+
+      - name: Re-verify remote listings
         run: |
           set -eux
           bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/0 secondary
