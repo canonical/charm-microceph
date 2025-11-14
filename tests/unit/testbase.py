@@ -50,7 +50,7 @@ class _MicroCephCharm(charm.MicroCephCharm):
         super().__init__(framework)
 
     def configure_ceph(self, event):
-        return True
+        return
 
 
 class TestBaseCharm(test_utils.CharmTestCase):
@@ -111,6 +111,19 @@ class TestBaseCharm(test_utils.CharmTestCase):
     def add_ceph_nfs_relation(self, harness: Harness, app_name="manila-cephfs") -> int:
         """Add ceph-nfs-client relation."""
         return harness.add_relation("ceph-nfs", app_name, unit_data={"foo": "lish"})
+
+    def add_ceph_remote_relation(
+        self, harness: Harness, relation_name: str = "remote-requirer"
+    ) -> int:
+        """Add ceph-remote-client relation."""
+        return harness.add_relation(
+            relation_name,
+            "remote-microceph",
+            app_data={
+                "site-name": "secondary",
+                "token": "eyJmc2lkIjoiNGM4Mzc1ZDYtMWNlZi00MzJhLWJkMTYtMDU3Y2I4YTJmNjdmIiwia2V5cmluZy5jbGllbnQucHJpbWFyeSI6IkFRQ2NPdjlvVUtLWE1CQUFLWlNBc25mSGgrMG95dkdjUEhEYzNBPT0iLCJtb24uaG9zdC53b3JrYm9vayI6IjE5Mi4xNjguMS41OSIsInB1YmxpY19uZXR3b3JrIjoiMTkyLjE2OC4xLjU5LzI0In0=",
+            },
+        )
 
     def add_unit(self, harness: Harness, rel_id: int, unit_name: str, unit_data={}) -> None:
         harness.add_relation_unit(rel_id, unit_name)

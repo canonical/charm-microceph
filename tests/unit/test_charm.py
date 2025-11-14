@@ -54,7 +54,14 @@ class TestCharm(testbase.TestBaseCharm):
     @patch.object(Path, "write_bytes")
     @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
     def test_mandatory_relations(
-        self, mock_file, mock_path_wb, mock_path_chmod, subprocess, cclient, _utils, _cos_agent
+        self,
+        mock_file,
+        mock_path_wb,
+        mock_path_chmod,
+        subprocess,
+        cclient,
+        _utils,
+        _cos_agent,
     ):
         """Test the mandatory charm relations."""
         cclient.from_socket().cluster.list_services.return_value = []
@@ -98,11 +105,13 @@ class TestCharm(testbase.TestBaseCharm):
 
         self.harness.set_leader()
         self.harness.update_config({"snap-channel": "1.0/stable"})
+        self.harness.update_config({"site-name": "primary"})
         self.add_complete_peer_relation(self.harness)
         self.add_complete_identity_relation(self.harness)
         self.add_complete_ingress_relation(self.harness)
         self.add_complete_certificate_transfer_relation(self.harness)
         self.add_ceph_nfs_relation(self.harness)
+        self.add_ceph_remote_relation(self.harness)
 
         subprocess.run.assert_any_call(
             [

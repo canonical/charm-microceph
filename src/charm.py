@@ -19,6 +19,7 @@
 
 This charm deploys and manages microceph.
 """
+
 import json
 import logging
 import subprocess
@@ -43,6 +44,7 @@ import microceph
 import microceph_client
 from ceph_nfs import CephNfsProviderHandler
 from microceph_client import ClusterServiceUnavailableException
+from microceph_remote import MicroCephRemoteHandler
 from radosgw import RadosGWHandler
 from relation_handlers import (
     CephClientProviderHandler,
@@ -102,14 +104,14 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             config("snap-channel"),
         ]
 
-        logger.debug(f'Running command {" ".join(cmd)}')
+        logger.debug(f"Running command {' '.join(cmd)}")
         process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=900)
-        logger.debug(f"Command finished. stdout={process.stdout}, " f"stderr={process.stderr}")
+        logger.debug(f"Command finished. stdout={process.stdout}, stderr={process.stderr}")
 
         cmd = ["sudo", "snap", "alias", "microceph.ceph", "ceph"]
-        logger.debug(f'Running command {" ".join(cmd)}')
+        logger.debug(f"Running command {' '.join(cmd)}")
         process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=180)
-        logger.debug(f"Command finished. stdout={process.stdout}, " f"stderr={process.stderr}")
+        logger.debug(f"Command finished. stdout={process.stdout}, stderr={process.stderr}")
 
         try:
             snap.SnapCache()["microceph"].hold()
@@ -328,6 +330,15 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def get_relation_handlers(self, handlers=None) -> List[sunbeam_rhandlers.RelationHandler]:
         """Relation handlers for the service."""
         handlers = handlers or []
+        if self.can_add_handler("remote-provider", handlers):
+            self.remote_provider = MicroCephRemoteHandler(
+                self, "remote-provider", self.handle_microceph_remote
+            )
+        if self.can_add_handler("remote-requirer", handlers):
+            self.remote_requirer = MicroCephRemoteHandler(
+                self, "remote-requirer", self.handle_microceph_remote
+            )
+
         if self.can_add_handler("peers", handlers):
             self.peers = MicroClusterPeerHandler(
                 self,
@@ -416,11 +427,15 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def handle_ceph(self, event) -> None:
         """Callback for interface ceph."""
-        logger.info("Callback for ceph interface, ignore")
+        logger.info("Callback for ceph interface, (noop)")
 
     def handle_ceph_nfs(self, event) -> None:
         """Callback for interface ceph-nfs-client."""
-        logger.debug("Callback for ceph-nfs-client interface, ignore")
+        logger.debug("Callback for ceph-nfs-client interface, (noop)")
+
+    def handle_microceph_remote(self, event) -> None:
+        """Callback for interface ceph-nfs-client."""
+        logger.debug("Callback for microceph-remote interface, (noop)")
 
     def upgrade_dispatch(self, event: ops.framework.EventBase) -> None:
         """Dispatch upgrade events."""

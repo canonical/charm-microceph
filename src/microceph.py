@@ -237,7 +237,15 @@ def enable_nfs(target: str, cluster_id: str, bind_addr: str) -> None:
 
 def disable_nfs(target: str, cluster_id: str) -> None:
     """Disable the NFS service on the target host with the given Cluster ID."""
-    cmd = ["microceph", "disable", "nfs", "--target", target, "--cluster-id", cluster_id]
+    cmd = [
+        "microceph",
+        "disable",
+        "nfs",
+        "--target",
+        target,
+        "--cluster-id",
+        cluster_id,
+    ]
     utils.run_cmd(cmd)
 
 
@@ -410,3 +418,28 @@ def set_pool_size(pools: str, size: int):
     cmd = ["sudo", "microceph", "pool", "set-rf", "--size", str(size)]
     cmd.extend(pools_list)
     utils.run_cmd(cmd)
+
+
+def export_cluster_token(remote_name: str) -> str:
+    """Generate cluster token for remote cluster."""
+    return utils.run_cmd(["microceph", "cluster", "export", remote_name])
+
+
+def import_remote_token(local_name, remote_name, remote_token):
+    """Import a remote microceph cluster using token."""
+    return utils.run_cmd(
+        [
+            "microceph",
+            "remote",
+            "import",
+            remote_name,
+            remote_token,
+            "--local-name",
+            local_name,
+        ]
+    )
+
+
+def remove_remote_cluster(remote_name: str):
+    """Remove a remote microceph cluster record."""
+    return utils.run_cmd(["microceph", "remote", "remove", remote_name])

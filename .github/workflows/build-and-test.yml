@@ -131,7 +131,6 @@ jobs:
     name: Functional test
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
-
       - name: Download charm
         uses: actions/download-artifact@v4
         with:
@@ -163,7 +162,7 @@ jobs:
 
           sudo snap install openstack --channel 2024.1
           sudo snap connect openstack:juju-bin juju:juju-bin
-          
+
           sunbeam prepare-node-script --bootstrap | bash -x
           sg snap_daemon "sunbeam cluster bootstrap --accept-defaults --topology single --database single"
           sg snap_daemon "sunbeam cluster list"
@@ -227,7 +226,6 @@ jobs:
     name: Juju cluster test
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
-
       - name: Download charm
         uses: actions/download-artifact@v4
         with:
@@ -307,7 +305,6 @@ jobs:
     name: Juju cluster maintenance test
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
-
       - name: Download charm
         uses: actions/download-artifact@v4
         with:
@@ -504,7 +501,6 @@ jobs:
     name: Juju single test
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
-
       - name: Download charm
         uses: actions/download-artifact@v4
         with:
@@ -588,7 +584,6 @@ jobs:
     name: snap upgrade test
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
-
       - name: Download charm
         uses: actions/download-artifact@v4
         with:
@@ -718,7 +713,6 @@ jobs:
     name: Juju Network spaces test
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
-
       - name: Download charm
         uses: actions/download-artifact@v4
         with:
@@ -746,7 +740,7 @@ jobs:
           # Configure Juju spaces
           ./tests/scripts/ci_helpers.sh setup_juju_spaces
 
-      - name: Prepare 3 virtual machines 
+      - name: Prepare 3 virtual machines
         run: ./tests/scripts/ci_helpers.sh prepare_3_vms
 
       - name: Install MicroCeph charm
@@ -780,8 +774,6 @@ jobs:
         if: ${{ failure() && runner.debug }}
         uses: canonical/action-tmate@main
 
-
-
   juju-mds-test:
     needs:
       - lint
@@ -790,7 +782,6 @@ jobs:
     name: Juju mds test
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
-
       - name: Download charm
         uses: actions/download-artifact@v4
         with:
@@ -839,6 +830,102 @@ jobs:
           fi
           # check if the ceph-mds daemon is running
           juju ssh ceph-fs/0 -- 'sudo systemctl is-active ceph-mds@$HOSTNAME.service --quiet'
+
+      - name: Collect logs
+        if: failure()
+        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: microceph_juju_mds_test_logs
+          path: logs
+          retention-days: 30
+
+      - name: Setup tmate session
+        if: ${{ failure() && runner.debug }}
+        uses: canonical/action-tmate@main
+
+  juju-remote-relation-test:
+    needs:
+      - lint
+      - unit-test
+      - build
+    name: Remote Integration test
+    runs-on: self-hosted-linux-amd64-noble-xlarge
+    steps:
+      - name: Download charm
+        uses: actions/download-artifact@v4
+        with:
+          name: charms
+          path: ~/artifacts/
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.1
+        with:
+          # pin lxd to LTS release.
+          channel: 5.21/stable
+
+      - name: Install dependencies
+        run: ./tests/scripts/ci_helpers.sh install_deps
+
+      - name: Install MicroCeph charm
+        run: |
+          set -eux
+          date
+          # Deploy 2 microceph clusters named primary and secondary
+          juju deploy ~/artifacts/microceph.charm primary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=25G mem=8G"
+          juju deploy ~/artifacts/microceph.charm secondary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=25G mem=8G"
+          # wait for charm to bootstrap and OSD devices to enroll.
+          juju wait-for unit primary/0 --timeout '30m' --query='workload-message=="(workload) charm is ready"'
+          juju wait-for unit secondary/0 --timeout '15m' --query='workload-message=="(workload) charm is ready"'
+          bash ./tests/scripts/ci_helpers.sh check_osd_count primary/0 3
+          bash ./tests/scripts/ci_helpers.sh check_osd_count secondary/0 3
+          date
+
+      - name: Add remote integration
+        run: |
+          set -eux
+          juju integrate primary:remote-provider secondary:remote-requirer
+
+          # wait for the applications to go to blocked state
+          juju wait-for unit primary/0 --query='workload-status=="blocked"' --timeout=10m
+          juju wait-for unit secondary/0 --query='workload-status=="blocked"' --timeout=10m
+
+          juju config primary site-name="primary"
+          juju config secondary site-name="secondary"
+
+
+          juju wait-for unit primary/0 --query='workload-status=="active"' --timeout=10m
+          juju wait-for unit secondary/0 --query='workload-status=="active"' --timeout=10m
+
+          juju status --relations
+
+      - name: Wait for token exchange and remote enlisting
+        run: |
+          set -eux
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/0 secondary
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment secondary/0 primary
+
+      - name: Scale up the primary cluster
+        run: |
+          set -eux
+          juju add-unit primary -n 1
+          # wait for new unit to be active/idle
+          juju wait-for unit primary/1 --query='workload-status=="active"' --timeout=20m
+
+      - name: Re-verify remote listings
+        run: |
+          set -eux
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/0 secondary
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/1 secondary
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment secondary/0 primary
 
       - name: Collect logs
         if: failure()
@@ -979,7 +1066,7 @@ jobs:
 
       - name: Check http endpoints
         run: ./tests/scripts/ci_helpers.sh check_http_endpoints_up
-      
+
       - name: Deploy MicroCeph charm over LXD
         run: ./tests/scripts/ci_helpers.sh deploy_microceph
 
@@ -988,7 +1075,7 @@ jobs:
 
       - name: Test Metrics and Dashboards
         run: ./tests/scripts/ci_helpers.sh verify_o11y_services
-          
+
       - name: Show Juju status
         run: |
           set -eux
