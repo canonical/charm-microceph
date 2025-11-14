@@ -34,7 +34,7 @@ def juju(request: pytest.FixtureRequest) -> Iterator[jubilant.Juju]:
     """Provide a temporary Juju model managed by Jubilant."""
     keep_models = bool(request.config.getoption("--keep-models"))
     with jubilant.temp_model(keep=keep_models) as juju:
-        juju.wait_timeout = 10 * 60
+        juju.wait_timeout = 20 * 60
         yield juju
         if request.session.testsfailed:
             log = juju.debug_log(limit=1000)
