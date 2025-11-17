@@ -69,7 +69,7 @@ class MicrocephRemoteEvent(ObjectEvents):
 
 
 class MicroCephRemote(Object):
-    """Interface for Remote provider."""
+    """Interface for Remote integration."""
 
     # register events for handler to consume
     on = MicrocephRemoteEvent()
@@ -204,7 +204,10 @@ class MicroCephRemoteHandler(RelationHandler):
 
     @property
     def ready(self) -> bool:
-        """Property: ready check."""
+        """Sunbeam interface for readiness check."""
+        # Note: (utkarshbhatthere): On provider side this is mandatorily marked True
+        # on requirer side, this will be checked before writing configuration files on containers.
+        # not-relevant for microceph.
         logger.debug(f"Reporting {self.relation_name} ready")
         return True
 
