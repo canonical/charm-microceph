@@ -17,3 +17,5 @@ tags:
 requires:
   ceph:
     interface: ceph-client
+  ceph-rgw-ready:
+    interface: ceph-rgw-client

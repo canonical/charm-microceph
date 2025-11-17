@@ -54,9 +54,33 @@ def integrated_apps(juju: jubilant.Juju, deployed_apps):
 
 
 @pytest.fixture(scope="module")
+def integrated_apps_rgw_ready(juju: jubilant.Juju, deployed_apps):
+    """Integrate the ceph-rgw-ready relation between the deployed applications."""
+    juju.integrate(
+        f"{CEPHCLIENT_APP}:ceph-rgw-ready",
+        f"{APP_NAME}:ceph-rgw-ready",
+    )
+    with helpers.fast_forward(juju):
+        helpers.wait_for_apps(juju, APP_NAME, CEPHCLIENT_APP, timeout=180)
+    return deployed_apps
+
+
+@pytest.fixture(scope="module")
 def relation_removed(juju: jubilant.Juju, integrated_apps):
     """Remove the ceph relation between the applications."""
     juju.remove_relation(f"{CEPHCLIENT_APP}:ceph", f"{APP_NAME}:ceph")
+    with helpers.fast_forward(juju):
+        helpers.wait_for_apps(juju, APP_NAME, CEPHCLIENT_APP, timeout=180)
+    return integrated_apps
+
+
+@pytest.fixture(scope="module")
+def relation_removed_rgw_ready(juju: jubilant.Juju, integrated_apps):
+    """Remove the ceph-rgw-ready relation between the applications."""
+    juju.remove_relation(
+        f"{CEPHCLIENT_APP}:ceph-rgw-ready",
+        f"{APP_NAME}:ceph-rgw-ready",
+    )
     with helpers.fast_forward(juju):
         helpers.wait_for_apps(juju, APP_NAME, CEPHCLIENT_APP, timeout=180)
     return integrated_apps
@@ -80,6 +104,14 @@ def test_integrate(juju: jubilant.Juju, integrated_apps):
 
 @pytest.mark.abort_on_fail
 @pytest.mark.smoke
+def test_integrate_ceph_rgw_ready(juju: jubilant.Juju, integrated_apps_rgw_ready):
+    """Integrate the charms over the ceph-rgw-ready relation."""
+    status = juju.status()
+    assert jubilant.all_active(status, *integrated_apps_rgw_ready)
+
+
+@pytest.mark.abort_on_fail
+@pytest.mark.smoke
 def test_broker_request_processed(juju: jubilant.Juju, integrated_apps):
     """Check if relation data is updated after the broker request completes."""
     data, broker_rsp_key = helpers.wait_for_broker_response(juju, CEPHCLIENT_APP, APP_NAME)
@@ -94,3 +126,11 @@ def test_remove_integration(juju: jubilant.Juju, relation_removed):
     """Remove ceph integration and ensure both applications stay healthy."""
     status = juju.status()
     assert jubilant.all_active(status, *relation_removed)
+
+
+@pytest.mark.abort_on_fail
+@pytest.mark.smoke
+def test_remove_integration_rgw_ready(juju: jubilant.Juju, relation_removed_rgw_ready):
+    """Remove ceph-rgw-ready integration and ensure both applications stay healthy."""
+    status = juju.status()
+    assert jubilant.all_active(status, *relation_removed_rgw_ready)

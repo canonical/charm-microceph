@@ -21,11 +21,15 @@ This charm deploys ceph client interface to test
 microceph charm.
 """
 
+import json
+
 import interface_ceph_client.ceph_client as ceph_client
 from ops.charm import CharmBase
 from ops.framework import EventBase
 from ops.main import main
-from ops.model import ActiveStatus
+from ops.model import ActiveStatus, BlockedStatus
+
+CEPH_RGW_RELATION = "ceph-rgw-ready"
 
 
 class CephClientRequirerMock(CharmBase):
@@ -36,6 +40,16 @@ class CephClientRequirerMock(CharmBase):
             "ceph",  # relation name
         )
         self.framework.observe(self.ceph.on.broker_available, self.request_pools)
+
+        self.framework.observe(
+            self.on[CEPH_RGW_RELATION].relation_changed,
+            self._on_rgw_ready_changed,
+        )
+        self.framework.observe(
+            self.on[CEPH_RGW_RELATION].relation_broken,
+            self._on_rgw_ready_broken,
+        )
+
         self.unit.status = ActiveStatus("")
 
     def request_pools(self, event: EventBase) -> None:
@@ -45,6 +59,32 @@ class CephClientRequirerMock(CharmBase):
             weight=40 * 0.01,
             app_name=f"{self.app.name}",
         )
+
+    def _on_rgw_ready_changed(self, event: EventBase) -> None:
+        if self._is_rgw_ready():
+            self.unit.status = ActiveStatus("")
+        else:
+            self.unit.status = BlockedStatus("RGW is not ready")
+
+    def _on_rgw_ready_broken(self, event: EventBase) -> None:
+        self.unit.status = ActiveStatus("")
+
+    def _get_remote_app_data(self, relation_name: str, key: str) -> str | None:
+        """Return the value for the given key from remote app data."""
+        rel = self.framework.model.get_relation(relation_name)
+        if not rel:
+            return None
+
+        data = rel.data[rel.app]
+        return data.get(key)
+
+    def _is_rgw_ready(self) -> bool:
+        """Return if rgw service is ready or not."""
+        is_ready = self._get_remote_app_data(CEPH_RGW_RELATION, "ready")
+        if is_ready:
+            return json.loads(is_ready)
+
+        return False
 
 
 if __name__ == "__main__":
