@@ -190,9 +190,7 @@ def delete_cluster_configs(configs: list):
             logger.warning(f"Option {key} not recognized by microceph")
 
 
-def bootstrap_cluster(
-    micro_ip: str = None, public_net: str = None, cluster_net: str = None
-):
+def bootstrap_cluster(micro_ip: str = None, public_net: str = None, cluster_net: str = None):
     """Bootstrap MicroCeph cluster."""
     cmd = ["microceph", "cluster", "bootstrap"]
 
@@ -219,9 +217,7 @@ def adopt_ceph_cluster(
     """Bootstrap Microceph by adopting an existing Ceph cluster."""
 
     if not fsid or not mon_hosts or not admin_key:
-        raise ValueError(
-            "fsid, mon_hosts and admin_key are required to adopt a cluster"
-        )
+        raise ValueError("fsid, mon_hosts and admin_key are required to adopt a cluster")
 
     cmd = [
         "microceph",

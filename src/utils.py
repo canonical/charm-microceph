@@ -30,9 +30,7 @@ logger = logging.getLogger(__name__)
 def run_cmd(cmd: list, timeout: int = 180) -> str:
     """Execute provided command via subprocess."""
     try:
-        process = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, timeout=timeout
-        )
+        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)
         logger.debug(f"Command {' '.join(cmd)} finished; Output: {process.stdout}")
         return process.stdout
     except subprocess.CalledProcessError as e:

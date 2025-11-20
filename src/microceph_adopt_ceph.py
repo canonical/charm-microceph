@@ -53,7 +53,7 @@ class AdoptCephEvents(ObjectEvents):
 
 
 class AdoptCephRequires(Object):
-    """Interface for ceph-remote-admin interface"""
+    """Interface for ceph-admin interface"""
 
     on = AdoptCephEvents()
 
@@ -67,15 +67,9 @@ class AdoptCephRequires(Object):
         self.charm = charm
         self.relation_name = relation_name
 
-        self.framework.observe(
-            charm.on[relation_name].changed, self._on_relation_changed
-        )
-        self.framework.observe(
-            charm.on[relation_name].departed, self._on_relation_departed
-        )
-        self.framework.observe(
-            charm.on[relation_name].joined, self._on_relation_changed
-        )
+        self.framework.observe(charm.on[relation_name].relation_changed, self._on_relation_changed)
+        self.framework.observe(charm.on[relation_name].relation_broken, self._on_relation_broken)
+        self.framework.observe(charm.on[relation_name].relation_joined, self._on_relation_changed)
 
     def _on_relation_changed(self, event) -> None:
         """On relation changed"""
@@ -85,15 +79,13 @@ class AdoptCephRequires(Object):
 
         # Do nothing if already bootstrapped
         if self.charm.ready_for_service():
-            logger.debug(
-                "Not processing adopt relation event, microceph already bootstrapped."
-            )
+            logger.debug("Not processing adopt relation event, microceph already bootstrapped.")
             return
 
         logger.debug("Emitting adopt-ceph reconcile event")
         self.on.adopt_ceph_bootstrap.emit(event.relation)
 
-    def _on_relation_departed(self, event) -> None:
+    def _on_relation_broken(self, event) -> None:
         """On relation departed"""
         if not self.model.unit.is_leader():
             logger.debug("Unit is not leader, skipping adopt-ceph departed event")
@@ -127,7 +119,7 @@ class AdoptCephRequiresHandler(RelationHandler):
         return False
 
     def setup_event_handler(self) -> Object:
-        """Configure event handlers for a ceph-remote-admin interface."""
+        """Configure event handlers for a ceph-admin interface."""
         logger.debug("Setting up adopt-ceph event handler")
 
         adopt_ceph = AdoptCephRequires(self.charm, self.relation_name)
@@ -144,9 +136,7 @@ class AdoptCephRequiresHandler(RelationHandler):
             admin_key = remote_ceph_data.get(AdoptCephRelationDataKeys.admin_key, None)
 
             if not mon_hosts or not fsid or not admin_key:
-                logger.debug(
-                    "Incomplete data from adopt-ceph relation, cannot reconcile"
-                )
+                logger.debug("Incomplete data from adopt-ceph relation, cannot reconcile")
                 raise sunbeam_guard.BlockedExceptionError(
                     f"Waiting for fsid({fsid}), mon_hosts({mon_hosts}) and admin_key from adopt-ceph relation"
                 )

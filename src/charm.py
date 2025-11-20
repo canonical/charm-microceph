@@ -331,11 +331,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         except Exception:
             logger.exception("Failed to get identity-service handler")
 
-    def get_relation_handlers(
-        self, handlers=None
-    ) -> List[sunbeam_rhandlers.RelationHandler]:
+    def get_relation_handlers(self, handlers=None) -> List[sunbeam_rhandlers.RelationHandler]:
         """Relation handlers for the service."""
         handlers = handlers or []
+        if self.can_add_handler("adopt-ceph", handlers):
+            self.adopt_ceph = AdoptCephRequiresHandler(self, "adopt-ceph", self.handle_ceph)
         if self.can_add_handler("remote-provider", handlers):
             self.remote_provider = MicroCephRemoteHandler(
                 self, "remote-provider", self.handle_microceph_remote
