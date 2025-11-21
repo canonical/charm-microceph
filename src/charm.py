@@ -485,9 +485,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         logger.debug(f"Configure leader for {event.__repr__}")
         if not self.is_leader_ready():
             if self.model.config.get("wait-to-adopt"):
-                raise sunbeam_guard.WaitingExceptionError(
-                    "Waiting for bootstrap via adopted ceph cluster"
-                )
+                logger.info("skipping configure until microceph adopts a remote ceph cluster")
+                return
 
             logger.debug("Bootstrapping MicroCeph cluster")
             self.bootstrap_cluster(event)
