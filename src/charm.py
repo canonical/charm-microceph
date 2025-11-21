@@ -136,7 +136,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def _on_update_status(self, event: ops.framework.EventBase) -> None:
         """Update status event handler."""
-        if self.unit.is_leader():
+        if not self.unit.is_leader():
+            return
+
+        if self.ready_for_service():
             self.ceph_rgw.set_readiness_on_related_units()
 
     def _on_peer_relation_created(self, event: ops.framework.EventBase) -> None:
@@ -778,7 +781,6 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def post_config_setup(self):
         """Configuration steps after services have been setup."""
         super().post_config_setup()
-        self.ceph_rgw.set_readiness_on_related_units()
 
 
 if __name__ == "__main__":  # pragma: no cover
