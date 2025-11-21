@@ -204,6 +204,41 @@ def bootstrap_cluster(micro_ip: str = None, public_net: str = None, cluster_net:
     utils.run_cmd(cmd=cmd)
 
 
+def adopt_ceph_cluster(
+    fsid: str = "",
+    mon_hosts: list = [],
+    admin_key: str = "",
+    micro_ip: str = "",
+    public_net: str = "",
+    cluster_net: str = "",
+):
+    """Bootstrap Microceph by adopting an existing Ceph cluster."""
+
+    if not fsid or not mon_hosts or not admin_key:
+        raise ValueError("fsid, mon_hosts and admin_key are required to adopt a cluster")
+
+    cmd = [
+        "microceph",
+        "cluster",
+        "adopt",
+        "--fsid",
+        fsid,
+        "--mon-hosts",
+        ",".join(mon_hosts),
+    ]
+
+    if public_net:
+        cmd.extend(["--public-network", public_net])
+
+    if cluster_net:
+        cmd.extend(["--cluster-network", cluster_net])
+
+    if micro_ip:
+        cmd.extend(["--microceph-ip", micro_ip])
+
+    utils.run_cmd_with_input(cmd=cmd, input_data=admin_key)
+
+
 def join_cluster(token: str, micro_ip: str = "", **kwargs):
     """Join node to MicroCeph cluster."""
     hostname = gethostname()

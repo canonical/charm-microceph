@@ -42,8 +42,10 @@ import cluster
 import maintenance
 import microceph
 import microceph_client
+import utils
 from ceph_nfs import CephNfsProviderHandler
 from ceph_rgw import CEPH_RGW_READY_RELATION, CephRgwProviderHandler
+from microceph_adopt_ceph import AdoptCephRequiresHandler
 from microceph_client import ClusterServiceUnavailableException
 from microceph_remote import MicroCephRemoteHandler
 from radosgw import RadosGWHandler
@@ -93,8 +95,12 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.framework.observe(self.on.stop, self._on_stop)
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self.on.set_pool_size_action, self._set_pool_size_action)
-        self.framework.observe(self.on.peers_relation_created, self._on_peer_relation_created)
-        self.framework.observe(self.on["peers"].relation_departed, self._on_peer_relation_departed)
+        self.framework.observe(
+            self.on.peers_relation_created, self._on_peer_relation_created
+        )
+        self.framework.observe(
+            self.on["peers"].relation_departed, self._on_peer_relation_departed
+        )
 
     def _on_install(self, event: ops.framework.EventBase) -> None:
         config = self.model.config.get
@@ -105,15 +111,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             "--channel",
             config("snap-channel"),
         ]
-
-        logger.debug(f"Running command {' '.join(cmd)}")
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=900)
-        logger.debug(f"Command finished. stdout={process.stdout}, stderr={process.stderr}")
+        utils.run_cmd(cmd, timeout=900)
 
         cmd = ["sudo", "snap", "alias", "microceph.ceph", "ceph"]
-        logger.debug(f"Running command {' '.join(cmd)}")
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=180)
-        logger.debug(f"Command finished. stdout={process.stdout}, stderr={process.stderr}")
+        utils.run_cmd(cmd)
 
         try:
             snap.SnapCache()["microceph"].hold()
@@ -151,13 +152,17 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def _on_config_changed(self, event: ops.framework.EventBase) -> None:
         with sunbeam_guard.guard(self, "Checking configs"):
-            if not self.is_valid_placement_directive(self.model.config.get("enable-rgw")):
-                raise sunbeam_guard.BlockedExceptionError("Improper value for config enable-rgw")
+            if not self.is_valid_placement_directive(
+                self.model.config.get("enable-rgw")
+            ):
+                raise sunbeam_guard.BlockedExceptionError(
+                    "Improper value for config enable-rgw"
+                )
 
             namespace_projects = self.leader_get("namespace-projects")
-            if namespace_projects and json.loads(namespace_projects) != self.model.config.get(
-                "namespace-projects"
-            ):
+            if namespace_projects and json.loads(
+                namespace_projects
+            ) != self.model.config.get("namespace-projects"):
                 raise sunbeam_guard.BlockedExceptionError(
                     "Config namespace-projects cannot be changed after deployment"
                 )
@@ -167,7 +172,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _handle_receive_ca_cert(self, event: ops.framework.EventBase) -> None:
         contexts = self.contexts()
         cacert_path = Path(CACERT_FILE)
-        if hasattr(contexts.receive_ca_cert, "ca_bundle") and contexts.receive_ca_cert.ca_bundle:
+        if (
+            hasattr(contexts.receive_ca_cert, "ca_bundle")
+            and contexts.receive_ca_cert.ca_bundle
+        ):
             cacert_in_bytes = contexts.receive_ca_cert.ca_bundle.encode()
             if cacert_path.exists():
                 cert_from_file = cacert_path.read_bytes()
@@ -299,7 +307,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         # So get RGW IPs from mon ip addresses
         # https://github.com/canonical/microceph/issues/368
         # Get host key value from all units
-        ips = self.peers.get_all_unit_values(key="public-address", include_local_unit=True)
+        ips = self.peers.get_all_unit_values(
+            key="public-address", include_local_unit=True
+        )
         # ips = microceph.get_mon_public_addresses()
         rgw_lb_servers = [{"url": f"http://{ip}:{self.rgw_port}"} for ip in ips]
         health_check = {"path": "/swift/healthcheck", "scheme": "http"}
@@ -334,9 +344,15 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         except Exception:
             logger.exception("Failed to get identity-service handler")
 
-    def get_relation_handlers(self, handlers=None) -> List[sunbeam_rhandlers.RelationHandler]:
+    def get_relation_handlers(
+        self, handlers=None
+    ) -> List[sunbeam_rhandlers.RelationHandler]:
         """Relation handlers for the service."""
         handlers = handlers or []
+        if self.can_add_handler("adopt-ceph", handlers):
+            self.adopt_ceph = AdoptCephRequiresHandler(
+                self, "adopt-ceph", self.handle_ceph
+            )
         if self.can_add_handler("remote-provider", handlers):
             self.remote_provider = MicroCephRemoteHandler(
                 self, "remote-provider", self.handle_microceph_remote
@@ -447,7 +463,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def handle_microceph_remote(self, event) -> None:
         """Callback for interface ceph-nfs-client."""
-        logger.debug("Callback for microceph-remote interface, (noop)")
+        logger.debug("Callback for microceph-remote interface, ignore")
 
     def upgrade_dispatch(self, event: ops.framework.EventBase) -> None:
         """Dispatch upgrade events."""
@@ -467,15 +483,22 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Configure the leader unit."""
         logger.debug(f"Configure leader for {event.__repr__}")
         if not self.is_leader_ready():
+            if self.model.config.get("wait-to-adopt"):
+                raise sunbeam_guard.WaitingExceptionError(
+                    "Waiting for bootstrap via adopted ceph cluster"
+                )
+
             logger.debug("Bootstrapping MicroCeph cluster")
             self.bootstrap_cluster(event)
-            # mark bootstrap node also as joined
-            self.peers.interface.state.joined = True
 
         self.set_leader_ready()
         if self.leader_get("namespace-projects") is None:
             self.leader_set(
-                {"namespace-projects": json.dumps(self.model.config.get("namespace-projects"))}
+                {
+                    "namespace-projects": json.dumps(
+                        self.model.config.get("namespace-projects")
+                    )
+                }
             )
         self.configure_ceph(event)
         self.manage_rgw_service(event)
@@ -548,11 +571,32 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 "micro_ip": format(micro_ip),
             }
 
+    def adopt_cluster(self, fsid, mon_hosts, admin_key):
+        """Bootstrap Microceph cluster using external ceph cluster."""
+        try:
+            network_params = self._get_bootstrap_params()
+            microceph.adopt_ceph_cluster(
+                fsid=fsid,
+                mon_hosts=mon_hosts,
+                admin_key=admin_key,
+                micro_ip=network_params.get("micro_ip", ""),
+                public_net=network_params.get("public_net", ""),
+                cluster_net=network_params.get("cluster_net", ""),
+            )
+            # mark bootstrap node also as joined
+            self.peers.interface.state.joined = True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.error(e.stderr)
+
     def bootstrap_cluster(self, event: ops.framework.EventBase) -> None:
         """Bootstrap microceph cluster."""
         try:
             microceph.bootstrap_cluster(**self._get_bootstrap_params())
-            logger.debug(f"Successfully bootstrapped with params {self._get_bootstrap_params()}")
+            logger.debug(
+                f"Successfully bootstrapped with params {self._get_bootstrap_params()}"
+            )
+            # mark bootstrap node also as joined
+            self.peers.interface.state.joined = True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(e.stderr)
             error_already_exists = "Unable to initialize cluster: Database is online"
@@ -604,7 +648,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         if self.id_svc.ready:
             try:
                 configs = {
-                    "rgw_keystone_url": self.id_svc.interface.internal_auth_url.removesuffix("v3"),
+                    "rgw_keystone_url": self.id_svc.interface.internal_auth_url.removesuffix(
+                        "v3"
+                    ),
                     "rgw_keystone_admin_user": self.id_svc.interface.service_user_name,
                     "rgw_keystone_admin_password": self.id_svc.interface.service_password,
                     "rgw_keystone_api_version": "3",
@@ -694,7 +740,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 # method on configuration changes.
                 if default_rf != 3:
                     event.set_results(
-                        {"message": "cannot set pool size: command not supported by microceph"}
+                        {
+                            "message": "cannot set pool size: command not supported by microceph"
+                        }
                     )
                     event.fail()
                 return
@@ -703,7 +751,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _update_service_endpoints(self):
         try:
             if self.id_svc.update_service_endpoints:
-                logger.debug("Updating service endpoints after ingress relation changed")
+                logger.debug(
+                    "Updating service endpoints after ingress relation changed"
+                )
                 self.id_svc.update_service_endpoints(self.service_endpoints)
         except (AttributeError, KeyError) as e:
             # Ignore AttributeError and KeyError as the exceptions are raised
@@ -718,7 +768,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
         if self.traefik_route_rgw and self.traefik_route_rgw.interface.is_ready():
             logger.debug("Sending traefik config for rgw interface")
-            self.traefik_route_rgw.interface.submit_to_traefik(config=self.traefik_config)
+            self.traefik_route_rgw.interface.submit_to_traefik(
+                config=self.traefik_config
+            )
 
             if self.traefik_route_rgw.ready:
                 self._update_service_endpoints()
