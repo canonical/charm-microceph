@@ -221,6 +221,7 @@ def adopt_ceph_cluster(
         "microceph",
         "cluster",
         "adopt",
+        "-",  # "-" signifies that admin key will be provided via stdin
         "--fsid",
         fsid,
         "--mon-hosts",
