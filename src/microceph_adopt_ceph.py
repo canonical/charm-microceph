@@ -22,6 +22,7 @@ from typing import Callable
 
 import ops_sunbeam.guard as sunbeam_guard
 from ops.charm import CharmBase, RelationEvent
+from ops.model import ActiveStatus
 from ops.framework import (
     EventSource,
     Object,
@@ -152,4 +153,5 @@ class AdoptCephRequiresHandler(RelationHandler):
                     )
 
                 self.charm.adopt_cluster(fsid, mon_hosts.split(), admin_key)
+                self.charm.status.set(ActiveStatus("charm is ready"))
                 return

@@ -415,7 +415,12 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             return False
 
         # ready for service if leader has been announced.
-        return self.is_leader_ready()
+        if not self.is_leader_ready():
+            logger.warning("Leader not marked ready yet")
+            return False
+
+        logger.debug("microceph operator is ready for service")
+        return True
 
     def _lookup_system_interfaces(self, mon_hosts: list) -> str:
         """Looks up available addresses on the machine and returns addr if found in mon_hosts."""
@@ -560,6 +565,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            if "Unable to initialize cluster: Database is online" in str(e.stderr):
+                logger.debug("microceph is already bootstrapped, ignore failure.")
+                return
+
             logger.error(e.stderr)
 
     def bootstrap_cluster(self, event: ops.framework.EventBase) -> None:

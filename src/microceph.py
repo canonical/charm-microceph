@@ -51,6 +51,7 @@ def is_ready() -> bool:
         logger.debug("Ceph cluster not in quorum, not ready yet")
         return False
 
+    logger.debug("microceph cluster is bootstrapped and ready")
     return True
 
 
