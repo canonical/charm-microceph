@@ -96,12 +96,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.framework.observe(self.on.stop, self._on_stop)
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self.on.set_pool_size_action, self._set_pool_size_action)
-        self.framework.observe(
-            self.on.peers_relation_created, self._on_peer_relation_created
-        )
-        self.framework.observe(
-            self.on["peers"].relation_departed, self._on_peer_relation_departed
-        )
+        self.framework.observe(self.on.peers_relation_created, self._on_peer_relation_created)
+        self.framework.observe(self.on["peers"].relation_departed, self._on_peer_relation_departed)
 
     def _on_install(self, event: ops.framework.EventBase) -> None:
         config = self.model.config.get
@@ -156,17 +152,13 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def _on_config_changed(self, event: ops.framework.EventBase) -> None:
         with sunbeam_guard.guard(self, "Checking configs"):
-            if not self.is_valid_placement_directive(
-                self.model.config.get("enable-rgw")
-            ):
-                raise sunbeam_guard.BlockedExceptionError(
-                    "Improper value for config enable-rgw"
-                )
+            if not self.is_valid_placement_directive(self.model.config.get("enable-rgw")):
+                raise sunbeam_guard.BlockedExceptionError("Improper value for config enable-rgw")
 
             namespace_projects = self.leader_get("namespace-projects")
-            if namespace_projects and json.loads(
-                namespace_projects
-            ) != self.model.config.get("namespace-projects"):
+            if namespace_projects and json.loads(namespace_projects) != self.model.config.get(
+                "namespace-projects"
+            ):
                 raise sunbeam_guard.BlockedExceptionError(
                     "Config namespace-projects cannot be changed after deployment"
                 )
@@ -308,9 +300,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         # So get RGW IPs from mon ip addresses
         # https://github.com/canonical/microceph/issues/368
         # Get host key value from all units
-        ips = self.peers.get_all_unit_values(
-            key="public-address", include_local_unit=True
-        )
+        ips = self.peers.get_all_unit_values(key="public-address", include_local_unit=True)
         # ips = microceph.get_mon_public_addresses()
         rgw_lb_servers = [{"url": f"http://{ip}:{self.rgw_port}"} for ip in ips]
         health_check = {"path": "/swift/healthcheck", "scheme": "http"}
@@ -345,15 +335,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         except Exception:
             logger.exception("Failed to get identity-service handler")
 
-    def get_relation_handlers(
-        self, handlers=None
-    ) -> List[sunbeam_rhandlers.RelationHandler]:
+    def get_relation_handlers(self, handlers=None) -> List[sunbeam_rhandlers.RelationHandler]:
         """Relation handlers for the service."""
         handlers = handlers or []
         if self.can_add_handler("adopt-ceph", handlers):
-            self.adopt_ceph = AdoptCephRequiresHandler(
-                self, "adopt-ceph", self.handle_ceph_adopt
-            )
+            self.adopt_ceph = AdoptCephRequiresHandler(self, "adopt-ceph", self.handle_ceph_adopt)
         if self.can_add_handler("remote-provider", handlers):
             self.remote_provider = MicroCephRemoteHandler(
                 self, "remote-provider", self.handle_microceph_remote
@@ -478,9 +464,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         logger.debug(f"Configure leader for {event.__repr__}")
         if not self.is_leader_ready():
             if self.model.config.get("wait-to-adopt"):
-                logger.info(
-                    "skipping configure until microceph adopts a remote ceph cluster"
-                )
+                logger.info("skipping configure until microceph adopts a remote ceph cluster")
                 return
 
             logger.debug("Bootstrapping MicroCeph cluster")
@@ -575,9 +559,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Bootstrap microceph cluster."""
         try:
             microceph.bootstrap_cluster(**self._get_bootstrap_params())
-            logger.debug(
-                f"Successfully bootstrapped with params {self._get_bootstrap_params()}"
-            )
+            logger.debug(f"Successfully bootstrapped with params {self._get_bootstrap_params()}")
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
@@ -631,9 +613,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         if self.id_svc.ready:
             try:
                 configs = {
-                    "rgw_keystone_url": self.id_svc.interface.internal_auth_url.removesuffix(
-                        "v3"
-                    ),
+                    "rgw_keystone_url": self.id_svc.interface.internal_auth_url.removesuffix("v3"),
                     "rgw_keystone_admin_user": self.id_svc.interface.service_user_name,
                     "rgw_keystone_admin_password": self.id_svc.interface.service_password,
                     "rgw_keystone_api_version": "3",
@@ -672,9 +652,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _update_service_endpoints(self):
         try:
             if self.id_svc.update_service_endpoints:
-                logger.debug(
-                    "Updating service endpoints after ingress relation changed"
-                )
+                logger.debug("Updating service endpoints after ingress relation changed")
                 self.id_svc.update_service_endpoints(self.service_endpoints)
         except (AttributeError, KeyError) as e:
             # Ignore AttributeError and KeyError as the exceptions are raised
@@ -689,9 +667,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
         if self.traefik_route_rgw and self.traefik_route_rgw.interface.is_ready():
             logger.debug("Sending traefik config for rgw interface")
-            self.traefik_route_rgw.interface.submit_to_traefik(
-                config=self.traefik_config
-            )
+            self.traefik_route_rgw.interface.submit_to_traefik(config=self.traefik_config)
 
             if self.traefik_route_rgw.ready:
                 self._update_service_endpoints()
@@ -704,6 +680,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def handle_ceph_adopt(self, event) -> None:
         """Callback for inteface ceph-admin."""
         # Handle post bootstrap
+        logger.debug(f"Handle ceph adopt for {event.__repr__}")
+        if self.ready_for_service():
+            logger.debug("Microceph already bootstrapped, ignoring adopt request")
+            return
+
         self.handle_config_leader_set_ready()
         self.handle_config_leader_ceph_pool_pgs(event)
         self.handle_config_rgw_service(event)
@@ -725,18 +706,16 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     ##### Helpers for charm configuration logic
     def handle_config_leader_set_ready(self):
         """Configure leader as ready."""
+        logger.debug("Configuring leader as ready")
         self.set_leader_ready()
         if self.leader_get("namespace-projects") is None:
             self.leader_set(
-                {
-                    "namespace-projects": json.dumps(
-                        self.model.config.get("namespace-projects")
-                    )
-                }
+                {"namespace-projects": json.dumps(self.model.config.get("namespace-projects"))}
             )
 
     def handle_config_leader_ceph_pool_pgs(self, event) -> None:
         """Configure Ceph."""
+        logger.debug("Configuring ceph pool replication and pgs")
         if not self.ready_for_service():
             event.defer()
             return
@@ -761,9 +740,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 # method on configuration changes.
                 if default_rf != 3:
                     event.set_results(
-                        {
-                            "message": "cannot set pool size: command not supported by microceph"
-                        }
+                        {"message": "cannot set pool size: command not supported by microceph"}
                     )
                     event.fail()
                 return
@@ -771,6 +748,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def handle_config_rgw_service(self, event: ops.framework.EventBase) -> None:
         """Enable/Disable RGW service."""
+        logger.debug("Configuring RGW service")
         try:
             enabled = microceph.is_rgw_enabled(gethostname())
             logger.info(f"Microceph RGW enabled: {enabled}")

@@ -153,5 +153,6 @@ class AdoptCephRequiresHandler(RelationHandler):
                     )
 
                 self.charm.adopt_cluster(fsid, mon_hosts.split(), admin_key)
+                self.callback_f(event=relation)
                 self.charm.status.set(ActiveStatus("charm is ready"))
                 return
