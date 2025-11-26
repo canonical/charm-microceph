@@ -142,11 +142,14 @@ class StorageHandler(Object):
         if device_ids is not None:
             add_osd_specs.extend(device_ids.split(","))
 
+        # fetch requested wipe flag.
+        wipe = event.params.get("wipe", False)
+
         error = False
         result = {"result": []}
         for spec in add_osd_specs:
             try:
-                microceph.add_osd_cmd(spec)
+                microceph.add_osd_cmd(spec, wipe=wipe)
                 result["result"].append({"spec": spec, "status": "success"})
             except (CalledProcessError, TimeoutExpired) as e:
                 logger.error(e.stderr)

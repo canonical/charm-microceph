@@ -270,13 +270,15 @@ def microceph_has_service(service_name) -> bool:
 
 
 # Disk CMDs and Helpers
-def add_osd_cmd(spec: str, wal_dev: str = None, db_dev: str = None) -> None:
+def add_osd_cmd(spec: str, wal_dev: str = None, db_dev: str = None, wipe: bool = False) -> None:
     """Executes MicroCeph add osd cmd with provided spec."""
     cmd = ["microceph", "disk", "add", spec]
     if wal_dev:
         cmd.extend(["--wal-device", wal_dev, "--wal-wipe"])
     if db_dev:
         cmd.extend(["--db-device", db_dev, "--db-wipe"])
+    if wipe:
+        cmd.append("--wipe")
     utils.run_cmd(cmd)
 
 

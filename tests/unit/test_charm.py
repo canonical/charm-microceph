@@ -389,6 +389,27 @@ class TestCharm(testbase.TestBaseCharm):
             timeout=180,
         )
 
+    @patch("utils.subprocess")
+    @patch("ceph.check_output")
+    def test_add_osds_action_with_wipe(self, _chk, subprocess):
+        """Test action add_osds with wipe flag."""
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness._charm.peers.interface.state.joined = True
+
+        action_event = MagicMock()
+        action_event.params = {"device-id": "/dev/sdb", "wipe": True}
+        self.harness.charm.storage._add_osd_action(action_event)
+
+        action_event.set_results.assert_called()
+        action_event.fail.assert_not_called()
+        subprocess.run.assert_called_with(
+            ["microceph", "disk", "add", "/dev/sdb", "--wipe"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+
     def test_add_osds_action_node_not_bootstrapped(self):
         """Test action add_osds when node not bootstrapped."""
         test_utils.add_complete_peer_relation(self.harness)

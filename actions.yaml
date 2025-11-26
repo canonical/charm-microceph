@@ -20,6 +20,12 @@ add-osd:
       description: |
         Device ID of the disk. Accepts comma separated
         device id's to specify multiple disks
+    wipe:
+      type: boolean
+      description: |
+        Wipe the disk before adding it.
+        Note: This will destroy all data on the disk.
+      default: false
   additionalProperties: false
 set-pool-size:
   description: |
