@@ -56,7 +56,7 @@ applications:
     num_units: 1
     base: ubuntu@24.04
     storage:
-      standalone-osd: "loop,5G,3"
+      osd-standalone: "loop,5G,3"
     to:
       - "7"
 

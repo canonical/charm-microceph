@@ -176,10 +176,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _handle_receive_ca_cert(self, event: ops.framework.EventBase) -> None:
         contexts = self.contexts()
         cacert_path = Path(CACERT_FILE)
-        if (
-            hasattr(contexts.receive_ca_cert, "ca_bundle")
-            and contexts.receive_ca_cert.ca_bundle
-        ):
+        if getattr(contexts.receive_ca_cert, "ca_bundle", None):
             cacert_in_bytes = contexts.receive_ca_cert.ca_bundle.encode()
             if cacert_path.exists():
                 cert_from_file = cacert_path.read_bytes()
@@ -651,10 +648,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                         }
                     )
 
-                if (
-                    hasattr(contexts.receive_ca_cert, "ca_bundle")
-                    and contexts.receive_ca_cert.ca_bundle
-                ):
+                if getattr(contexts.receive_ca_cert, "ca_bundle", None):
                     configs["rgw_keystone_verify_ssl"] = str(True).lower()
                 else:
                     configs["rgw_keystone_verify_ssl"] = str(False).lower()

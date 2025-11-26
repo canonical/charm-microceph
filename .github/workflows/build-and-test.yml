@@ -972,7 +972,7 @@ jobs:
         run: |
           set -eux
           date
-          juju deploy ~/tests/bundles/noble-caracal.yaml
+          juju deploy ./tests/bundles/noble-caracal.yaml
           juju wait-for application ceph-mon --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m
           juju wait-for application secondary --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m
           date
