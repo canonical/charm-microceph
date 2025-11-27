@@ -152,6 +152,9 @@ class AdoptCephRequiresHandler(RelationHandler):
                         f"Waiting for fsid({fsid}), mon_hosts({mon_hosts}) and admin_key({admin_key is not None}) from adopt-ceph relation"
                     )
 
+                logger.debug(
+                    "All required data from adopt-ceph relation present, proceeding with adoption"
+                )
                 self.charm.adopt_cluster(fsid, mon_hosts.split(), admin_key)
                 self.callback_f(event=relation)
                 self.charm.status.set(ActiveStatus("charm is ready"))

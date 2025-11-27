@@ -548,6 +548,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             )
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True
+            logger.debug("microceph bootstrapped successfully via adopt-ceph")
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             if "Unable to initialize cluster: Database is online" in str(e.stderr):
                 logger.debug("microceph is already bootstrapped, ignore failure.")

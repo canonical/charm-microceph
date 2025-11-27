@@ -218,6 +218,10 @@ def adopt_ceph_cluster(
     if not fsid or not mon_hosts or not admin_key:
         raise ValueError("fsid, mon_hosts and admin_key are required to adopt a cluster")
 
+    logger.debug(
+        f"Got fsid: {fsid}, mon_hosts: {mon_hosts} and is_admin_key_provided: {admin_key is not None}"
+    )
+
     cmd = [
         "microceph",
         "cluster",
@@ -230,12 +234,15 @@ def adopt_ceph_cluster(
     ]
 
     if public_net:
+        logger.debug(f"Using public network {public_net} for cluster")
         cmd.extend(["--public-network", public_net])
 
     if cluster_net:
+        logger.debug(f"Using cluster network {cluster_net} for cluster")
         cmd.extend(["--cluster-network", cluster_net])
 
     if micro_ip:
+        logger.debug(f"Using ip {micro_ip} for microceph cluster")
         cmd.extend(["--microceph-ip", micro_ip])
 
     utils.run_cmd_with_input(cmd=cmd, input_data=admin_key)
