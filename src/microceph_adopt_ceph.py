@@ -129,7 +129,7 @@ class AdoptCephRequiresHandler(RelationHandler):
         """Bootstrap MicroCeph cluster using adopted ceph cluster"""
         logger.info("Handling adopt-ceph bootstrap event")
         with sunbeam_guard.guard(self.charm, self.relation_name):
-            for relation in self.model.relations[self.relation_name]:
+            for relation in self.model.relations.get(self.relation_name, []):
                 if not relation.units:
                     logger.debug("No units in adopt-ceph relation, cannot reconcile")
                     return
