@@ -128,6 +128,10 @@ class CephNfsProvides(Object):
 
         logger.info("_on_ceph_peers event")
 
+        if not self.model.relations.get(self.relation_name):
+            logger.debug("No ceph-nfs relations to reconcile.")
+            return
+
         # Mon addrs might have changed, update the relation data.
         # Additionally, new nodes may have been added, which could be added to
         # NFS clusters.
