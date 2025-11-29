@@ -212,3 +212,51 @@ class TestMicroCeph(unittest.TestCase):
 
         result = microceph.microceph_has_service("nfs")
         self.assertTrue(result)
+
+    @patch("utils.run_cmd")
+    def test_add_osd_cmd(self, run_cmd):
+        # Test default call
+        microceph.add_osd_cmd("loop,4G,3")
+        run_cmd.assert_called_with(["microceph", "disk", "add", "loop,4G,3"])
+
+    @patch("utils.run_cmd")
+    def test_add_osd_cmd_with_wal(self, run_cmd):
+        # Test with WAL device
+        microceph.add_osd_cmd("loop,4G,3", wal_dev="/dev/sdb")
+        run_cmd.assert_called_with(
+            ["microceph", "disk", "add", "loop,4G,3", "--wal-device", "/dev/sdb", "--wal-wipe"]
+        )
+
+    @patch("utils.run_cmd")
+    def test_add_osd_cmd_with_db(self, run_cmd):
+        # Test with DB device
+        microceph.add_osd_cmd("loop,4G,3", db_dev="/dev/sdc")
+        run_cmd.assert_called_with(
+            ["microceph", "disk", "add", "loop,4G,3", "--db-device", "/dev/sdc", "--db-wipe"]
+        )
+
+    @patch("utils.run_cmd")
+    def test_add_osd_cmd_with_wipe(self, run_cmd):
+        # Test with wipe flag
+        microceph.add_osd_cmd("loop,4G,3", wipe=True)
+        run_cmd.assert_called_with(["microceph", "disk", "add", "loop,4G,3", "--wipe"])
+
+    @patch("utils.run_cmd")
+    def test_add_osd_cmd_all_options(self, run_cmd):
+        # Test with all options
+        microceph.add_osd_cmd("loop,4G,3", wal_dev="/dev/sdb", db_dev="/dev/sdc", wipe=True)
+        run_cmd.assert_called_with(
+            [
+                "microceph",
+                "disk",
+                "add",
+                "loop,4G,3",
+                "--wal-device",
+                "/dev/sdb",
+                "--wal-wipe",
+                "--db-device",
+                "/dev/sdc",
+                "--db-wipe",
+                "--wipe",
+            ]
+        )
