@@ -128,6 +128,10 @@ class CephNfsProvides(Object):
 
         logger.info("_on_ceph_peers event")
 
+        if not self.model.relations.get(self.relation_name):
+            logger.debug("No ceph-nfs relations to reconcile.")
+            return
+
         # Mon addrs might have changed, update the relation data.
         # Additionally, new nodes may have been added, which could be added to
         # NFS clusters.
@@ -159,7 +163,7 @@ class CephNfsProviderHandler(RelationHandler):
     @property
     def ready(self) -> bool:
         """Check if handler is ready."""
-        relations = self.model.relations[self.relation_name]
+        relations = self.model.relations.get(self.relation_name, [])
         if not relations:
             return True
 
@@ -171,7 +175,7 @@ class CephNfsProviderHandler(RelationHandler):
 
     def set_status(self, status: compound_status.Status) -> None:
         """Set the status based on current state."""
-        relations = self.model.relations[self.relation_name]
+        relations = self.model.relations.get(self.relation_name, [])
         if not relations:
             # If there are no ceph-nfs relations, no need to block this.
             status.set(ActiveStatus(""))
@@ -196,7 +200,8 @@ class CephNfsProviderHandler(RelationHandler):
         # Mon addrs might have changed, update the relation data if needed.
         # Additionally, new nodes may have been added, which could be added to
         # NFS clusters.
-        for relation in self.model.relations[self.relation_name]:
+        for relation in self.model.relations.get(self.relation_name, []):
+            logger.debug("Reconciling ceph-nfs relation with app '%s'", relation.app.name)
             if not self._service_relation(relation):
                 logger.error("A ceph-nfs relation could not be serviced.")
                 self.status.set(
@@ -272,7 +277,8 @@ class CephNfsProviderHandler(RelationHandler):
         if nodes_in_cluster >= 3:
             # We're only adding up to 3 nodes in the cluster.
             logger.info(
-                "NFS Cluster '%s' already exists, and there are >= 3 nodes in it.", cluster_id
+                "NFS Cluster '%s' already exists, and there are >= 3 nodes in it.",
+                cluster_id,
             )
             return True
 
@@ -312,7 +318,9 @@ class CephNfsProviderHandler(RelationHandler):
 
         if nodes_in_cluster < 3:
             logger.warning(
-                "NFS cluster '%s' is enabled only on %d / 3 nodes.", cluster_id, nodes_in_cluster
+                "NFS cluster '%s' is enabled only on %d / 3 nodes.",
+                cluster_id,
+                nodes_in_cluster,
             )
             return True
 
@@ -355,7 +363,7 @@ class CephNfsProviderHandler(RelationHandler):
         # are now free, which means that we can allocate them to the other NFS
         # clusters as needed.
         other_relations = [
-            r for r in self.model.relations[self.relation_name] if r != event.relation
+            r for r in self.model.relations.get(self.relation_name, []) if r != event.relation
         ]
 
         error = False
