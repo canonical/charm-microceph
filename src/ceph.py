@@ -1054,7 +1054,7 @@ class ErasurePool(BasePool):
 
         # Check for errors
         if erasure_profile is None:
-            msg = "Failed to discover erasure profile named " "{}".format(
+            msg = "Failed to discover erasure profile named {}".format(
                 self.erasure_code_profile
             )
             log(msg, level=ERROR)
@@ -1200,8 +1200,8 @@ def ceph_user():
 def has_quorum() -> bool:
     """Check if the ceph cluster has quorum.
 
-    In adopted ceph environements, microceph may not have a local mon up.
-    Thus, this method checks if the accesible ceph cluster has some quorum.
+    In adopted ceph environments, microceph may not have a local mon up.
+    Thus, this method checks if the accessible ceph cluster has some quorum.
     """
     cmd = ["ceph", "status", "--format=json"]
     try:

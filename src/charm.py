@@ -687,7 +687,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     ##### Callbacks for relation handlers
     def handle_ceph_adopt(self, event) -> None:
-        """Callback for inteface ceph-admin."""
+        """Callback for interface ceph-admin."""
         # Handle post bootstrap
         logger.debug(f"Handle ceph adopt for {event.__repr__}")
         if self.ready_for_service():
