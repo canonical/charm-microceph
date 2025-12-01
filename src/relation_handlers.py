@@ -19,6 +19,7 @@
 
 This charm deploys and manages microceph.
 """
+
 import json
 import logging
 from socket import gethostname
@@ -26,7 +27,14 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import ops
 from ops.charm import CharmBase, RelationEvent
-from ops.framework import EventBase, EventSource, Handle, Object, ObjectEvents, StoredState
+from ops.framework import (
+    EventBase,
+    EventSource,
+    Handle,
+    Object,
+    ObjectEvents,
+    StoredState,
+)
 from ops_sunbeam.interfaces import OperatorPeers
 from ops_sunbeam.relation_handlers import BasePeerHandler, RelationHandler
 
@@ -525,7 +533,7 @@ class CephClientProvides(Object):
                     req_key = json.loads(request)["request-id"]
                 except (TypeError, json.decoder.JSONDecodeError):
                     logger.warning(
-                        "Not able to decode request " "id for broker request {}".format(request)
+                        "Not able to decode request id for broker request {}".format(request)
                     )
                     req_key = None
             else:
@@ -618,7 +626,7 @@ class CephClientProvides(Object):
         mon_key = "ceph-mon-public-addresses"
         addrs = utils.get_mon_addresses()
 
-        for relation in self.framework.model.relations[self.relation_name]:
+        for relation in self.framework.model.relations.get(self.relation_name, []):
             relation.data[self.model.app][mon_key] = json.dumps(addrs)
 
 

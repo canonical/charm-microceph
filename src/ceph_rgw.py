@@ -42,7 +42,8 @@ class CephRgwProviderHandler(ServiceReadinessProviderHandler):
         """Set service readiness on ceph-rgw-ready related units."""
         logger.debug("Set service readiness on all connected placement relations")
         ready = self.rgw_ready
-        for relation in self.framework.model.relations[CEPH_RGW_READY_RELATION]:
+        for relation in self.model.relations.get(CEPH_RGW_READY_RELATION, []):
+            logger.debug(f"Setting rgw readiness to {ready} on relation {relation.id}")
             self.interface.set_service_status(relation, ready)
 
     @property

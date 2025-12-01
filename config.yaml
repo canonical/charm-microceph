@@ -55,3 +55,9 @@ options:
     default: ""
     description: |
       The local site name. This should be unique amongst the connected remote microceph clusters.
+  wait-to-adopt:
+    type: boolean
+    default: False
+    description: |
+      Whether charm microceph should wait for an external ceph cluster to yield for adoption or
+      bootstrap a new ceph cluster.

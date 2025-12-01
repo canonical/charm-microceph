@@ -47,10 +47,11 @@ def is_ready() -> bool:
         logger.warning("Microceph not bootstrapped yet.")
         return False
 
-    if not ceph.is_quorum():
+    if not ceph.has_quorum():
         logger.debug("Ceph cluster not in quorum, not ready yet")
         return False
 
+    logger.debug("microceph cluster is bootstrapped and ready")
     return True
 
 
@@ -129,7 +130,7 @@ def is_rgw_enabled(hostname: str) -> bool:
     Raises ClusterServiceUnavailableException if cluster is not available.
     """
     client = Client.from_socket()
-    services = client.cluster.list_services()
+    services = client.cluster.list_services() or []
     for service in services:
         if service["service"] == "rgw" and service["location"] == hostname:
             return True
@@ -143,7 +144,7 @@ def list_cluster_configs():
     Raises ClusterServiceUnavailableException
     """
     client = Client.from_socket()
-    configs = client.cluster.get_config()
+    configs = client.cluster.get_config() or []
     return {config.get("key"): config.get("value") for config in configs}
 
 
@@ -202,6 +203,49 @@ def bootstrap_cluster(micro_ip: str = None, public_net: str = None, cluster_net:
         cmd.extend(["--microceph-ip", micro_ip])
 
     utils.run_cmd(cmd=cmd)
+
+
+def adopt_ceph_cluster(
+    fsid: str = "",
+    mon_hosts: list = [],
+    admin_key: str = "",
+    micro_ip: str = "",
+    public_net: str = "",
+    cluster_net: str = "",
+):
+    """Bootstrap Microceph by adopting an existing Ceph cluster."""
+
+    if not fsid or not mon_hosts or not admin_key:
+        raise ValueError("fsid, mon_hosts and admin_key are required to adopt a cluster")
+
+    logger.debug(
+        f"Got fsid: {fsid}, mon_hosts: {mon_hosts} and is_admin_key_provided: {admin_key is not None}"
+    )
+
+    cmd = [
+        "microceph",
+        "cluster",
+        "adopt",
+        "-",  # "-" signifies that admin key will be provided via stdin
+        "--fsid",
+        fsid,
+        "--mon-hosts",
+        ",".join(mon_hosts),
+    ]
+
+    if public_net:
+        logger.debug(f"Using public network {public_net} for cluster")
+        cmd.extend(["--public-network", public_net])
+
+    if cluster_net:
+        logger.debug(f"Using cluster network {cluster_net} for cluster")
+        cmd.extend(["--cluster-network", cluster_net])
+
+    if micro_ip:
+        logger.debug(f"Using ip {micro_ip} for microceph cluster")
+        cmd.extend(["--microceph-ip", micro_ip])
+
+    utils.run_cmd_with_input(cmd=cmd, input_data=admin_key)
 
 
 def join_cluster(token: str, micro_ip: str = "", **kwargs):

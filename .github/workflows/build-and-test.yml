@@ -121,7 +121,6 @@ jobs:
       - name: Setup tmate session
         if: ${{ failure() && runner.debug }}
         uses: canonical/action-tmate@main
-          
 
   functional-test:
     needs:
@@ -887,6 +886,104 @@ jobs:
           juju wait-for unit secondary/0 --timeout '15m' --query='workload-message=="(workload) charm is ready"'
           bash ./tests/scripts/ci_helpers.sh check_osd_count primary/0 3
           bash ./tests/scripts/ci_helpers.sh check_osd_count secondary/0 3
+          date
+
+      - name: Add remote integration
+        run: |
+          set -eux
+          juju integrate primary:remote-provider secondary:remote-requirer
+
+          # wait for the applications to go to blocked state
+          juju wait-for unit primary/0 --query='workload-status=="blocked"' --timeout=10m
+          juju wait-for unit secondary/0 --query='workload-status=="blocked"' --timeout=10m
+
+          juju config primary site-name="primary"
+          juju config secondary site-name="secondary"
+
+
+          juju wait-for unit primary/0 --query='workload-status=="active"' --timeout=10m
+          juju wait-for unit secondary/0 --query='workload-status=="active"' --timeout=10m
+
+          juju status --relations
+
+      - name: Wait for token exchange and remote enlisting
+        run: |
+          set -eux
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/0 secondary
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment secondary/0 primary
+
+      - name: Scale up the primary cluster
+        run: |
+          set -eux
+          juju add-unit primary -n 1
+          # wait for new unit to be active/idle
+          juju wait-for unit primary/1 --query='workload-status=="active"' --timeout=20m
+
+      - name: Re-verify remote listings
+        run: |
+          set -eux
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/0 secondary
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/1 secondary
+          bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment secondary/0 primary
+
+      - name: Collect logs
+        if: failure()
+        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: microceph_juju_mds_test_logs
+          path: logs
+          retention-days: 30
+
+      - name: Setup tmate session
+        if: ${{ failure() && runner.debug }}
+        uses: canonical/action-tmate@main
+
+  juju-adopt-ceph-test:
+    needs:
+      - build
+    name: Adopt Charmed ceph cluster test
+    runs-on: self-hosted-linux-amd64-noble-xlarge
+    steps:
+      - name: Download charm
+        uses: actions/download-artifact@v4
+        with:
+          name: charms
+          path: ~/artifacts/
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.1
+        with:
+          # pin lxd to LTS release.
+          channel: 5.21/stable
+
+      - name: Install dependencies
+        run: ./tests/scripts/ci_helpers.sh install_deps
+
+      - name: Install MicroCeph charm
+        run: |
+          set -eux
+          date
+          juju deploy ./tests/bundles/noble-caracal.yaml
+          juju wait-for application ceph-mon --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m
+          juju wait-for application secondary --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m
+          date
+
+      - name: Adopt the charmed ceph cluster using primary microcpeh application
+        run: |
+          set -eux
+          date
+          juju integrate ceph-mon primary
+          juju wait-for application primary --query=`workload-status=="active"` --timeout=10m
+          juju status --relations
           date
 
       - name: Add remote integration

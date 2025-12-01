@@ -33,7 +33,6 @@ import functools
 import json
 import logging
 import math
-import os
 import socket
 import subprocess
 from subprocess import CalledProcessError, check_call, check_output
@@ -1198,22 +1197,21 @@ def ceph_user():
     return "microceph.ceph"
 
 
-def is_quorum():
-    """Check if the monitor is in quorum."""
-    asok = "/var/snap/microceph/current/run/ceph-mon.{}.asok".format(socket.gethostname())
-    cmd = ["microceph.ceph", "--admin-daemon", asok, "mon_status"]
-    if os.path.exists(asok):
-        try:
-            result = json.loads(str(check_output(cmd).decode("UTF-8")))
-        except CalledProcessError:
-            return False
-        except ValueError:
-            # Non JSON response from mon_status
-            return False
-        if result["state"] in QUORUM:
-            return True
-        else:
-            return False
+def has_quorum() -> bool:
+    """Check if the ceph cluster has quorum.
+
+    In adopted ceph environements, microceph may not have a local mon up.
+    Thus, this method checks if the accesible ceph cluster has some quorum.
+    """
+    cmd = ["ceph", "status", "--format=json"]
+    try:
+        result = json.loads(str(check_output(cmd).decode("UTF-8")))
+    except CalledProcessError:
+        return False
+    except ValueError:
+        return False
+    if result.get("quorum") and len(result["quorum"]) > 0:
+        return True
     else:
         return False
 
