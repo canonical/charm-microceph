@@ -679,6 +679,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             self.traefik_route_rgw.interface.submit_to_traefik(config=self.traefik_config)
 
             if self.traefik_route_rgw.ready:
+                if self.model.config.get("enable-rgw") == "*":
+                    self.configure_rgw_service(event)
                 self._update_service_endpoints()
 
     def post_config_setup(self):
