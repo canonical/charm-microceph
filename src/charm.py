@@ -326,80 +326,98 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         }
         return config
 
-    def _add_idsvc_handler(self, handlers):
-        if not self.can_add_handler("identity-service", handlers):
-            return
-
-        try:
-            self.id_svc = sunbeam_rhandlers.IdentityServiceRequiresHandler(
-                self,
-                "identity-service",
-                self.configure_charm,
-                self.service_endpoints,
-                self.model.config["region"],
-                "identity-service" in self.mandatory_relations,
-            )
-            handlers.append(self.id_svc)
-        except Exception:
-            logger.exception("Failed to get identity-service handler")
-
-    def get_relation_handlers(self, handlers=None) -> List[sunbeam_rhandlers.RelationHandler]:
+    def get_relation_handlers(
+        self, handlers=None
+    ) -> List[sunbeam_rhandlers.RelationHandler]:
         """Relation handlers for the service."""
         handlers = handlers or []
-        if self.can_add_handler("adopt-ceph", handlers):
-            self.adopt_ceph = AdoptCephRequiresHandler(self, "adopt-ceph", self.handle_ceph_adopt)
-        if self.can_add_handler("remote-provider", handlers):
-            self.remote_provider = MicroCephRemoteHandler(
-                self, "remote-provider", self.handle_microceph_remote
-            )
-        if self.can_add_handler("remote-requirer", handlers):
-            self.remote_requirer = MicroCephRemoteHandler(
-                self, "remote-requirer", self.handle_microceph_remote
-            )
 
-        if self.can_add_handler("peers", handlers):
-            self.peers = MicroClusterPeerHandler(
-                self,
+        relation_handlers = {
+            "adopt-ceph": (
+                "adopt_ceph",
+                lambda: AdoptCephRequiresHandler(
+                    self, "adopt-ceph", self.handle_ceph_adopt
+                ),
+            ),
+            "remote-provider": (
+                "remote_provider",
+                lambda: MicroCephRemoteHandler(
+                    self, "remote-provider", self.handle_rh_cb_noop
+                ),
+            ),
+            "remote-requirer": (
+                "remote_requirer",
+                lambda: MicroCephRemoteHandler(
+                    self, "remote-requirer", self.handle_rh_cb_noop
+                ),
+            ),
+            "peers": (
                 "peers",
-                self.configure_charm,
-                "peers" in self.mandatory_relations,
-            )
-            self.peers.upgrade_callback = self.upgrade_dispatch
-            handlers.append(self.peers)
-        if self.can_add_handler("ceph", handlers):
-            self.ceph = CephClientProviderHandler(
-                self,
+                lambda: MicroClusterPeerHandler(
+                    self,
+                    "peers",
+                    self.configure_charm,
+                    "peers" in self.mandatory_relations,
+                ),
+            ),
+            "ceph": (
                 "ceph",
-                self.handle_ceph,
-            )
-            handlers.append(self.ceph)
-        if self.can_add_handler("radosgw", handlers):
-            self.radosgw = CephRadosGWProviderHandler(self, self.handle_ceph)
-        if self.can_add_handler("mds", handlers):
-            self.mds = CephMdsProviderHandler(self, self.handle_ceph)
-        if self.can_add_handler("ceph-nfs", handlers):
-            self.ceph_nfs = CephNfsProviderHandler(
-                self,
-                "ceph-nfs",
-                self.handle_ceph_nfs,
-            )
-        if self.can_add_handler(CEPH_RGW_READY_RELATION, handlers):
-            self.ceph_rgw = CephRgwProviderHandler(
-                self,
-                CEPH_RGW_READY_RELATION,
-            )
-        if self.can_add_handler("traefik-route-rgw", handlers):
-            self.traefik_route_rgw = sunbeam_rhandlers.TraefikRouteHandler(
-                self,
-                "traefik-route-rgw",
-                self.handle_traefik_ready,
-                "traefik-route-rgw" in self.mandatory_relations,
-            )
-            handlers.append(self.traefik_route_rgw)
-        self._add_idsvc_handler(handlers)
+                lambda: CephClientProviderHandler(self, "ceph", self.handle_rh_cb_noop),
+            ),
+            "radosgw": (
+                "radosgw",
+                lambda: CephRadosGWProviderHandler(self, self.handle_rh_cb_noop),
+            ),
+            "mds": (
+                "mds",
+                lambda: CephMdsProviderHandler(self, self.handle_rh_cb_noop),
+            ),
+            "ceph-nfs": (
+                "ceph_nfs",
+                lambda: CephNfsProviderHandler(
+                    self, "ceph-nfs", self.handle_rh_cb_noop
+                ),
+            ),
+            CEPH_RGW_READY_RELATION: (
+                "ceph_rgw",
+                lambda: CephRgwProviderHandler(self, CEPH_RGW_READY_RELATION),
+            ),
+            "traefik-route-rgw": (
+                "traefik_route_rgw",
+                lambda: sunbeam_rhandlers.TraefikRouteHandler(
+                    self,
+                    "traefik-route-rgw",
+                    self.handle_traefik_ready,
+                    "traefik-route-rgw" in self.mandatory_relations,
+                ),
+            ),
+            "identity-service": (
+                "id_svc",
+                lambda: sunbeam_rhandlers.IdentityServiceRequiresHandler(
+                    self,
+                    "identity-service",
+                    self.configure_charm,
+                    self.service_endpoints,
+                    self.model.config["region"],
+                    "identity-service" in self.mandatory_relations,
+                ),
+            ),
+        }
 
+        for relation_name, (attr_name, handler_factory) in relation_handlers.items():
+            if self.can_add_handler(relation_name, handlers):
+                logger.debug(f"Adding relation handler for {relation_name}")
+                try:
+                    handler = handler_factory()
+                    setattr(self, attr_name, handler)
+                    handlers.append(handler)
+                    if relation_name == "peers":
+                        handler.upgrade_callback = self.upgrade_dispatch
+                except AttributeError:
+                    logger.exception(f"Failed to get {relation_name} handler")
+
+        # calling the superclass method to get any additional handlers not set by the charm.
         handlers = super().get_relation_handlers(handlers)
-        logger.debug(f"Relation handlers: {handlers}")
         return handlers
 
     def ready_for_service(self) -> bool:
@@ -702,17 +720,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.handle_config_leader_charm_upgrade()
         self.handle_config_leader_new_node(event)
 
-    def handle_ceph(self, event) -> None:
+    def handle_rh_cb_noop(self, event) -> None:
         """Callback for interface ceph."""
-        logger.info("Callback for ceph interface, (noop)")
-
-    def handle_ceph_nfs(self, event) -> None:
-        """Callback for interface ceph-nfs-client."""
-        logger.debug("Callback for ceph-nfs-client interface, (noop)")
-
-    def handle_microceph_remote(self, event) -> None:
-        """Callback for interface ceph-nfs-client."""
-        logger.debug("Callback for microceph-remote interface, ignore")
+        # add a logger debug print for the event name and noop
+        logger.debug(f"Callback for {event.relation.name} interface, (noop)")
 
     # Helpers for charm configuration logic
     def handle_config_leader_set_ready(self):
