@@ -687,7 +687,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Configuration steps after services have been setup."""
         super().post_config_setup()
 
-    ##### Callbacks for relation handlers
+    # Callbacks for relation handlers
     def handle_ceph_adopt(self, event) -> None:
         """Callback for interface ceph-admin."""
         # Handle post bootstrap
@@ -714,7 +714,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Callback for interface ceph-nfs-client."""
         logger.debug("Callback for microceph-remote interface, ignore")
 
-    ##### Helpers for charm configuration logic
+    # Helpers for charm configuration logic
     def handle_config_leader_set_ready(self):
         """Configure leader as ready."""
         logger.debug("Configuring leader as ready")

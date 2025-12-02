@@ -39,7 +39,7 @@ def run_cmd(cmd: list, timeout: int = 180) -> str:
 
 
 def run_cmd_with_input(cmd: list, input_data: str) -> str:
-    """Execute provided command with input to stdin"""
+    """Execute provided command with input to stdin."""
     try:
         output = subprocess.run(
             cmd,

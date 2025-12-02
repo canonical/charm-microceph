@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class AdoptCephRelationDataKeys(Enum):
-    """Relation Data keys"""
+    """Relation Data keys."""
 
     mon_hosts = "mon_hosts"
     admin_key = "key"
@@ -42,19 +42,19 @@ class AdoptCephRelationDataKeys(Enum):
 
 
 class AdoptCephBootstrapEvent(RelationEvent):
-    """adopt-ceph bootstrap event"""
+    """adopt-ceph bootstrap event."""
 
     pass
 
 
 class AdoptCephEvents(ObjectEvents):
-    """Events for adopt-ceph relation handler"""
+    """Events for adopt-ceph relation handler."""
 
     adopt_ceph_bootstrap = EventSource(AdoptCephBootstrapEvent)
 
 
 class AdoptCephRequires(Object):
-    """Interface for ceph-admin interface"""
+    """Interface for ceph-admin interface."""
 
     on = AdoptCephEvents()
 
@@ -73,7 +73,7 @@ class AdoptCephRequires(Object):
         self.framework.observe(charm.on[relation_name].relation_joined, self._on_relation_changed)
 
     def _on_relation_changed(self, event) -> None:
-        """On relation changed"""
+        """On relation changed."""
         if not self.model.unit.is_leader():
             logger.debug("Unit is not leader, skipping adopt-ceph changed event")
             return
@@ -87,7 +87,7 @@ class AdoptCephRequires(Object):
         self.on.adopt_ceph_bootstrap.emit(event.relation)
 
     def _on_relation_broken(self, event) -> None:
-        """On relation departed"""
+        """On relation departed."""
         if not self.model.unit.is_leader():
             logger.debug("Unit is not leader, skipping adopt-ceph departed event")
             return
@@ -102,7 +102,7 @@ class AdoptCephRequires(Object):
 
 
 class AdoptCephRequiresHandler(RelationHandler):
-    """Handler for adopt-ceph relation events"""
+    """Handler for adopt-ceph relation events."""
 
     def __init__(
         self,
@@ -114,6 +114,7 @@ class AdoptCephRequiresHandler(RelationHandler):
 
     @property
     def ready(self) -> bool:
+        """Check if adopt-ceph relation is ready."""
         logger.info(f"Report {self.relation_name} as ready")
         return True
 
@@ -126,7 +127,7 @@ class AdoptCephRequiresHandler(RelationHandler):
         self.framework.observe(self.adopt_ceph.on.adopt_ceph_bootstrap, self._on_bootstrap)
 
     def _on_bootstrap(self, relation):
-        """Bootstrap MicroCeph cluster using adopted ceph cluster"""
+        """Bootstrap MicroCeph cluster using adopted ceph cluster."""
         logger.info("Handling adopt-ceph bootstrap event")
         with sunbeam_guard.guard(self.charm, self.relation_name):
             for relation in self.model.relations.get(self.relation_name, []):

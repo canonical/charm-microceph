@@ -214,7 +214,6 @@ def adopt_ceph_cluster(
     cluster_net: str = "",
 ):
     """Bootstrap Microceph by adopting an existing Ceph cluster."""
-
     if not fsid or not mon_hosts or not admin_key:
         raise ValueError("fsid, mon_hosts and admin_key are required to adopt a cluster")
 
