@@ -1054,9 +1054,7 @@ class ErasurePool(BasePool):
 
         # Check for errors
         if erasure_profile is None:
-            msg = "Failed to discover erasure profile named {}".format(
-                self.erasure_code_profile
-            )
+            msg = "Failed to discover erasure profile named {}".format(self.erasure_code_profile)
             log(msg, level=ERROR)
             raise PoolCreationError(msg)
         if "k" not in erasure_profile or "m" not in erasure_profile:

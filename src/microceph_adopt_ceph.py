@@ -16,18 +16,18 @@
 
 """Handle Charm's Adopt Ceph Integration Events."""
 
-from enum import Enum
 import logging
+from enum import Enum
 from typing import Callable
 
 import ops_sunbeam.guard as sunbeam_guard
 from ops.charm import CharmBase, RelationEvent
-from ops.model import ActiveStatus
 from ops.framework import (
     EventSource,
     Object,
     ObjectEvents,
 )
+from ops.model import ActiveStatus
 from ops_sunbeam.relation_handlers import RelationHandler
 
 logger = logging.getLogger(__name__)

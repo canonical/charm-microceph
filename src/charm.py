@@ -326,30 +326,22 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         }
         return config
 
-    def get_relation_handlers(
-        self, handlers=None
-    ) -> List[sunbeam_rhandlers.RelationHandler]:
+    def get_relation_handlers(self, handlers=None) -> List[sunbeam_rhandlers.RelationHandler]:
         """Relation handlers for the service."""
         handlers = handlers or []
 
         relation_handlers = {
             "adopt-ceph": (
                 "adopt_ceph",
-                lambda: AdoptCephRequiresHandler(
-                    self, "adopt-ceph", self.handle_ceph_adopt
-                ),
+                lambda: AdoptCephRequiresHandler(self, "adopt-ceph", self.handle_ceph_adopt),
             ),
             "remote-provider": (
                 "remote_provider",
-                lambda: MicroCephRemoteHandler(
-                    self, "remote-provider", self.handle_rh_cb_noop
-                ),
+                lambda: MicroCephRemoteHandler(self, "remote-provider", self.handle_rh_cb_noop),
             ),
             "remote-requirer": (
                 "remote_requirer",
-                lambda: MicroCephRemoteHandler(
-                    self, "remote-requirer", self.handle_rh_cb_noop
-                ),
+                lambda: MicroCephRemoteHandler(self, "remote-requirer", self.handle_rh_cb_noop),
             ),
             "peers": (
                 "peers",
@@ -374,9 +366,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             ),
             "ceph-nfs": (
                 "ceph_nfs",
-                lambda: CephNfsProviderHandler(
-                    self, "ceph-nfs", self.handle_rh_cb_noop
-                ),
+                lambda: CephNfsProviderHandler(self, "ceph-nfs", self.handle_rh_cb_noop),
             ),
             CEPH_RGW_READY_RELATION: (
                 "ceph_rgw",
