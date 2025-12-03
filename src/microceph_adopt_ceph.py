@@ -41,7 +41,12 @@ class AdoptCephRelationDataKeys(Enum):
 
 
 class AdoptCephBootstrapEvent(RelationEvent):
-    """adopt-ceph bootstrap event."""
+    """Event emitted when adopt-ceph relation provides complete cluster credentials.
+
+    This event signals that all necessary information (monitor hosts, admin key,
+    and fsid) has been received from the adopt-ceph relation, and the charm can
+    proceed with the cluster bootstrap process by adopting the external Ceph cluster.
+    """
 
     pass
 
@@ -134,7 +139,11 @@ class AdoptCephRequiresHandler(RelationHandler):
                     logger.debug("No units in adopt-ceph relation, cannot reconcile")
                     return
 
-                remote_ceph_data = relation.data.get(next(iter(relation.units)), {})
+                unit = next(iter(relation.units), None)
+                if unit is None:
+                    logger.debug("No units available in adopt-ceph relation after check")
+                    return
+                remote_ceph_data = relation.data.get(unit, {})
                 logger.debug(f"Adopt-ceph relation data: IsEmpty({remote_ceph_data is None})")
 
                 # fetched mon hosts value is a space separated string of host addresses.
@@ -152,9 +161,17 @@ class AdoptCephRequiresHandler(RelationHandler):
                         f"Waiting for fsid({fsid}), mon_hosts({mon_hosts}) and admin_key({admin_key is not None}) from adopt-ceph relation"
                     )
 
+                # Split mon_hosts and filter out empty strings
+                mon_hosts_list = [host for host in mon_hosts.split() if host]
+                if not mon_hosts_list:
+                    logger.debug("No valid mon_hosts found after splitting")
+                    raise sunbeam_guard.BlockedExceptionError(
+                        f"Invalid mon_hosts from adopt-ceph relation: {mon_hosts!r}"
+                    )
+
                 logger.debug(
                     "All required data from adopt-ceph relation present, proceeding with adoption"
                 )
-                self.charm.adopt_cluster(fsid, mon_hosts.split(), admin_key)
+                self.charm.adopt_cluster(fsid, mon_hosts_list, admin_key)
                 self.callback_f(event=relation)
                 return

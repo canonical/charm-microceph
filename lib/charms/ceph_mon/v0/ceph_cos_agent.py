@@ -57,7 +57,7 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
 
         if self._is_ready_cb and not self._is_ready_cb():
             # do not proceed if the charm is not ready
-            logger.debug("charm not ready, to process COS events")
+            logger.debug("charm not ready to process COS events")
             return
 
         if callable(self._refresh_cb):

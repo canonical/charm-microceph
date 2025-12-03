@@ -738,7 +738,14 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             event.defer()
             return
 
-        default_rf = int(self.model.config.get("default-pool-size"))
+        try:
+            default_rf = int(self.model.config.get("default-pool-size"))
+        except (TypeError, ValueError) as e:
+            logger.error("Invalid value for 'default-pool-size': %s", e)
+            raise sunbeam_guard.BlockedExceptionError(
+                "Invalid configuration: 'default-pool-size' must be an integer"
+            )
+
         try:
             microceph.set_pool_size("", default_rf)
 
