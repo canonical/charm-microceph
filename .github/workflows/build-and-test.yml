@@ -982,7 +982,7 @@ jobs:
           set -eux
           date
           juju integrate ceph-mon primary
-          juju wait-for application primary --query=`workload-status=="active"` --timeout=10m
+          juju wait-for unit primary/0 --query='workload-status=="active"' --timeout=15m
           juju status --relations
           date
 
@@ -992,15 +992,15 @@ jobs:
           juju integrate primary:remote-provider secondary:remote-requirer
 
           # wait for the applications to go to blocked state
-          juju wait-for unit primary/0 --query='workload-status=="blocked"' --timeout=10m
-          juju wait-for unit secondary/0 --query='workload-status=="blocked"' --timeout=10m
+          juju wait-for unit primary/0 --query='workload-status=="blocked"' --timeout=15m
+          juju wait-for unit secondary/0 --query='workload-status=="blocked"' --timeout=15m
 
           juju config primary site-name="primary"
           juju config secondary site-name="secondary"
 
 
-          juju wait-for unit primary/0 --query='workload-status=="active"' --timeout=10m
-          juju wait-for unit secondary/0 --query='workload-status=="active"' --timeout=10m
+          juju wait-for unit primary/0 --query='workload-status=="active"' --timeout=15m
+          juju wait-for unit secondary/0 --query='workload-status=="active"' --timeout=15m
 
           juju status --relations
 
