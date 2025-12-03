@@ -36,6 +36,7 @@ import requests
 from charms.ceph_mon.v0 import ceph_cos_agent
 from charms.operator_libs_linux.v2 import snap
 from ops.main import main
+from ops.model import ActiveStatus
 
 import ceph
 import cluster
@@ -700,15 +701,20 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Callback for interface ceph-admin."""
         # Handle post bootstrap
         logger.debug(f"Handle ceph adopt for {event.__repr__}")
-        if self.ready_for_service():
-            logger.debug("Microceph already bootstrapped, ignoring adopt request")
+        if self.is_leader_ready():
+            logger.debug("Leader already configured, ignoring adopt request")
             return
 
+        # Mark unit as bootstrapped (required for bootstrapped() check)
+        self._state.unit_bootstrapped = True
         self.handle_config_leader_set_ready()
         self.handle_config_leader_ceph_pool_pgs(event)
         self.handle_config_rgw_service(event)
         self.handle_config_leader_charm_upgrade()
         self.handle_config_leader_new_node(event)
+        # Clear any blocked status and set to active (similar to configure_charm)
+        self.bootstrap_status.set(ActiveStatus())
+        self.status.set(ActiveStatus("charm is ready"))
 
     def handle_rh_cb_noop(self, event) -> None:
         """Callback for interface ceph."""

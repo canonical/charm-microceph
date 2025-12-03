@@ -27,7 +27,6 @@ from ops.framework import (
     Object,
     ObjectEvents,
 )
-from ops.model import ActiveStatus
 from ops_sunbeam.relation_handlers import RelationHandler
 
 logger = logging.getLogger(__name__)
@@ -158,5 +157,4 @@ class AdoptCephRequiresHandler(RelationHandler):
                 )
                 self.charm.adopt_cluster(fsid, mon_hosts.split(), admin_key)
                 self.callback_f(event=relation)
-                self.charm.status.set(ActiveStatus("charm is ready"))
                 return

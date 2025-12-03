@@ -929,3 +929,49 @@ class TestCharm(testbase.TestBaseCharm):
                 call("mgr/prometheus/exclude_perf_counters", "False"),
             ]
         )
+
+    @patch("microceph.is_ready")
+    @patch("microceph.set_pool_size")
+    @patch("ceph.ceph_config_set")
+    def test_handle_ceph_adopt_marks_leader_ready(
+        self, mock_ceph_config_set, mock_set_pool_size, mock_is_ready
+    ):
+        """Test that handle_ceph_adopt marks leader as ready after adoption."""
+        # Setup: cluster is ready (adopted) but leader not yet marked ready
+        mock_is_ready.return_value = True
+        self.harness.set_leader()
+        self.add_complete_peer_relation(self.harness)
+
+        # Ensure leader is not marked as ready initially
+        self.harness.charm.leader_set({"leader-ready": "false"})
+
+        # Create a mock event
+        event = MagicMock()
+
+        # Call handle_ceph_adopt
+        self.harness.charm.handle_ceph_adopt(event)
+
+        # Verify that charm is bootstrapped using the same method sunbeam uses
+        self.assertTrue(self.harness.charm.bootstrapped())
+
+    @patch("microceph.is_ready")
+    def test_handle_ceph_adopt_skips_when_leader_already_ready(self, mock_is_ready):
+        """Test that handle_ceph_adopt skips post-bootstrap if leader already ready."""
+        # Setup: cluster is ready and leader is already marked ready
+        mock_is_ready.return_value = True
+        self.harness.set_leader()
+        self.add_complete_peer_relation(self.harness)
+
+        # Mark leader as ready
+        self.harness.charm.set_leader_ready()
+
+        # Create a mock event
+        event = MagicMock()
+
+        # Mock the post-bootstrap configuration methods
+        with patch.object(self.harness.charm, "handle_config_leader_set_ready") as mock_set_ready:
+            # Call handle_ceph_adopt
+            self.harness.charm.handle_ceph_adopt(event)
+
+            # Verify that handle_config_leader_set_ready was NOT called
+            mock_set_ready.assert_not_called()
