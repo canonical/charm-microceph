@@ -36,14 +36,17 @@ import requests
 from charms.ceph_mon.v0 import ceph_cos_agent
 from charms.operator_libs_linux.v2 import snap
 from ops.main import main
+from ops.model import ActiveStatus
 
 import ceph
 import cluster
 import maintenance
 import microceph
 import microceph_client
+import utils
 from ceph_nfs import CephNfsProviderHandler
 from ceph_rgw import CEPH_RGW_READY_RELATION, CephRgwProviderHandler
+from microceph_adopt_ceph import AdoptCephRequiresHandler
 from microceph_client import ClusterServiceUnavailableException
 from microceph_remote import MicroCephRemoteHandler
 from radosgw import RadosGWHandler
@@ -86,6 +89,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             self,
             refresh_cb=microceph.cos_agent_refresh_cb,
             departed_cb=microceph.cos_agent_departed_cb,
+            is_ready_cb=self.ready_for_service,
         )
 
         # Initialise handlers for events.
@@ -105,15 +109,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             "--channel",
             config("snap-channel"),
         ]
-
-        logger.debug(f"Running command {' '.join(cmd)}")
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=900)
-        logger.debug(f"Command finished. stdout={process.stdout}, stderr={process.stderr}")
+        utils.run_cmd(cmd, timeout=900)
 
         cmd = ["sudo", "snap", "alias", "microceph.ceph", "ceph"]
-        logger.debug(f"Running command {' '.join(cmd)}")
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=180)
-        logger.debug(f"Command finished. stdout={process.stdout}, stderr={process.stderr}")
+        utils.run_cmd(cmd)
 
         try:
             snap.SnapCache()["microceph"].hold()
@@ -134,8 +133,19 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def _on_update_status(self, event: ops.framework.EventBase) -> None:
         """Update status event handler."""
-        if self.unit.is_leader():
-            self.ceph_rgw.set_readiness_on_related_units()
+        if not self.unit.is_leader():
+            logger.debug(f"Unit {self.unit.name} is not leader, skipping rgw readiness update")
+            return
+
+        if not self.ready_for_service():
+            logger.debug("Microceph not ready for service, skipping rgw readiness update")
+            return
+
+        if not self.model.relations.get(CEPH_RGW_READY_RELATION):
+            logger.debug("No ceph-rgw-ready relation, skipping rgw readiness update")
+            return
+
+        self.ceph_rgw.set_readiness_on_related_units()
 
     def _on_peer_relation_created(self, event: ops.framework.EventBase) -> None:
         logging.debug(f"Peer relation created: {event}")
@@ -167,7 +177,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _handle_receive_ca_cert(self, event: ops.framework.EventBase) -> None:
         contexts = self.contexts()
         cacert_path = Path(CACERT_FILE)
-        if hasattr(contexts.receive_ca_cert, "ca_bundle") and contexts.receive_ca_cert.ca_bundle:
+        if getattr(contexts.receive_ca_cert, "ca_bundle", None):
             cacert_in_bytes = contexts.receive_ca_cert.ca_bundle.encode()
             if cacert_path.exists():
                 cert_from_file = cacert_path.read_bytes()
@@ -317,78 +327,88 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         }
         return config
 
-    def _add_idsvc_handler(self, handlers):
-        if not self.can_add_handler("identity-service", handlers):
-            return
-
-        try:
-            self.id_svc = sunbeam_rhandlers.IdentityServiceRequiresHandler(
-                self,
-                "identity-service",
-                self.configure_charm,
-                self.service_endpoints,
-                self.model.config["region"],
-                "identity-service" in self.mandatory_relations,
-            )
-            handlers.append(self.id_svc)
-        except Exception:
-            logger.exception("Failed to get identity-service handler")
-
     def get_relation_handlers(self, handlers=None) -> List[sunbeam_rhandlers.RelationHandler]:
         """Relation handlers for the service."""
         handlers = handlers or []
-        if self.can_add_handler("remote-provider", handlers):
-            self.remote_provider = MicroCephRemoteHandler(
-                self, "remote-provider", self.handle_microceph_remote
-            )
-        if self.can_add_handler("remote-requirer", handlers):
-            self.remote_requirer = MicroCephRemoteHandler(
-                self, "remote-requirer", self.handle_microceph_remote
-            )
 
-        if self.can_add_handler("peers", handlers):
-            self.peers = MicroClusterPeerHandler(
-                self,
+        relation_handlers = {
+            "adopt-ceph": (
+                "adopt_ceph",
+                lambda: AdoptCephRequiresHandler(self, "adopt-ceph", self.handle_ceph_adopt),
+            ),
+            "remote-provider": (
+                "remote_provider",
+                lambda: MicroCephRemoteHandler(self, "remote-provider", self.handle_rh_cb_noop),
+            ),
+            "remote-requirer": (
+                "remote_requirer",
+                lambda: MicroCephRemoteHandler(self, "remote-requirer", self.handle_rh_cb_noop),
+            ),
+            "peers": (
                 "peers",
-                self.configure_charm,
-                "peers" in self.mandatory_relations,
-            )
-            self.peers.upgrade_callback = self.upgrade_dispatch
-            handlers.append(self.peers)
-        if self.can_add_handler("ceph", handlers):
-            self.ceph = CephClientProviderHandler(
-                self,
+                lambda: MicroClusterPeerHandler(
+                    self,
+                    "peers",
+                    self.configure_charm,
+                    "peers" in self.mandatory_relations,
+                ),
+            ),
+            "ceph": (
                 "ceph",
-                self.handle_ceph,
-            )
-            handlers.append(self.ceph)
-        if self.can_add_handler("radosgw", handlers):
-            self.radosgw = CephRadosGWProviderHandler(self, self.handle_ceph)
-        if self.can_add_handler("mds", handlers):
-            self.mds = CephMdsProviderHandler(self, self.handle_ceph)
-        if self.can_add_handler("ceph-nfs", handlers):
-            self.ceph_nfs = CephNfsProviderHandler(
-                self,
-                "ceph-nfs",
-                self.handle_ceph_nfs,
-            )
-        if self.can_add_handler(CEPH_RGW_READY_RELATION, handlers):
-            self.ceph_rgw = CephRgwProviderHandler(
-                self,
-                CEPH_RGW_READY_RELATION,
-            )
-        if self.can_add_handler("traefik-route-rgw", handlers):
-            self.traefik_route_rgw = sunbeam_rhandlers.TraefikRouteHandler(
-                self,
-                "traefik-route-rgw",
-                self.handle_traefik_ready,
-                "traefik-route-rgw" in self.mandatory_relations,
-            )
-            handlers.append(self.traefik_route_rgw)
-        self._add_idsvc_handler(handlers)
+                lambda: CephClientProviderHandler(self, "ceph", self.handle_rh_cb_noop),
+            ),
+            "radosgw": (
+                "radosgw",
+                lambda: CephRadosGWProviderHandler(self, self.handle_rh_cb_noop),
+            ),
+            "mds": (
+                "mds",
+                lambda: CephMdsProviderHandler(self, self.handle_rh_cb_noop),
+            ),
+            "ceph-nfs": (
+                "ceph_nfs",
+                lambda: CephNfsProviderHandler(self, "ceph-nfs", self.handle_rh_cb_noop),
+            ),
+            CEPH_RGW_READY_RELATION: (
+                "ceph_rgw",
+                lambda: CephRgwProviderHandler(self, CEPH_RGW_READY_RELATION),
+            ),
+            "traefik-route-rgw": (
+                "traefik_route_rgw",
+                lambda: sunbeam_rhandlers.TraefikRouteHandler(
+                    self,
+                    "traefik-route-rgw",
+                    self.handle_traefik_ready,
+                    "traefik-route-rgw" in self.mandatory_relations,
+                ),
+            ),
+            "identity-service": (
+                "id_svc",
+                lambda: sunbeam_rhandlers.IdentityServiceRequiresHandler(
+                    self,
+                    "identity-service",
+                    self.configure_charm,
+                    self.service_endpoints,
+                    self.model.config["region"],
+                    "identity-service" in self.mandatory_relations,
+                ),
+            ),
+        }
 
+        for relation_name, (attr_name, handler_factory) in relation_handlers.items():
+            if self.can_add_handler(relation_name, handlers):
+                logger.debug(f"Adding relation handler for {relation_name}")
+                try:
+                    handler = handler_factory()
+                    setattr(self, attr_name, handler)
+                    handlers.append(handler)
+                    if relation_name == "peers":
+                        handler.upgrade_callback = self.upgrade_dispatch
+                except AttributeError:
+                    logger.exception(f"Failed to get {relation_name} handler")
+
+        # calling the superclass method to get any additional handlers not set by the charm.
         handlers = super().get_relation_handlers(handlers)
-        logger.debug(f"Relation handlers: {handlers}")
         return handlers
 
     def ready_for_service(self) -> bool:
@@ -398,7 +418,12 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             return False
 
         # ready for service if leader has been announced.
-        return self.is_leader_ready()
+        if not self.is_leader_ready():
+            logger.warning("Leader not marked ready yet")
+            return False
+
+        logger.debug("microceph operator is ready for service")
+        return True
 
     def _lookup_system_interfaces(self, mon_hosts: list) -> str:
         """Looks up available addresses on the machine and returns addr if found in mon_hosts."""
@@ -437,18 +462,6 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             "key": ceph.get_named_key(name=service_name, caps=caps),
         }
 
-    def handle_ceph(self, event) -> None:
-        """Callback for interface ceph."""
-        logger.info("Callback for ceph interface, (noop)")
-
-    def handle_ceph_nfs(self, event) -> None:
-        """Callback for interface ceph-nfs-client."""
-        logger.debug("Callback for ceph-nfs-client interface, (noop)")
-
-    def handle_microceph_remote(self, event) -> None:
-        """Callback for interface ceph-nfs-client."""
-        logger.debug("Callback for microceph-remote interface, (noop)")
-
     def upgrade_dispatch(self, event: ops.framework.EventBase) -> None:
         """Dispatch upgrade events."""
         logger.debug(f"Dispatch upgrade: {self.unit.name}, {event}")
@@ -467,29 +480,19 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Configure the leader unit."""
         logger.debug(f"Configure leader for {event.__repr__}")
         if not self.is_leader_ready():
+            if self.model.config.get("wait-to-adopt"):
+                logger.info("skipping configure until microceph adopts a remote ceph cluster")
+                return
+
             logger.debug("Bootstrapping MicroCeph cluster")
             self.bootstrap_cluster(event)
-            # mark bootstrap node also as joined
-            self.peers.interface.state.joined = True
 
-        self.set_leader_ready()
-        if self.leader_get("namespace-projects") is None:
-            self.leader_set(
-                {"namespace-projects": json.dumps(self.model.config.get("namespace-projects"))}
-            )
-        self.configure_ceph(event)
-        self.manage_rgw_service(event)
-        snap_chan = self.model.config.get("snap-channel")
-
-        if self.cluster_upgrades.upgrade_requested(snap_chan):
-            ok, msg = self.cluster_upgrades.can_upgrade_charm_payload(snap_chan)
-            if not ok:
-                raise sunbeam_guard.BlockedExceptionError(msg)
-            self.cluster_upgrades.init_upgrade(snap_chan)
-
-        if isinstance(event, MicroClusterNewNodeEvent):
-            logger.debug(f"Generating join token for {event.unit.name}")
-            self.cluster_nodes.add_node_to_cluster(event)
+        # Handle post bootstrap
+        self.handle_config_leader_set_ready()
+        self.handle_config_leader_ceph_pool_pgs(event)
+        self.handle_config_rgw_service(event)
+        self.handle_config_leader_charm_upgrade()
+        self.handle_config_leader_new_node(event)
 
     def configure_app_non_leader(self, event: ops.framework.EventBase) -> None:
         """Configure the non leader unit."""
@@ -505,7 +508,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             raise sunbeam_guard.WaitingExceptionError("waiting to join cluster")
 
         # Proceed with post join activities
-        self.manage_rgw_service(event)
+        self.handle_config_rgw_service(event)
 
     def _get_space_subnet(self, space: str):
         """Get the first available subnet in the network space."""
@@ -548,11 +551,35 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 "micro_ip": format(micro_ip),
             }
 
+    def adopt_cluster(self, fsid, mon_hosts, admin_key):
+        """Bootstrap Microceph cluster using external ceph cluster."""
+        try:
+            network_params = self._get_bootstrap_params()
+            microceph.adopt_ceph_cluster(
+                fsid=fsid,
+                mon_hosts=mon_hosts,
+                admin_key=admin_key,
+                micro_ip=network_params.get("micro_ip", ""),
+                public_net=network_params.get("public_net", ""),
+                cluster_net=network_params.get("cluster_net", ""),
+            )
+            # mark bootstrap node also as joined
+            self.peers.interface.state.joined = True
+            logger.debug("microceph bootstrapped successfully via adopt-ceph")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            if "Unable to initialize cluster: Database is online" in str(e.stderr):
+                logger.debug("microceph is already bootstrapped, ignore failure.")
+                return
+
+            logger.error(e.stderr)
+
     def bootstrap_cluster(self, event: ops.framework.EventBase) -> None:
         """Bootstrap microceph cluster."""
         try:
             microceph.bootstrap_cluster(**self._get_bootstrap_params())
             logger.debug(f"Successfully bootstrapped with params {self._get_bootstrap_params()}")
+            # mark bootstrap node also as joined
+            self.peers.interface.state.joined = True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(e.stderr)
             error_already_exists = "Unable to initialize cluster: Database is online"
@@ -628,10 +655,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                         }
                     )
 
-                if (
-                    hasattr(contexts.receive_ca_cert, "ca_bundle")
-                    and contexts.receive_ca_cert.ca_bundle
-                ):
+                if getattr(contexts.receive_ca_cert, "ca_bundle", None):
                     configs["rgw_keystone_verify_ssl"] = str(True).lower()
                 else:
                     configs["rgw_keystone_verify_ssl"] = str(False).lower()
@@ -643,40 +667,87 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         else:
             self.remove_rgw_configs(event)
 
-    def manage_rgw_service(self, event: ops.framework.EventBase) -> None:
-        """Enable/Disable RGW service."""
+    def _update_service_endpoints(self):
         try:
-            enabled = microceph.is_rgw_enabled(gethostname())
-            logger.info(f"Microceph RGW enabled: {enabled}")
-            if self.model.config.get("enable-rgw") == "*":
-                self.configure_rgw_service(event)
-                if not enabled:
-                    logger.info("Enabling RGW service")
-                    microceph.enable_rgw()
-            else:
-                if enabled:
-                    logger.info("Disabling RGW service")
-                    microceph.disable_rgw()
-                self.remove_rgw_configs(event)
+            if self.id_svc.update_service_endpoints:
+                logger.debug("Updating service endpoints after ingress relation changed")
+                self.id_svc.update_service_endpoints(self.service_endpoints)
+        except (AttributeError, KeyError) as e:
+            # Ignore AttributeError and KeyError as the exceptions are raised
+            # if integration with identity_service is not yet set.
+            logger.warning(f"Identity service relation not integrated: {str(e)}")
 
-            # Update traefik lb members
-            self.handle_traefik_ready(event)
-        except ClusterServiceUnavailableException as e:
-            logger.warning(str(e))
-            event.defer()
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            logger.warning(e.stderr)
-            raise e
+    def handle_traefik_ready(self, event: ops.framework.EventBase):
+        """Handle Traefik route ready callback."""
+        if not self.unit.is_leader():
+            logger.debug("Not a leader unit, not updating traefik route config")
+            return
 
-    def configure_ceph(self, event) -> None:
+        if self.traefik_route_rgw and self.traefik_route_rgw.interface.is_ready():
+            logger.debug("Sending traefik config for rgw interface")
+            self.traefik_route_rgw.interface.submit_to_traefik(config=self.traefik_config)
+
+            if self.traefik_route_rgw.ready:
+                if self.model.config.get("enable-rgw") == "*":
+                    self.configure_rgw_service(event)
+                self._update_service_endpoints()
+
+    def post_config_setup(self):
+        """Configuration steps after services have been setup."""
+        super().post_config_setup()
+
+    # Callbacks for relation handlers
+    def handle_ceph_adopt(self, event) -> None:
+        """Callback for interface ceph-admin."""
+        # Handle post bootstrap
+        logger.debug(f"Handle ceph adopt for {event.__repr__}")
+        if self.is_leader_ready():
+            logger.debug("Leader already configured, ignoring adopt request")
+            return
+
+        # Mark unit as bootstrapped (required for bootstrapped() check)
+        self._state.unit_bootstrapped = True
+        self.handle_config_leader_set_ready()
+        self.handle_config_leader_ceph_pool_pgs(event)
+        self.handle_config_rgw_service(event)
+        self.handle_config_leader_charm_upgrade()
+        self.handle_config_leader_new_node(event)
+        # Clear any blocked status and set to active (similar to configure_charm)
+        self.bootstrap_status.set(ActiveStatus())
+        self.status.set(ActiveStatus("charm is ready"))
+
+    def handle_rh_cb_noop(self, event) -> None:
+        """Callback for interface ceph."""
+        # add a logger debug print for the event name and noop
+        logger.debug(f"Callback for {event.relation.name} interface, (noop)")
+
+    # Helpers for charm configuration logic
+    def handle_config_leader_set_ready(self):
+        """Configure leader as ready."""
+        logger.debug("Configuring leader as ready")
+        self.set_leader_ready()
+        if self.leader_get("namespace-projects") is None:
+            self.leader_set(
+                {"namespace-projects": json.dumps(self.model.config.get("namespace-projects"))}
+            )
+
+    def handle_config_leader_ceph_pool_pgs(self, event) -> None:
         """Configure Ceph."""
+        logger.debug("Configuring ceph pool replication and pgs")
         if not self.ready_for_service():
             event.defer()
             return
 
         try:
-            default_rf = self.model.config.get("default-pool-size")
-            microceph.set_pool_size("", str(default_rf))
+            default_rf = int(self.model.config.get("default-pool-size"))
+        except (TypeError, ValueError) as e:
+            logger.error("Invalid value for 'default-pool-size': %s", e)
+            raise sunbeam_guard.BlockedExceptionError(
+                "Invalid configuration: 'default-pool-size' must be an integer"
+            )
+
+        try:
+            microceph.set_pool_size("", default_rf)
 
             # NOTE(utkarshbhatthere): Smaller sunbeam clusters with 3 nodes (and OSDs) and
             # data pools (bulk) for glance, cinder-ceph, gnocchi, rgw, etc will always
@@ -700,33 +771,49 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 return
             raise e
 
-    def _update_service_endpoints(self):
+    def handle_config_rgw_service(self, event: ops.framework.EventBase) -> None:
+        """Enable/Disable RGW service."""
+        logger.debug("Configuring RGW service")
         try:
-            if self.id_svc.update_service_endpoints:
-                logger.debug("Updating service endpoints after ingress relation changed")
-                self.id_svc.update_service_endpoints(self.service_endpoints)
-        except (AttributeError, KeyError) as e:
-            # Ignore AttributeError and KeyError as the exceptions are raised
-            # if integration with identity_service is not yet set.
-            logger.warning(f"Identity service relation not integrated: {str(e)}")
+            enabled = microceph.is_rgw_enabled(gethostname())
+            logger.info(f"Microceph RGW enabled: {enabled}")
+            if self.model.config.get("enable-rgw") == "*":
+                self.configure_rgw_service(event)
+                if not enabled:
+                    logger.info("Enabling RGW service")
+                    microceph.enable_rgw()
+            else:
+                if enabled:
+                    logger.info("Disabling RGW service")
+                    microceph.disable_rgw()
+                self.remove_rgw_configs(event)
 
-    def handle_traefik_ready(self, event: ops.framework.EventBase):
-        """Handle Traefik route ready callback."""
-        if not self.unit.is_leader():
-            logger.debug("Not a leader unit, not updating traefik route config")
-            return
+            # Update traefik lb members
+            self.handle_traefik_ready(event)
+        except ClusterServiceUnavailableException as e:
+            logger.warning(str(e))
+            event.defer()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.warning(e.stderr)
+            raise e
 
-        if self.traefik_route_rgw and self.traefik_route_rgw.interface.is_ready():
-            logger.debug("Sending traefik config for rgw interface")
-            self.traefik_route_rgw.interface.submit_to_traefik(config=self.traefik_config)
+    def handle_config_leader_charm_upgrade(self) -> None:
+        """Handle Charm upgrade events."""
+        logger.debug("Handling charm upgrade configuration")
+        snap_chan = self.model.config.get("snap-channel")
 
-            if self.traefik_route_rgw.ready:
-                self._update_service_endpoints()
+        if self.cluster_upgrades.upgrade_requested(snap_chan):
+            ok, msg = self.cluster_upgrades.can_upgrade_charm_payload(snap_chan)
+            if not ok:
+                raise sunbeam_guard.BlockedExceptionError(msg)
+            self.cluster_upgrades.init_upgrade(snap_chan)
 
-    def post_config_setup(self):
-        """Configuration steps after services have been setup."""
-        super().post_config_setup()
-        self.ceph_rgw.set_readiness_on_related_units()
+    def handle_config_leader_new_node(self, event: ops.framework.EventBase) -> None:
+        """Handle new node configuration."""
+        logger.debug("Handling new node configuration")
+        if isinstance(event, MicroClusterNewNodeEvent):
+            logger.debug(f"Generating join token for {event.unit.name}")
+            self.cluster_nodes.add_node_to_cluster(event)
 
 
 if __name__ == "__main__":  # pragma: no cover

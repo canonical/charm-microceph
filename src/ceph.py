@@ -33,7 +33,6 @@ import functools
 import json
 import logging
 import math
-import os
 import socket
 import subprocess
 from subprocess import CalledProcessError, check_call, check_output
@@ -1055,9 +1054,7 @@ class ErasurePool(BasePool):
 
         # Check for errors
         if erasure_profile is None:
-            msg = "Failed to discover erasure profile named " "{}".format(
-                self.erasure_code_profile
-            )
+            msg = "Failed to discover erasure profile named {}".format(self.erasure_code_profile)
             log(msg, level=ERROR)
             raise PoolCreationError(msg)
         if "k" not in erasure_profile or "m" not in erasure_profile:
@@ -1198,22 +1195,21 @@ def ceph_user():
     return "microceph.ceph"
 
 
-def is_quorum():
-    """Check if the monitor is in quorum."""
-    asok = "/var/snap/microceph/current/run/ceph-mon.{}.asok".format(socket.gethostname())
-    cmd = ["microceph.ceph", "--admin-daemon", asok, "mon_status"]
-    if os.path.exists(asok):
-        try:
-            result = json.loads(str(check_output(cmd).decode("UTF-8")))
-        except CalledProcessError:
-            return False
-        except ValueError:
-            # Non JSON response from mon_status
-            return False
-        if result["state"] in QUORUM:
-            return True
-        else:
-            return False
+def has_quorum() -> bool:
+    """Check if the ceph cluster has quorum.
+
+    In adopted ceph environments, microceph may not have a local mon up.
+    Thus, this method checks if the accessible ceph cluster has some quorum.
+    """
+    cmd = ["ceph", "status", "--format=json"]
+    try:
+        result = json.loads(str(check_output(cmd).decode("UTF-8")))
+    except CalledProcessError:
+        return False
+    except ValueError:
+        return False
+    if result.get("quorum") and len(result["quorum"]) > 0:
+        return True
     else:
         return False
 

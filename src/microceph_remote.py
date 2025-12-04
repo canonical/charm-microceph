@@ -172,7 +172,7 @@ class MicroCephRemote(Object):
             logger.debug("site name not set, skipping remote update due to peer update")
             return
 
-        for remote_rel in self.charm.model.relations[self.relation_name]:
+        for remote_rel in self.charm.model.relations.get(self.relation_name, []):
             logger.debug("Emit: Remote update remote remote due to peer update")
             self.on.microceph_remote_update_remote.emit(remote_rel)
 

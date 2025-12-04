@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest.mock import patch
+
+from charms.ceph_mon.v0 import ceph_cos_agent
 from ops.testing import Harness
 from ops_sunbeam import test_utils
 
@@ -47,6 +50,19 @@ class _MicroCephCharm(charm.MicroCephCharm):
     def __init__(self, framework):
         """Setup event logging."""
         self.seen_events = []
+        # Patch CephCOSAgentProvider to mock is_ready_cb
+        original_init = ceph_cos_agent.CephCOSAgentProvider.__init__
+
+        def patched_init(provider_self, charm_instance, **kwargs):
+            # Replace is_ready_cb with a mock that always returns True
+            if "is_ready_cb" in kwargs:
+                kwargs["is_ready_cb"] = lambda: True
+            return original_init(provider_self, charm_instance, **kwargs)
+
+        self._cos_agent_patch = patch.object(
+            ceph_cos_agent.CephCOSAgentProvider, "__init__", patched_init
+        )
+        self._cos_agent_patch.start()
         super().__init__(framework)
 
     def configure_ceph(self, event):

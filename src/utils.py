@@ -27,12 +27,30 @@ from microceph_client import Client
 logger = logging.getLogger(__name__)
 
 
-def run_cmd(cmd: list) -> str:
+def run_cmd(cmd: list, timeout: int = 180) -> str:
     """Execute provided command via subprocess."""
     try:
-        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=180)
+        process = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)
         logger.debug(f"Command {' '.join(cmd)} finished; Output: {process.stdout}")
         return process.stdout
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed executing cmd: {cmd}, error: {e.stderr}")
+        raise e
+
+
+def run_cmd_with_input(cmd: list, input_data: str) -> str:
+    """Execute provided command with input to stdin."""
+    try:
+        output = subprocess.run(
+            cmd,
+            input=input_data,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+        logger.debug(f"Command {' '.join(cmd)} finished; Output: {output.stdout}")
+        return output.stdout
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed executing cmd: {cmd}, error: {e.stderr}")
         raise e

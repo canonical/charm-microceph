@@ -30,8 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class CephCOSAgentProvider(cos_agent.COSAgentProvider):
-
-    def __init__(self, charm, refresh_cb = None, departed_cb = None):
+    def __init__(self, charm, refresh_cb=None, departed_cb=None, is_ready_cb=None):
         super().__init__(
             charm,
             metrics_rules_dir="./files/prometheus_alert_rules",
@@ -41,6 +40,7 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
         )
         self._refresh_cb = refresh_cb
         self._departed_cb = departed_cb
+        self._is_ready_cb = is_ready_cb
 
         events = self._charm.on[cos_agent.DEFAULT_RELATION_NAME]
         self.framework.observe(
@@ -50,9 +50,14 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
     def _on_refresh(self, event):
         """Enable prometheus on relation change"""
         super()._on_refresh(event)
-        
+
         if not self._charm.unit.is_leader():
             logger.debug("Not the charm leader, skipping refresh cb.")
+            return
+
+        if self._is_ready_cb and not self._is_ready_cb():
+            # do not proceed if the charm is not ready
+            logger.debug("charm not ready to process COS events")
             return
 
         if callable(self._refresh_cb):
