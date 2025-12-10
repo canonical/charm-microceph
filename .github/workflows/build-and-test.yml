@@ -983,7 +983,7 @@ jobs:
         run: |
           set -eux
           date
-          juju integrate ceph-mon:admin primary:adopt
+          juju integrate ceph-mon:admin primary:adopt-ceph
           # Charm microceph goes to active state once the bootstrap source (adopt) is available.
           juju wait-for unit primary/0 --query='workload-status=="active"' --timeout=15m
           juju status --relations
