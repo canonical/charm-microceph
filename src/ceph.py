@@ -1195,7 +1195,7 @@ def ceph_user():
     return "microceph.ceph"
 
 
-def has_quorum() -> bool:
+def cluster_has_quorum() -> bool:
     """Check if the ceph cluster has quorum.
 
     In adopted ceph environments, microceph may not have a local mon up.

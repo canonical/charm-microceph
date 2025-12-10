@@ -65,6 +65,10 @@ class _MicroCephCharm(charm.MicroCephCharm):
         self._cos_agent_patch.start()
         super().__init__(framework)
 
+    def tearDown(self):
+        """Stop the patches."""
+        self._cos_agent_patch.stop()
+
     def configure_ceph(self, event):
         return
 

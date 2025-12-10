@@ -47,7 +47,7 @@ def is_ready() -> bool:
         logger.warning("Microceph not bootstrapped yet.")
         return False
 
-    if not ceph.has_quorum():
+    if not ceph.cluster_has_quorum():
         logger.debug("Ceph cluster not in quorum, not ready yet")
         return False
 
@@ -217,7 +217,7 @@ def adopt_ceph_cluster(
     if not fsid or not mon_hosts or not admin_key:
         raise ValueError("fsid, mon_hosts and admin_key are required to adopt a cluster")
 
-    logger.debug(
+    logger.info(
         f"Got fsid: {fsid}, mon_hosts: {mon_hosts} and is_admin_key_provided: {admin_key is not None}"
     )
 

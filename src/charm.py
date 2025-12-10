@@ -405,7 +405,12 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                     if relation_name == "peers":
                         handler.upgrade_callback = self.upgrade_dispatch
                 except AttributeError:
-                    logger.exception(f"Failed to get {relation_name} handler")
+                    if relation_name == "identity-service":
+                        logger.exception(
+                            f"Application config `region` not set, skipping {relation_name} relation handler"
+                        )
+                    else:
+                        raise
 
         # calling the superclass method to get any additional handlers not set by the charm.
         handlers = super().get_relation_handlers(handlers)
@@ -568,10 +573,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             logger.debug("microceph bootstrapped successfully via adopt-ceph")
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             if "Unable to initialize cluster: Database is online" in str(e.stderr):
-                logger.debug("microceph is already bootstrapped, ignore failure.")
+                logger.info("microceph is already bootstrapped, ignore failure.")
                 return
 
-            logger.error(e.stderr)
+            logger.exception("microceph adopt failed:")
+            raise
 
     def bootstrap_cluster(self, event: ops.framework.EventBase) -> None:
         """Bootstrap microceph cluster."""
@@ -712,6 +718,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.handle_config_rgw_service(event)
         self.handle_config_leader_charm_upgrade()
         self.handle_config_leader_new_node(event)
+        self.cos_agent._on_refresh(event)
         # Clear any blocked status and set to active (similar to configure_charm)
         self.bootstrap_status.set(ActiveStatus())
         self.status.set(ActiveStatus("charm is ready"))

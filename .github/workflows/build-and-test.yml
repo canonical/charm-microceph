@@ -968,20 +968,23 @@ jobs:
       - name: Install dependencies
         run: ./tests/scripts/ci_helpers.sh install_deps
 
-      - name: Install MicroCeph charm
+      - name: Install Primary Charmed Ceph + MicroCeph cluster and a secondary MicroCeph cluster
         run: |
           set -eux
           date
           juju deploy ./tests/bundles/noble-caracal.yaml
           juju wait-for application ceph-mon --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m
           juju wait-for application secondary --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m
+          # The primary charm is expected to be in maintenance mode as the service is still not bootstrapped.
+          juju wait-for application primary --query='forEach(units, unit => unit.workload-status=="maintenance" && unit.agent-status=="idle")' --timeout=30m
           date
 
-      - name: Adopt the charmed ceph cluster using primary microcpeh application
+      - name: Adopt the primary charmed ceph cluster using primary microceph application
         run: |
           set -eux
           date
-          juju integrate ceph-mon primary
+          juju integrate ceph-mon:admin primary:adopt
+          # Charm microceph goes to active state once the bootstrap source (adopt) is available.
           juju wait-for unit primary/0 --query='workload-status=="active"' --timeout=15m
           juju status --relations
           date

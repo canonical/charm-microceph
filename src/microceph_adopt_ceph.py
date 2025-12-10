@@ -130,20 +130,20 @@ class AdoptCephRequiresHandler(RelationHandler):
 
         self.framework.observe(self.adopt_ceph.on.adopt_ceph_bootstrap, self._on_bootstrap)
 
-    def _on_bootstrap(self, relation):
+    def _on_bootstrap(self, relation_event):
         """Bootstrap MicroCeph cluster using adopted ceph cluster."""
         logger.info("Handling adopt-ceph bootstrap event")
         with sunbeam_guard.guard(self.charm, self.relation_name):
             for relation in self.model.relations.get(self.relation_name, []):
-                if not relation.units:
+                if not relation_event.units:
                     logger.debug("No units in adopt-ceph relation, cannot reconcile")
                     return
 
-                unit = next(iter(relation.units), None)
+                unit = next(iter(relation_event.units), None)
                 if unit is None:
                     logger.debug("No units available in adopt-ceph relation after check")
                     return
-                remote_ceph_data = relation.data.get(unit, {})
+                remote_ceph_data = relation_event.data.get(unit, {})
                 logger.debug(f"Adopt-ceph relation data: IsEmpty({remote_ceph_data is None})")
 
                 # fetched mon hosts value is a space separated string of host addresses.
