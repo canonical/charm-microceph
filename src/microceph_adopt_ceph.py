@@ -91,7 +91,7 @@ class AdoptCephRequires(Object):
         self.on.adopt_ceph_bootstrap.emit(event.relation)
 
     def _on_relation_broken(self, _event) -> None:
-        """Mark the status as blocked if adopt relation is removed before microceph could be bootstrapped."""
+        """Mark status blocked if adopt relation removed before bootstrap."""
         if not self.model.unit.is_leader():
             logger.debug("Unit is not leader, skipping adopt-ceph broken event")
             return

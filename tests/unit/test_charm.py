@@ -936,7 +936,12 @@ class TestCharm(testbase.TestBaseCharm):
     @patch("microceph.set_pool_size")
     @patch("ceph.ceph_config_set")
     def test_handle_ceph_adopt_marks_leader_ready(
-        self, mock_ceph_config_set, mock_set_pool_size, mock_is_ready, mock_enable_mgr_module, mock_ceph_utils
+        self,
+        mock_ceph_config_set,
+        mock_set_pool_size,
+        mock_is_ready,
+        mock_enable_mgr_module,
+        mock_ceph_utils,
     ):
         """Test that handle_ceph_adopt marks leader as ready after adoption."""
         # Setup: cluster is ready (adopted) but leader not yet marked ready
