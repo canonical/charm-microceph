@@ -77,23 +77,23 @@ class AdoptCephRequires(Object):
         self.framework.observe(charm.on[relation_name].relation_joined, self._on_relation_changed)
 
     def _on_relation_changed(self, event) -> None:
-        """On relation changed."""
+        """Trigger adopt-ceph bootstrap event if required."""
         if not self.model.unit.is_leader():
             logger.debug("Unit is not leader, skipping adopt-ceph changed event")
             return
 
         # Do nothing if already bootstrapped
         if self.charm.ready_for_service():
-            logger.debug("Not processing adopt relation event, microceph already bootstrapped.")
+            logger.info("Not processing adopt relation event, microceph already bootstrapped.")
             return
 
         logger.debug("Emitting adopt-ceph reconcile event")
         self.on.adopt_ceph_bootstrap.emit(event.relation)
 
-    def _on_relation_broken(self, event) -> None:
-        """On relation departed."""
+    def _on_relation_broken(self, _event) -> None:
+        """Mark the status as blocked if adopt relation is removed before microceph could be bootstrapped."""
         if not self.model.unit.is_leader():
-            logger.debug("Unit is not leader, skipping adopt-ceph departed event")
+            logger.debug("Unit is not leader, skipping adopt-ceph broken event")
             return
 
         with sunbeam_guard.guard(self.charm, self.relation_name):
@@ -102,7 +102,7 @@ class AdoptCephRequires(Object):
                     "Adopt relation removed before cluster bootstrap could be performed"
                 )
 
-        logger.debug("Ignoring adopt-ceph departed event")
+        logger.debug("Ignoring adopt-ceph broken event")
 
 
 class AdoptCephRequiresHandler(RelationHandler):
@@ -134,44 +134,58 @@ class AdoptCephRequiresHandler(RelationHandler):
         """Bootstrap MicroCeph cluster using adopted ceph cluster."""
         logger.info("Handling adopt-ceph bootstrap event")
         with sunbeam_guard.guard(self.charm, self.relation_name):
-            for relation in self.model.relations.get(self.relation_name, []):
-                if not relation_event.units:
-                    logger.debug("No units in adopt-ceph relation, cannot reconcile")
-                    return
-
-                unit = next(iter(relation_event.units), None)
-                if unit is None:
-                    logger.debug("No units available in adopt-ceph relation after check")
-                    return
-                remote_ceph_data = relation_event.data.get(unit, {})
-                logger.debug(f"Adopt-ceph relation data: IsEmpty({remote_ceph_data is None})")
-
-                # fetched mon hosts value is a space separated string of host addresses.
-                mon_hosts = remote_ceph_data.get(AdoptCephRelationDataKeys.mon_hosts.value, None)
-                fsid = remote_ceph_data.get(AdoptCephRelationDataKeys.fsid.value, None)
-                admin_key = remote_ceph_data.get(AdoptCephRelationDataKeys.admin_key.value, None)
-
-                logger.debug(
-                    f"Adopt-ceph relation data fetched: fsid({fsid}), mon_hosts({mon_hosts}), admin_key({admin_key is not None})"
-                )
-
-                if not mon_hosts or not fsid or not admin_key:
-                    logger.debug("Incomplete data from adopt-ceph relation, cannot reconcile")
-                    raise sunbeam_guard.BlockedExceptionError(
-                        f"Waiting for fsid({fsid}), mon_hosts({mon_hosts}) and admin_key({admin_key is not None}) from adopt-ceph relation"
-                    )
-
-                # Split mon_hosts and filter out empty strings
-                mon_hosts_list = [host for host in mon_hosts.split() if host]
-                if not mon_hosts_list:
-                    logger.debug("No valid mon_hosts found after splitting")
-                    raise sunbeam_guard.BlockedExceptionError(
-                        f"Invalid mon_hosts from adopt-ceph relation: {mon_hosts!r}"
-                    )
-
-                logger.debug(
-                    "All required data from adopt-ceph relation present, proceeding with adoption"
-                )
-                self.charm.adopt_cluster(fsid, mon_hosts_list, admin_key)
-                self.callback_f(event=relation)
+            relations = self.model.relations.get(self.relation_name, [])
+            if not relations:
+                logger.warning("No adopt-ceph relations found during bootstrap.")
                 return
+
+            # choose the first relation as the bootstrap source.
+            relation = None
+            for rel in relations:
+                if not rel.units:
+                    logger.debug("No units in adopt-ceph relation, cannot reconcile")
+                    continue
+
+                relation = rel
+
+            if not relation:
+                logger.debug("No valid adopt-ceph relation with units found to reconcile")
+                return
+
+            # since the ceph-mon units put their individual data in the relation.
+            unit = next(iter(relation.units), None)
+            if unit is None:
+                logger.debug("No units available in adopt-ceph relation after check")
+                return
+            remote_ceph_data = relation.data.get(unit, {})
+            logger.debug(f"Adopt-ceph relation data: IsEmpty({remote_ceph_data is None})")
+
+            # fetched mon hosts value is a space separated string of host addresses.
+            mon_hosts = remote_ceph_data.get(AdoptCephRelationDataKeys.mon_hosts.value, None)
+            fsid = remote_ceph_data.get(AdoptCephRelationDataKeys.fsid.value, None)
+            admin_key = remote_ceph_data.get(AdoptCephRelationDataKeys.admin_key.value, None)
+
+            logger.info(
+                f"Adopt-ceph relation data fetched: fsid({fsid}), mon_hosts({mon_hosts}), admin_key({admin_key is not None})"
+            )
+
+            if not mon_hosts or not fsid or not admin_key:
+                logger.debug("Incomplete data from adopt-ceph relation, cannot reconcile")
+                raise sunbeam_guard.BlockedExceptionError(
+                    f"Waiting for fsid({fsid}), mon_hosts({mon_hosts}) and admin_key({admin_key is not None}) from adopt-ceph relation"
+                )
+
+            # Split mon_hosts and filter out empty strings
+            mon_hosts_list = [host for host in mon_hosts.split() if host]
+            if not mon_hosts_list:
+                logger.debug("No valid mon_hosts found after splitting")
+                raise sunbeam_guard.BlockedExceptionError(
+                    f"Invalid mon_hosts from adopt-ceph relation: {mon_hosts!r}"
+                )
+
+            logger.debug(
+                "All required data from adopt-ceph relation present, proceeding with adoption"
+            )
+            self.charm.adopt_cluster(fsid, mon_hosts_list, admin_key)
+            self.callback_f(event=relation_event)
+            return
