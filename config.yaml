@@ -50,6 +50,16 @@ options:
     default: false
     description: |
       Include Ceph performance metrics in the prometheus endpoint.
+  active-mds-per-volume:
+    type: int
+    default: 1
+    description: |
+      Number of active MDS daemons to configure per CephFS volume.
+  standby-mds-per-volume:
+    type: int
+    default: 0
+    description: |
+      Number of standby MDS daemons to configure per CephFS volume.
   site-name:
     type: string
     default: ""
