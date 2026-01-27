@@ -172,7 +172,7 @@ class CephCSIProvidesHandler(RelationHandler):
 
     def _get_workloads(self, relation) -> Set[str]:
         remote_data = relation.data[relation.app]
-        workloads = remote_data.get("workloads") or remote_data.get("workload")
+        workloads = remote_data.get("workloads")
         parsed = self._parse_workloads(workloads)
         return parsed or {"rbd"}
 
@@ -210,7 +210,7 @@ class CephCSIProvidesHandler(RelationHandler):
 
         fsmap = data.get("fsmap", data)
         standbys = fsmap.get("standbys", [])
-        filesystems = fsmap.get("filesystems", []) or []
+        filesystems = fsmap.get("filesystems", [])
 
         active = 0
         for fs in filesystems:
@@ -250,7 +250,7 @@ class CephCSIProvidesHandler(RelationHandler):
     def _get_pool_name_map(self) -> dict:
         cmd = ["microceph.ceph", "osd", "pool", "ls", "detail", "--format", "json"]
         pool_list = json.loads(utils.run_cmd(cmd))
-        return {pool["pool"]: pool["pool_name"] for pool in pool_list}
+        return {pool["pool_id"]: pool["pool_name"] for pool in pool_list}
 
     def _get_cephfs_pools(self, fs_name: str) -> Set[str]:
         cmd = ["microceph.ceph", "fs", "get", fs_name, "--format", "json"]
@@ -258,7 +258,7 @@ class CephCSIProvidesHandler(RelationHandler):
 
         mdsmap = fs_info.get("mdsmap", {})
         data_pools = mdsmap.get("data_pools")
-        metadata_pool = mdsmap.get("metadata_pool") or fs_info.get("metadata_pool")
+        metadata_pool = mdsmap.get("metadata_pool")
 
         pool_name_map = self._get_pool_name_map()
         pools = set()
@@ -329,7 +329,7 @@ class CephCSIProvidesHandler(RelationHandler):
         if "cephfs" in workloads:
             caps.update({"mds": ["allow rw"], "mgr": ["allow rw"]})
 
-        key = ceph.get_named_key(client_name, caps=caps, pool_list=pool_list or None)
+        key = ceph.get_named_key(client_name, caps=caps, pool_list=pool_list)
 
         relation_data = {
             "fsid": utils.get_fsid(),
