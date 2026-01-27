@@ -44,6 +44,7 @@ import maintenance
 import microceph
 import microceph_client
 import utils
+from ceph_csi import CephCSIProvidesHandler
 from ceph_nfs import CephNfsProviderHandler
 from ceph_rgw import CEPH_RGW_READY_RELATION, CephRgwProviderHandler
 from microceph_adopt_ceph import AdoptCephRequiresHandler
@@ -368,6 +369,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             "ceph-nfs": (
                 "ceph_nfs",
                 lambda: CephNfsProviderHandler(self, "ceph-nfs", self.handle_rh_cb_noop),
+            ),
+            "ceph-csi": (
+                "ceph_csi",
+                lambda: CephCSIProvidesHandler(self, "ceph-csi", self.handle_rh_cb_noop),
             ),
             CEPH_RGW_READY_RELATION: (
                 "ceph_rgw",
