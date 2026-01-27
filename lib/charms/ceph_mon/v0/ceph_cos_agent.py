@@ -8,11 +8,6 @@ Library for handling ceph observability integrations
 import logging
 import socket
 import tenacity
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import charm
-
 from charms.grafana_agent.v0 import cos_agent
 from charms_ceph import utils as ceph_utils
 
@@ -61,9 +56,9 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
             return
 
         if callable(self._refresh_cb):
-            self._refresh_cb(event) 
+            self._refresh_cb(event)
         else:
-            # ceph mon failback
+            # ceph mon fallback
             if not ceph_utils.is_bootstrapped():
                 logger.debug("not bootstrapped, defer _on_refresh: %s", event)
                 event.defer()
@@ -76,8 +71,9 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
 
     def _on_relation_departed(self, event):
         """Disable prometheus on depart of relation"""
-        if self._charm.unit.is_leader():
+        if not self._charm.unit.is_leader():
             logger.debug("Not the charm leader, skipping relation_departed: %s.", event)
+            return
 
         if callable(self._departed_cb):
             self._departed_cb(event)

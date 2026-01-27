@@ -1184,6 +1184,114 @@ jobs:
         if: ${{ failure() && runner.debug }}
         uses: canonical/action-tmate@main
 
+  otel-collector-integration-test:
+    needs:
+      - lint
+      - unit-test
+      - build
+    name: OTel Collector integration test
+    runs-on: self-hosted-linux-amd64-noble-xlarge
+    timeout-minutes: 120
+    steps:
+      - name: Download charm
+        uses: actions/download-artifact@v4
+        with:
+          name: charms
+          path: ~/artifacts/
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.1
+        with:
+          channel: 5.21/stable
+
+      - name: Install Juju
+        run: sudo snap install juju --channel 3.6/stable
+
+      - name: Setup LXD VM
+        run: bash tests/scripts/k8s/01-setup-lxd-vm.sh
+
+      - name: Deploy k8s
+        run: bash tests/scripts/k8s/02-deploy-k8s.sh
+
+      - name: Add Juju cloud and bootstrap controller
+        timeout-minutes: 10
+        run: bash tests/scripts/k8s/03-juju-add-cloud.sh
+
+      - name: Deploy COS Lite
+        timeout-minutes: 30
+        run: bash tests/scripts/k8s/04-deploy-cos-lite.sh
+
+      - name: Bootstrap localhost controller
+        run: |
+          set -eux
+          juju bootstrap localhost lxd
+
+      - name: Deploy MicroCeph charm over LXD
+        run: |
+          set -eux
+          juju add-model microceph lxd
+          juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 \
+            --constraints="virt-type=virtual-machine root-disk=24G mem=8G"
+          juju wait-for unit microceph/0 --timeout '30m' --query='workload-message=="(workload) charm is ready"'
+          juju status
+
+      - name: Integrate MicroCeph with COS via OTel collector
+        run: |
+          set -eux
+          # Offer COS Lite endpoints from the k8s controller
+          juju offer ck8s-cloud:admin/cos-lite.prometheus:receive-remote-write -m ck8s-cloud:cos-lite
+          juju offer ck8s-cloud:admin/cos-lite.loki:logging -m ck8s-cloud:cos-lite
+          juju offer ck8s-cloud:admin/cos-lite.grafana:grafana-dashboard -m ck8s-cloud:cos-lite
+
+          # Switch to microceph model on the LXD controller
+          juju switch lxd:microceph
+
+          # Deploy OTel collector in the microceph model
+          juju deploy opentelemetry-collector --channel latest/edge --trust
+
+          # Consume cross-controller offers from the k8s controller
+          juju consume ck8s-cloud:admin/cos-lite.prometheus
+          juju consume ck8s-cloud:admin/cos-lite.loki
+          juju consume ck8s-cloud:admin/cos-lite.grafana
+
+          # Integrate OTel collector with consumed offers and microceph
+          juju integrate opentelemetry-collector prometheus
+          juju integrate opentelemetry-collector loki
+          juju integrate opentelemetry-collector grafana
+          juju integrate microceph opentelemetry-collector
+
+          juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=20m
+
+      - name: Verify Prometheus metrics and Grafana dashboards
+        run: bash tests/scripts/k8s/05-verify-cos.sh
+
+      - name: Show Juju status
+        run: |
+          set -eux
+          juju status -m microceph
+          juju status -m cos-lite
+
+      - name: Collect logs
+        if: failure()
+        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs || true
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: microceph_otel_integration_logs
+          path: logs
+          retention-days: 30
+
+      - name: Setup tmate session
+        if: ${{ failure() && runner.debug }}
+        uses: canonical/action-tmate@main
+
   cos-integration-test:
     needs:
       - lint
