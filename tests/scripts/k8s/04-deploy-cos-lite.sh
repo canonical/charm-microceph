@@ -65,8 +65,8 @@ for aname, ainfo in apps.items():
     units = ainfo.get('units', {})
     for uname, uinfo in units.items():
         ws = uinfo.get('workload-status', {}).get('current', '')
-        ags = uinfo.get('juju-status', {}).get('current', '')
-        if ws != 'active' or ags != 'idle':
+        agent_status = uinfo.get('juju-status', {}).get('current', '')
+        if ws != 'active' or agent_status != 'idle':
             count += 1
 print(count)
 " 2>/dev/null || echo "999")
