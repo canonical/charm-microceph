@@ -1234,7 +1234,7 @@ jobs:
       - name: Deploy MicroCeph charm over LXD
         run: |
           set -eux
-          juju add-model microceph lxd
+          juju add-model microceph
           juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 \
             --constraints="virt-type=virtual-machine root-disk=24G mem=8G"
           juju wait-for unit microceph/0 --timeout '30m' --query='workload-message=="(workload) charm is ready"'
