@@ -296,6 +296,28 @@ class CephCSIProvidesHandler(RelationHandler):
             return user_id
         return f"client.{user_id}"
 
+    def _build_caps(self, workloads: set, rbd_pool: str, cephfs_name: str) -> dict:
+        """Build ceph auth capabilities for the given workloads."""
+        osd_caps = []
+        if "rbd" in workloads:
+            osd_caps.append(f"allow rwx pool={rbd_pool}")
+        if "cephfs" in workloads:
+            # CephFS requires tag-based permissions for data and metadata pools
+            osd_caps.append(f"allow rw tag cephfs data={cephfs_name}")
+            osd_caps.append(f"allow rw tag cephfs metadata={cephfs_name}")
+
+        caps = {
+            "mon": [
+                "allow r",
+                'allow command "osd blacklist"',
+                'allow command "osd blocklist"',
+            ],
+            "osd": [", ".join(osd_caps)] if osd_caps else ["allow rwx"],
+        }
+        if "cephfs" in workloads:
+            caps.update({"mds": ["allow rw"], "mgr": ["allow rw"]})
+        return caps
+
     def _service_relation(self, relation) -> bool:
         if not self.model.unit.is_leader():
             return False
@@ -309,12 +331,9 @@ class CephCSIProvidesHandler(RelationHandler):
         cephfs_name = relation.app.name
         client_name = self._format_client_name(f"csi-{relation.app.name}")
 
-        pool_list = []
         if "rbd" in workloads:
             self._ensure_rbd_pool(rbd_pool)
-            pool_list.append(rbd_pool)
 
-        cephfs_pools = set()
         if "cephfs" in workloads:
             if not self._has_sufficient_mds(cephfs_name):
                 self.status.set(
@@ -322,21 +341,9 @@ class CephCSIProvidesHandler(RelationHandler):
                 )
                 return False
             self._ensure_fs_volume(cephfs_name)
-            cephfs_pools = self._get_cephfs_pools(cephfs_name)
-            pool_list.extend(sorted(cephfs_pools))
 
-        caps = {
-            "mon": [
-                "allow r",
-                'allow command "osd blacklist"',
-                'allow command "osd blocklist"',
-            ],
-            "osd": ["allow rwx"],
-        }
-        if "cephfs" in workloads:
-            caps.update({"mds": ["allow rw"], "mgr": ["allow rw"]})
-
-        key = ceph.get_named_key(client_name, caps=caps, pool_list=pool_list)
+        caps = self._build_caps(workloads, rbd_pool, cephfs_name)
+        key = ceph.get_named_key(client_name, caps=caps)
 
         relation_data = {
             "fsid": utils.get_fsid(),
