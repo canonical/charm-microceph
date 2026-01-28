@@ -1236,7 +1236,9 @@ jobs:
           set -eux
           juju add-model microceph
           juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 \
-            --constraints="virt-type=virtual-machine root-disk=24G mem=8G"
+            --constraints="virt-type=virtual-machine root-disk=24G mem=16G cores=4"
+          # Wait for the LXD VM to be fully provisioned before waiting for the unit
+          juju wait-for machine 0 --timeout '10m' --query='status=="started"'
           juju wait-for unit microceph/0 --timeout '30m' --query='workload-message=="(workload) charm is ready"'
           juju status
 
@@ -1384,7 +1386,9 @@ jobs:
           set -eux
           juju add-model microceph
           juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 \
-            --constraints="virt-type=virtual-machine root-disk=24G mem=8G"
+            --constraints="virt-type=virtual-machine root-disk=24G mem=16G cores=4"
+          # Wait for the LXD VM to be fully provisioned before waiting for the unit
+          juju wait-for machine 0 --timeout '10m' --query='status=="started"'
           juju wait-for unit microceph/0 --timeout '30m' --query='workload-message=="(workload) charm is ready"'
           juju status
 
