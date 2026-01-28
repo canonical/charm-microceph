@@ -1,6 +1,7 @@
 #!/bin/bash
 # ==============================================================================
-# 05-verify-cos.sh — Verify Ceph metrics in Prometheus and dashboards in Grafana
+# 05-verify-cos.sh — Verify Ceph metrics in Prometheus, dashboards in Grafana,
+#                     and logs in Loki
 # ==============================================================================
 #
 # GitHub Actions integration notes:
@@ -25,6 +26,7 @@ EXPECTED_DASHBOARDS_FILE="${EXPECTED_DASHBOARDS_FILE:-$(dirname "$0")/../assets/
 POLL_ATTEMPTS="${POLL_ATTEMPTS:-20}"
 POLL_INTERVAL_PROM="${POLL_INTERVAL_PROM:-30}"
 POLL_INTERVAL_GRAF="${POLL_INTERVAL_GRAF:-60}"
+POLL_INTERVAL_LOKI="${POLL_INTERVAL_LOKI:-30}"
 
 # --- Resolve the expected dashboards file ---
 if [ ! -f "${EXPECTED_DASHBOARDS_FILE}" ]; then
@@ -69,6 +71,16 @@ if [[ -z "$graf_url" || "$graf_url" == "null" ]]; then
     exit 1
 fi
 echo "    Grafana URL: ${graf_url}"
+
+loki_url=$(echo "$proxied_json" \
+    | jq -r '."traefik/0".results."proxied-endpoints"' \
+    | jq -r '.["loki/0"].url')
+
+if [[ -z "$loki_url" || "$loki_url" == "null" ]]; then
+    echo "ERROR: Could not resolve Loki URL from traefik proxied-endpoints" >&2
+    exit 1
+fi
+echo "    Loki URL: ${loki_url}"
 
 # ==============================================================================
 # Verify Prometheus metrics
@@ -125,6 +137,42 @@ if [[ "$match_count" -ne "$expected_dashboard_count" ]]; then
     exit 1
 fi
 echo "==> Grafana dashboards verification passed."
+
+# ==============================================================================
+# Verify Loki logs
+# ==============================================================================
+echo "==> Verifying Loki logs from MicroCeph units"
+
+# Query Loki for logs with the juju_application label set to microceph.
+# The query uses a simple label matcher; Loki expects log range queries via
+# /loki/api/v1/query_range with a LogQL expression.
+loki_query='{juju_application="microceph"}'
+
+for i in $(seq 1 "${POLL_ATTEMPTS}"); do
+    loki_output=$(curl -s -G "${loki_url}/loki/api/v1/query_range" \
+        --data-urlencode "query=${loki_query}" \
+        --data-urlencode "limit=1")
+    loki_status=$(echo "$loki_output" | jq -r '.status')
+    loki_result_count=$(echo "$loki_output" | jq '.data.result | length')
+    if [[ "$loki_status" == "success" && "$loki_result_count" -gt 0 ]]; then
+        echo "    MicroCeph logs found in Loki (${loki_result_count} stream(s))"
+        break
+    fi
+    echo "    Waiting for MicroCeph logs in Loki (attempt ${i}/${POLL_ATTEMPTS})..."
+    sleep "${POLL_INTERVAL_LOKI}"
+done
+
+# Final assertion
+loki_output=$(curl -s -G "${loki_url}/loki/api/v1/query_range" \
+    --data-urlencode "query=${loki_query}" \
+    --data-urlencode "limit=1")
+loki_status=$(echo "$loki_output" | jq -r '.status')
+loki_result_count=$(echo "$loki_output" | jq '.data.result | length')
+if [[ "$loki_status" != "success" || "$loki_result_count" -eq 0 ]]; then
+    echo "ERROR: Loki query for MicroCeph logs failed or returned no results: $loki_output" >&2
+    exit 1
+fi
+echo "==> Loki logs verification passed."
 
 echo ""
 echo "==> COS verification complete."
