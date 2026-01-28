@@ -223,17 +223,24 @@ class CephCSIProvidesHandler(RelationHandler):
 
         return active + len(standbys)
 
-    def _has_sufficient_mds(self) -> bool:
-        active = self._config_int("active-mds-per-volume", 1)
+    def _has_sufficient_mds(self, fs_name: str = "") -> bool:
+        active_per_vol = self._config_int("active-mds-per-volume", 1)
         standby = self._config_int("standby-mds-per-volume", 0)
-        required = active + standby
+
+        existing = [v.get("name") for v in ceph.list_fs_volumes()]
+        num_fs = len(existing)
+        if fs_name and fs_name not in existing:
+            num_fs += 1
+
+        required = (active_per_vol * num_fs) + standby
         if required <= 0:
             return True
 
         available = self._mds_daemon_count()
         if available < required:
             logger.error(
-                "Insufficient MDS daemons: required=%d available=%d", required, available
+                "Insufficient MDS daemons: required=%d (active=%dx%d + standby=%d) available=%d",
+                required, active_per_vol, num_fs, standby, available,
             )
             return False
         return True
@@ -309,7 +316,7 @@ class CephCSIProvidesHandler(RelationHandler):
 
         cephfs_pools = set()
         if "cephfs" in workloads:
-            if not self._has_sufficient_mds():
+            if not self._has_sufficient_mds(cephfs_name):
                 self.status.set(
                     BlockedStatus("Insufficient MDS daemons for cephfs workload")
                 )
