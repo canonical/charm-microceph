@@ -78,7 +78,20 @@ print(count)
 
     if [ "${SECONDS}" -ge "${WAIT_TIMEOUT}" ]; then
         echo "ERROR: Timed out waiting for units. ${NOT_READY} unit(s) not ready." >&2
+        echo "==> Juju status:"
         juju status
+        echo ""
+        echo "==> Juju debug-log (last 50 lines):"
+        juju debug-log --replay --tail 50 --no-tail || true
+        echo ""
+        echo "==> k8s pod status in cos-lite namespace:"
+        lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get pods -n "${MODEL_NAME}" -o wide 2>/dev/null || true
+        echo ""
+        echo "==> k8s events in cos-lite namespace (last 20):"
+        lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get events -n "${MODEL_NAME}" --sort-by='.lastTimestamp' 2>/dev/null | tail -20 || true
+        echo ""
+        echo "==> k8s node resources:"
+        lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl describe nodes 2>/dev/null | grep -A 10 "Allocated resources" || true
         exit 1
     fi
 

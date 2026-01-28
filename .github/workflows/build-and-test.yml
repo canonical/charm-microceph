@@ -1271,14 +1271,54 @@ jobs:
         run: bash tests/scripts/k8s/05-verify-cos.sh
 
       - name: Show Juju status
+        if: always()
         run: |
           set -eux
-          juju status -m microceph
-          juju status -m cos-lite
+          juju status -m lxd:microceph || true
+          juju status -m ck8s-cloud:cos-lite || true
+          echo "==> k8s pods in cos-lite namespace:"
+          lxc exec k8s-node -- k8s kubectl get pods -n cos-lite -o wide || true
 
       - name: Collect logs
         if: failure()
-        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs || true
+        run: |
+          set -x
+          mkdir -p logs
+
+          # Collect microceph logs
+          ./tests/scripts/ci_helpers.sh collect_microceph_logs || true
+
+          # Collect COS Lite / k8s debug info
+          echo "==> COS Lite Juju status"
+          juju status -m ck8s-cloud:cos-lite -o logs/cos-lite-status.yaml || true
+          cat logs/cos-lite-status.yaml || true
+
+          echo "==> COS Lite Juju debug-log (last 100 lines)"
+          juju debug-log -m ck8s-cloud:cos-lite --replay --tail 100 --no-tail > logs/cos-lite-debug-log.txt 2>&1 || true
+
+          echo "==> k8s pod status in cos-lite namespace"
+          lxc exec k8s-node -- k8s kubectl get pods -n cos-lite -o wide > logs/k8s-pods.txt 2>&1 || true
+          cat logs/k8s-pods.txt || true
+
+          echo "==> k8s events in cos-lite namespace"
+          lxc exec k8s-node -- k8s kubectl get events -n cos-lite --sort-by='.lastTimestamp' > logs/k8s-events.txt 2>&1 || true
+          tail -30 logs/k8s-events.txt || true
+
+          echo "==> k8s node resource allocation"
+          lxc exec k8s-node -- k8s kubectl describe nodes > logs/k8s-nodes.txt 2>&1 || true
+          grep -A 15 "Allocated resources" logs/k8s-nodes.txt || true
+
+          echo "==> k8s pods with non-Running status"
+          lxc exec k8s-node -- k8s kubectl get pods -n cos-lite -o json 2>/dev/null \
+            | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          for pod in data.get('items', []):
+              phase = pod.get('status', {}).get('phase', '')
+              name = pod.get('metadata', {}).get('name', '')
+              if phase != 'Running':
+                  print(f'Pod {name} is in {phase} phase')
+          " || true
 
       - name: Upload logs
         if: failure()
@@ -1382,14 +1422,42 @@ jobs:
         run: bash tests/scripts/k8s/05-verify-cos.sh
 
       - name: Show Juju status
+        if: always()
         run: |
           set -eux
-          juju status -m microceph
-          juju status -m cos-lite
+          juju status -m lxd:microceph || true
+          juju status -m ck8s-cloud:cos-lite || true
+          echo "==> k8s pods in cos-lite namespace:"
+          lxc exec k8s-node -- k8s kubectl get pods -n cos-lite -o wide || true
 
       - name: Collect logs
         if: failure()
-        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs || true
+        run: |
+          set -x
+          mkdir -p logs
+
+          # Collect microceph logs
+          ./tests/scripts/ci_helpers.sh collect_microceph_logs || true
+
+          # Collect COS Lite / k8s debug info
+          echo "==> COS Lite Juju status"
+          juju status -m ck8s-cloud:cos-lite -o logs/cos-lite-status.yaml || true
+          cat logs/cos-lite-status.yaml || true
+
+          echo "==> COS Lite Juju debug-log (last 100 lines)"
+          juju debug-log -m ck8s-cloud:cos-lite --replay --tail 100 --no-tail > logs/cos-lite-debug-log.txt 2>&1 || true
+
+          echo "==> k8s pod status in cos-lite namespace"
+          lxc exec k8s-node -- k8s kubectl get pods -n cos-lite -o wide > logs/k8s-pods.txt 2>&1 || true
+          cat logs/k8s-pods.txt || true
+
+          echo "==> k8s events in cos-lite namespace"
+          lxc exec k8s-node -- k8s kubectl get events -n cos-lite --sort-by='.lastTimestamp' > logs/k8s-events.txt 2>&1 || true
+          tail -30 logs/k8s-events.txt || true
+
+          echo "==> k8s node resource allocation"
+          lxc exec k8s-node -- k8s kubectl describe nodes > logs/k8s-nodes.txt 2>&1 || true
+          grep -A 15 "Allocated resources" logs/k8s-nodes.txt || true
 
       - name: Upload logs
         if: failure()
