@@ -1299,6 +1299,7 @@ jobs:
       - build
     name: Charm MicroCeph COS integration test
     runs-on: self-hosted-linux-amd64-noble-xlarge
+    timeout-minutes: 120
     steps:
       - name: Download charm
         uses: actions/download-artifact@v4
@@ -1314,42 +1315,77 @@ jobs:
       - name: Setup LXD
         uses: canonical/setup-lxd@v0.1.1
         with:
-          # pin lxd to LTS release.
           channel: 5.21/stable
 
-      - name: Install dependencies
+      - name: Install Juju
+        run: sudo snap install juju --channel 3.6/stable
+
+      - name: Setup LXD VM
+        run: bash tests/scripts/k8s/01-setup-lxd-vm.sh
+
+      - name: Deploy k8s
+        run: bash tests/scripts/k8s/02-deploy-k8s.sh
+
+      - name: Add Juju cloud and bootstrap controller
+        timeout-minutes: 10
+        run: bash tests/scripts/k8s/03-juju-add-cloud.sh
+
+      - name: Deploy COS Lite
+        timeout-minutes: 30
+        run: bash tests/scripts/k8s/04-deploy-cos-lite.sh
+
+      - name: Bootstrap localhost controller
         run: |
-          ./tests/scripts/ci_helpers.sh install_deps
-          sudo snap install microk8s --channel 1.32-strict/stable
-
-      - name: Cleanup Docker
-        run: ./tests/scripts/ci_helpers.sh cleanup_docker
-
-      - name: Bootstrap K8s
-        run: ./tests/scripts/ci_helpers.sh bootstrap_k8s
-
-      - name: Bootstrap k8s controller
-        run: ./tests/scripts/ci_helpers.sh bootstrap_k8s_controller
-
-      - name: Deploy cos lite
-        run: ./tests/scripts/ci_helpers.sh deploy_cos
-
-      - name: Check http endpoints
-        run: ./tests/scripts/ci_helpers.sh check_http_endpoints_up
+          set -eux
+          juju bootstrap localhost lxd
 
       - name: Deploy MicroCeph charm over LXD
-        run: ./tests/scripts/ci_helpers.sh deploy_microceph
+        run: |
+          set -eux
+          juju add-model microceph
+          juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 \
+            --constraints="virt-type=virtual-machine root-disk=24G mem=8G"
+          juju wait-for unit microceph/0 --timeout '30m' --query='workload-message=="(workload) charm is ready"'
+          juju status
 
-      - name: Deploy and Integrate grafana-agent
-        run: ./tests/scripts/ci_helpers.sh deploy_grafana_agent
+      - name: Integrate MicroCeph with COS via grafana-agent
+        run: |
+          set -eux
+          # Offer COS Lite endpoints from the k8s controller
+          juju offer ck8s-cloud:admin/cos-lite.prometheus:receive-remote-write -m ck8s-cloud:cos-lite
+          juju offer ck8s-cloud:admin/cos-lite.loki:logging -m ck8s-cloud:cos-lite
+          juju offer ck8s-cloud:admin/cos-lite.grafana:grafana-dashboard -m ck8s-cloud:cos-lite
 
-      - name: Test Metrics and Dashboards
-        run: ./tests/scripts/ci_helpers.sh verify_o11y_services
+          # Switch to microceph model on the LXD controller
+          juju switch lxd:microceph
+
+          # Deploy grafana-agent in the microceph model
+          juju deploy grafana-agent --base ubuntu@24.04
+          juju integrate grafana-agent microceph
+
+          # Wait for grafana-agent to be ready for integration
+          juju wait-for application grafana-agent --query='name=="grafana-agent" && (status=="blocked" || status=="idle")' --timeout=20m
+
+          # Consume cross-controller offers from the k8s controller
+          juju consume ck8s-cloud:admin/cos-lite.prometheus
+          juju consume ck8s-cloud:admin/cos-lite.loki
+          juju consume ck8s-cloud:admin/cos-lite.grafana
+
+          # Integrate grafana-agent with consumed offers
+          juju integrate grafana-agent prometheus
+          juju integrate grafana-agent loki
+          juju integrate grafana-agent grafana
+
+          juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=20m
+
+      - name: Verify Prometheus metrics, Grafana dashboards and Loki logs
+        run: bash tests/scripts/k8s/05-verify-cos.sh
 
       - name: Show Juju status
         run: |
           set -eux
-          juju status
+          juju status -m microceph
+          juju status -m cos-lite
 
       - name: Collect logs
         if: failure()
