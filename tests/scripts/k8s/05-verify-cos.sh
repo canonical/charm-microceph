@@ -37,13 +37,46 @@ echo "==> Switching to Juju model '${COS_MODEL}'"
 juju switch "${COS_MODEL}"
 
 # ==============================================================================
+# Resolve ingress URLs via traefik
+# ==============================================================================
+echo "==> Resolving COS service URLs via traefik ingress"
+
+# Prometheus is exposed via traefik ingress-per-unit; Grafana via traefik-route.
+# The get-admin-password action on grafana conveniently returns the external URL.
+# For prometheus, the traefik show-proxied-endpoints action gives us the URL.
+proxied_json=$(juju run traefik/0 show-proxied-endpoints --format json --wait 2m)
+prom_url=$(echo "$proxied_json" \
+    | jq -r '."traefik/0".results."proxied-endpoints"' \
+    | jq -r '.["prometheus/0"].url')
+
+if [[ -z "$prom_url" || "$prom_url" == "null" ]]; then
+    echo "ERROR: Could not resolve Prometheus URL from traefik proxied-endpoints" >&2
+    exit 1
+fi
+echo "    Prometheus URL: ${prom_url}"
+
+get_admin_action=$(juju run grafana/0 get-admin-password --format json --wait 5m)
+action_status=$(echo "$get_admin_action" | jq -r '."grafana/0".status')
+if [[ "$action_status" != "completed" ]]; then
+    echo "ERROR: Failed to fetch admin password from grafana: $get_admin_action" >&2
+    exit 1
+fi
+grafana_pass=$(echo "$get_admin_action" | jq -r '."grafana/0".results."admin-password"')
+graf_url=$(echo "$get_admin_action" | jq -r '."grafana/0".results.url')
+
+if [[ -z "$graf_url" || "$graf_url" == "null" ]]; then
+    echo "ERROR: Could not resolve Grafana URL from get-admin-password action" >&2
+    exit 1
+fi
+echo "    Grafana URL: ${graf_url}"
+
+# ==============================================================================
 # Verify Prometheus metrics
 # ==============================================================================
 echo "==> Verifying Prometheus metrics"
-prom_addr=$(juju status --format json | jq -r '.applications.prometheus.address')
 
 for i in $(seq 1 "${POLL_ATTEMPTS}"); do
-    curl_output=$(curl -s "http://${prom_addr}:9090/api/v1/query?query=ceph_health_detail")
+    curl_output=$(curl -s "${prom_url}/api/v1/query?query=ceph_health_detail")
     prom_status=$(echo "$curl_output" | jq -r '.status')
     result_count=$(echo "$curl_output" | jq '.data.result | length')
     if [[ "$prom_status" == "success" && "$result_count" -gt 0 ]]; then
@@ -55,7 +88,7 @@ for i in $(seq 1 "${POLL_ATTEMPTS}"); do
 done
 
 # Final assertion
-curl_output=$(curl -s "http://${prom_addr}:9090/api/v1/query?query=ceph_health_detail")
+curl_output=$(curl -s "${prom_url}/api/v1/query?query=ceph_health_detail")
 prom_status=$(echo "$curl_output" | jq -r '.status')
 result_count=$(echo "$curl_output" | jq '.data.result | length')
 if [[ "$prom_status" != "success" || "$result_count" -eq 0 ]]; then
@@ -68,20 +101,11 @@ echo "==> Prometheus metrics verification passed."
 # Verify Grafana dashboards
 # ==============================================================================
 echo "==> Verifying Grafana dashboards"
-graf_addr=$(juju status --format json | jq -r '.applications.grafana.address')
-
-get_admin_action=$(juju run grafana/0 get-admin-password --format json --wait 5m)
-action_status=$(echo "$get_admin_action" | jq -r '."grafana/0".status')
-if [[ "$action_status" != "completed" ]]; then
-    echo "ERROR: Failed to fetch admin password from grafana: $get_admin_action" >&2
-    exit 1
-fi
-grafana_pass=$(echo "$get_admin_action" | jq -r '."grafana/0".results."admin-password"')
 
 expected_dashboard_count=$(wc -l < "${EXPECTED_DASHBOARDS_FILE}")
 
 for i in $(seq 1 "${POLL_ATTEMPTS}"); do
-    curl -s "http://admin:${grafana_pass}@${graf_addr}:3000/api/search" \
+    curl -s -u "admin:${grafana_pass}" "${graf_url}/api/search" \
         | jq '.[].title' | jq -s 'sort' > dashboards.json
     cat dashboards.json
     match_count=$(grep -F -c -f "${EXPECTED_DASHBOARDS_FILE}" dashboards.json || true)

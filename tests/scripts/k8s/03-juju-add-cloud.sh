@@ -36,7 +36,7 @@ KUBECONFIG="${KUBECONFIG_PATH}" juju add-k8s "${JUJU_CLOUD_NAME}" --client
 
 # --- Bootstrap a Juju controller on the cloud ---
 echo "==> Bootstrapping Juju controller on '${JUJU_CLOUD_NAME}'"
-KUBECONFIG="${KUBECONFIG_PATH}" juju bootstrap "${JUJU_CLOUD_NAME}"
+KUBECONFIG="${KUBECONFIG_PATH}" juju bootstrap "${JUJU_CLOUD_NAME}" --config controller-service-type=loadbalancer
 
 echo "==> Juju controller ready."
 juju controllers
