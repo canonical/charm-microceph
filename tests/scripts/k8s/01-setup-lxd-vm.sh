@@ -57,6 +57,15 @@ else
     lxc launch "${UBUNTU_IMAGE}" "${VM_NAME}" --vm --profile "${PROFILE_NAME}"
 fi
 
+echo "==> Waiting for VM agent to be ready"
+for i in $(seq 1 30); do
+    if lxc exec "${VM_NAME}" -- true 2>/dev/null; then
+        break
+    fi
+    echo "    Attempt ${i}/30: VM agent not ready, retrying in 10s..."
+    sleep 10
+done
+
 echo "==> Waiting for cloud-init to complete inside VM"
 lxc exec "${VM_NAME}" -- cloud-init status --wait
 
