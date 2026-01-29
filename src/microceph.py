@@ -339,6 +339,33 @@ def add_batch_osds(disks: list) -> None:
     utils.run_cmd(cmd)
 
 
+def add_osd_match_cmd(
+    osd_match: str,
+    wipe: bool = False,
+    encrypt: bool = False,
+    dry_run: bool = False,
+) -> str:
+    """Execute MicroCeph disk add with DSL-based OSD matching.
+
+    Args:
+        osd_match: DSL expression for matching OSD devices
+        wipe: If True, wipe non-pristine devices before enrollment
+        encrypt: If True, encrypt matched devices
+        dry_run: If True, report matches without adding devices
+
+    Returns:
+        Command output (useful for dry-run results)
+    """
+    cmd = ["microceph", "disk", "add", "--osd-match", osd_match]
+    if wipe:
+        cmd.append("--wipe")
+    if encrypt:
+        cmd.append("--encrypt")
+    if dry_run:
+        cmd.append("--dry-run")
+    return utils.run_cmd(cmd)
+
+
 def get_snap_info(snap_name):
     """Get snap info from the charm store."""
     url = f"https://api.snapcraft.io/v2/snaps/info/{snap_name}"
