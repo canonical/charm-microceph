@@ -312,7 +312,7 @@ class CephCSIProvidesHandler(RelationHandler):
                 'allow command "osd blacklist"',
                 'allow command "osd blocklist"',
             ],
-            "osd": [", ".join(osd_caps)] if osd_caps else ["allow rwx"],
+            "osd": osd_caps if osd_caps else ["allow rwx"],
         }
         if "cephfs" in workloads:
             caps.update({"mds": ["allow rw"], "mgr": ["allow rw"]})
