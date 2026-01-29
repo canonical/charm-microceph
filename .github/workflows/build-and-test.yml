@@ -636,7 +636,6 @@ jobs:
         if: ${{ failure() && runner.debug }}
         uses: canonical/action-tmate@main
 
-
   snap-upgrade-test:
     needs:
       - lint
@@ -1235,7 +1234,7 @@ jobs:
         run: |
           set -eux
           juju add-model microceph
-          juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 \
+          juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 --storage osd-standalone='2G,6' \
             --constraints="virt-type=virtual-machine root-disk=24G mem=16G cores=4"
           # Wait for the LXD VM to be fully provisioned before waiting for the unit
           juju wait-for machine 0 --timeout '10m' --query='status=="started"'
@@ -1385,7 +1384,7 @@ jobs:
         run: |
           set -eux
           juju add-model microceph
-          juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 \
+          juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 --storage osd-standalone='2G,6' \
             --constraints="virt-type=virtual-machine root-disk=24G mem=16G cores=4"
           # Wait for the LXD VM to be fully provisioned before waiting for the unit
           juju wait-for machine 0 --timeout '10m' --query='status=="started"'
