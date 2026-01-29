@@ -1244,10 +1244,11 @@ jobs:
       - name: Integrate MicroCeph with COS via OTel collector
         run: |
           set -eux
-          # Offer COS Lite endpoints from the k8s controller
-          juju offer ck8s-cloud:admin/cos-lite.prometheus:receive-remote-write -m ck8s-cloud:cos-lite
-          juju offer ck8s-cloud:admin/cos-lite.loki:logging -m ck8s-cloud:cos-lite
-          juju offer ck8s-cloud:admin/cos-lite.grafana:grafana-dashboard -m ck8s-cloud:cos-lite
+          # Switch to cos-lite model and offer endpoints
+          juju switch ck8s-cloud:cos-lite
+          juju offer prometheus:receive-remote-write
+          juju offer loki:logging
+          juju offer grafana:grafana-dashboard
 
           # Switch to microceph model on the LXD controller
           juju switch lxd:microceph
@@ -1394,10 +1395,11 @@ jobs:
       - name: Integrate MicroCeph with COS via grafana-agent
         run: |
           set -eux
-          # Offer COS Lite endpoints from the k8s controller
-          juju offer ck8s-cloud:admin/cos-lite.prometheus:receive-remote-write -m ck8s-cloud:cos-lite
-          juju offer ck8s-cloud:admin/cos-lite.loki:logging -m ck8s-cloud:cos-lite
-          juju offer ck8s-cloud:admin/cos-lite.grafana:grafana-dashboard -m ck8s-cloud:cos-lite
+          # Switch to cos-lite model and offer endpoints
+          juju switch ck8s-cloud:cos-lite
+          juju offer prometheus:receive-remote-write
+          juju offer loki:logging
+          juju offer grafana:grafana-dashboard
 
           # Switch to microceph model on the LXD controller
           juju switch lxd:microceph
