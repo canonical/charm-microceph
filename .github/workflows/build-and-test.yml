@@ -1254,7 +1254,7 @@ jobs:
           juju switch lxd:microceph
 
           # Deploy OTel collector in the microceph model
-          juju deploy opentelemetry-collector --channel latest/edge --trust
+          juju deploy opentelemetry-collector --channel 2/stable
 
           # Consume cross-controller offers from the k8s controller
           juju consume ck8s-cloud:admin/cos-lite.prometheus
@@ -1271,6 +1271,8 @@ jobs:
 
       - name: Verify Prometheus metrics and Grafana dashboards
         run: bash tests/scripts/k8s/05-verify-cos.sh
+        env:
+          COS_MODEL: ck8s-cloud:cos-lite
 
       - name: Show Juju status
         if: always()
@@ -1425,6 +1427,8 @@ jobs:
 
       - name: Verify Prometheus metrics, Grafana dashboards and Loki logs
         run: bash tests/scripts/k8s/05-verify-cos.sh
+        env:
+          COS_MODEL: ck8s-cloud:cos-lite
 
       - name: Show Juju status
         if: always()
