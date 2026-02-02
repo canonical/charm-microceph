@@ -1269,10 +1269,16 @@ jobs:
 
           juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=20m
 
+          # Wait for OTel collector subordinate to be fully initialized and snap connections established
+          juju wait-for application opentelemetry-collector --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=10m
+
       - name: Verify Prometheus metrics and Grafana dashboards
         run: bash tests/scripts/k8s/05-verify-cos.sh
         env:
           COS_MODEL: ck8s-cloud:cos-lite
+          # Allow extra time for OTel collector snap log connections to be established
+          POLL_ATTEMPTS: 60
+          POLL_INTERVAL_LOKI: 30
 
       - name: Show Juju status
         if: always()
