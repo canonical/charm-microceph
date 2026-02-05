@@ -31,13 +31,25 @@ KUBECONFIG_PATH="${KUBECONFIG_PATH:-$(pwd)/kubeconfig.yaml}"
 
 # Load-balancer IP range — must be routable from the host via the LXD bridge.
 # Auto-detect from the bridge if not explicitly set.
+echo "==> Detecting VM IP address..."
+VM_IP=""
+for i in $(seq 1 30); do
+    VM_IP=$(lxc list "${VM_NAME}" --format csv -c 4 | grep -oP '^\d+\.\d+\.\d+\.\d+' | head -1)
+    if [ -n "${VM_IP}" ]; then
+        echo "    VM IP: ${VM_IP}"
+        break
+    fi
+    echo "    Waiting for IPv4 address (attempt ${i}/30)..."
+    sleep 2
+done
+
 if [ -z "${LB_CIDRS:-}" ]; then
-    # Parse the bridge subnet from the VM's address (fallback to a sensible default)
-    BRIDGE_SUBNET=$(lxc list "${VM_NAME}" --format csv -c 4 | grep -oP '^\d+\.\d+\.\d+' | head -1)
+    BRIDGE_SUBNET=$(echo "${VM_IP}" | grep -oP '^\d+\.\d+\.\d+')
     if [ -n "${BRIDGE_SUBNET}" ]; then
         LB_CIDRS="${BRIDGE_SUBNET}.220-${BRIDGE_SUBNET}.240"
     else
-        echo "ERROR: Could not detect bridge subnet. Set LB_CIDRS explicitly." >&2
+        echo "ERROR: Could not detect IPv4 address for VM '${VM_NAME}'." >&2
+        echo "Note: This script requires IPv4 for k8s load-balancer CIDRs." >&2
         exit 1
     fi
 fi

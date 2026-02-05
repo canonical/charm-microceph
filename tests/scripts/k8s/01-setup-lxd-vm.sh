@@ -66,6 +66,12 @@ for i in $(seq 1 30); do
     sleep 10
 done
 
+# Check if VM agent became ready
+if ! lxc exec "${VM_NAME}" -- true 2>/dev/null; then
+    echo "ERROR: VM '${VM_NAME}' agent failed to become ready after 300 seconds" >&2
+    exit 1
+fi
+
 echo "==> Waiting for cloud-init to complete inside VM"
 lxc exec "${VM_NAME}" -- cloud-init status --wait
 

@@ -25,6 +25,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../ci_helpers.sh
+source "${SCRIPT_DIR}/../ci_helpers.sh"
+
 MODEL_NAME="${MODEL_NAME:-cos-lite}"
 # Maximum seconds to wait for all units to settle to active/idle.
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-1200}"
@@ -50,54 +54,20 @@ for app in ${COS_APPS}; do
 done
 
 # --- Wait for all units to reach active/idle ---
-echo "==> Waiting for all units to settle (timeout: ${WAIT_TIMEOUT}s)"
-SECONDS=0
-while true; do
-    # Count units that are NOT active/idle
-    # juju status --format short gives lines like: - app/0: (agent:idle, workload:active)
-    NOT_READY=$(juju status --format json | \
-        python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-apps = data.get('applications', {})
-count = 0
-for aname, ainfo in apps.items():
-    units = ainfo.get('units', {})
-    for uname, uinfo in units.items():
-        ws = uinfo.get('workload-status', {}).get('current', '')
-        agent_status = uinfo.get('juju-status', {}).get('current', '')
-        if ws != 'active' or agent_status != 'idle':
-            count += 1
-print(count)
-" 2>/dev/null || echo "999")
-
-    if [ "${NOT_READY}" -eq 0 ]; then
-        echo "==> All units are active/idle."
-        break
-    fi
-
-    if [ "${SECONDS}" -ge "${WAIT_TIMEOUT}" ]; then
-        echo "ERROR: Timed out waiting for units. ${NOT_READY} unit(s) not ready." >&2
-        echo "==> Juju status:"
-        juju status
-        echo ""
-        echo "==> Juju debug-log (last 50 lines):"
-        juju debug-log --replay --tail 50 --no-tail || true
-        echo ""
-        echo "==> k8s pod status in cos-lite namespace:"
-        lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get pods -n "${MODEL_NAME}" -o wide 2>/dev/null || true
-        echo ""
-        echo "==> k8s events in cos-lite namespace (last 20):"
-        lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get events -n "${MODEL_NAME}" --sort-by='.lastTimestamp' 2>/dev/null | tail -20 || true
-        echo ""
-        echo "==> k8s node resources:"
-        lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl describe nodes 2>/dev/null | grep -A 10 "Allocated resources" || true
-        exit 1
-    fi
-
-    echo "    ${NOT_READY} unit(s) not ready yet (${SECONDS}s elapsed)..."
-    sleep 15
-done
+if ! wait_for_juju_idle "${WAIT_TIMEOUT}" 15; then
+    echo "==> Juju debug-log (last 50 lines):"
+    juju debug-log --replay --tail 50 --no-tail || true
+    echo ""
+    echo "==> k8s pod status in cos-lite namespace:"
+    lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get pods -n "${MODEL_NAME}" -o wide 2>/dev/null || true
+    echo ""
+    echo "==> k8s events in cos-lite namespace (last 20):"
+    lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get events -n "${MODEL_NAME}" --sort-by='.lastTimestamp' 2>/dev/null | tail -20 || true
+    echo ""
+    echo "==> k8s node resources:"
+    lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl describe nodes 2>/dev/null | grep -A 10 "Allocated resources" || true
+    exit 1
+fi
 
 echo ""
 echo "==> COS Lite deployment complete."
