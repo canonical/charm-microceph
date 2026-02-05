@@ -26,8 +26,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../ci_helpers.sh
-source "${SCRIPT_DIR}/../ci_helpers.sh"
 
 MODEL_NAME="${MODEL_NAME:-cos-lite}"
 # Maximum seconds to wait for all units to settle to active/idle.
@@ -49,24 +47,24 @@ juju deploy cos-lite --trust
 echo "==> Granting cluster-scoped trust to all COS Lite applications"
 COS_APPS="prometheus alertmanager grafana loki traefik catalogue"
 for app in ${COS_APPS}; do
-    echo "    Trusting ${app}"
-    juju trust "${app}" --scope=cluster
+  echo "    Trusting ${app}"
+  juju trust "${app}" --scope=cluster
 done
 
 # --- Wait for all units to reach active/idle ---
 if ! wait_for_juju_idle "${WAIT_TIMEOUT}" 15; then
-    echo "==> Juju debug-log (last 50 lines):"
-    juju debug-log --replay --tail 50 --no-tail || true
-    echo ""
-    echo "==> k8s pod status in cos-lite namespace:"
-    lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get pods -n "${MODEL_NAME}" -o wide 2>/dev/null || true
-    echo ""
-    echo "==> k8s events in cos-lite namespace (last 20):"
-    lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get events -n "${MODEL_NAME}" --sort-by='.lastTimestamp' 2>/dev/null | tail -20 || true
-    echo ""
-    echo "==> k8s node resources:"
-    lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl describe nodes 2>/dev/null | grep -A 10 "Allocated resources" || true
-    exit 1
+  echo "==> Juju debug-log (last 50 lines):"
+  juju debug-log --replay --tail 50 --no-tail || true
+  echo ""
+  echo "==> k8s pod status in cos-lite namespace:"
+  lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get pods -n "${MODEL_NAME}" -o wide 2>/dev/null || true
+  echo ""
+  echo "==> k8s events in cos-lite namespace (last 20):"
+  lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get events -n "${MODEL_NAME}" --sort-by='.lastTimestamp' 2>/dev/null | tail -20 || true
+  echo ""
+  echo "==> k8s node resources:"
+  lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl describe nodes 2>/dev/null | grep -A 10 "Allocated resources" || true
+  exit 1
 fi
 
 echo ""

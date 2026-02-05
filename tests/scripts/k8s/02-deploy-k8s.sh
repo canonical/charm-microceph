@@ -34,24 +34,24 @@ KUBECONFIG_PATH="${KUBECONFIG_PATH:-$(pwd)/kubeconfig.yaml}"
 echo "==> Detecting VM IP address..."
 VM_IP=""
 for i in $(seq 1 30); do
-    VM_IP=$(lxc list "${VM_NAME}" --format csv -c 4 | grep -oP '^\d+\.\d+\.\d+\.\d+' | head -1)
-    if [ -n "${VM_IP}" ]; then
-        echo "    VM IP: ${VM_IP}"
-        break
-    fi
-    echo "    Waiting for IPv4 address (attempt ${i}/30)..."
-    sleep 2
+  VM_IP=$(lxc list "${VM_NAME}" --format csv -c 4 | grep -oP '^\d+\.\d+\.\d+\.\d+' | head -1)
+  if [ -n "${VM_IP}" ]; then
+    echo "    VM IP: ${VM_IP}"
+    break
+  fi
+  echo "    Waiting for IPv4 address (attempt ${i}/30)..."
+  sleep 2
 done
 
 if [ -z "${LB_CIDRS:-}" ]; then
-    BRIDGE_SUBNET=$(echo "${VM_IP}" | grep -oP '^\d+\.\d+\.\d+')
-    if [ -n "${BRIDGE_SUBNET}" ]; then
-        LB_CIDRS="${BRIDGE_SUBNET}.220-${BRIDGE_SUBNET}.240"
-    else
-        echo "ERROR: Could not detect IPv4 address for VM '${VM_NAME}'." >&2
-        echo "Note: This script requires IPv4 for k8s load-balancer CIDRs." >&2
-        exit 1
-    fi
+  BRIDGE_SUBNET=$(echo "${VM_IP}" | grep -oP '^\d+\.\d+\.\d+')
+  if [ -n "${BRIDGE_SUBNET}" ]; then
+    LB_CIDRS="${BRIDGE_SUBNET}.220-${BRIDGE_SUBNET}.240"
+  else
+    echo "ERROR: Could not detect IPv4 address for VM '${VM_NAME}'." >&2
+    echo "Note: This script requires IPv4 for k8s load-balancer CIDRs." >&2
+    exit 1
+  fi
 fi
 
 # --- Install k8s snap ---
@@ -75,19 +75,19 @@ lxc exec "${VM_NAME}" -- k8s enable load-balancer
 # MetalLB webhook needs its pods running before config can be applied.
 echo "==> Waiting for MetalLB pods to be ready"
 lxc exec "${VM_NAME}" -- k8s kubectl wait \
-    --for=condition=ready pod \
-    -l app.kubernetes.io/name=metallb \
-    -n metallb-system \
-    --timeout=180s
+  --for=condition=ready pod \
+  -l app.kubernetes.io/name=metallb \
+  -n metallb-system \
+  --timeout=180s
 
 echo "==> Configuring load-balancer L2 mode with CIDRs: ${LB_CIDRS}"
 lxc exec "${VM_NAME}" -- k8s set \
-    load-balancer.cidrs="${LB_CIDRS}" \
-    load-balancer.l2-mode=true
+  load-balancer.cidrs="${LB_CIDRS}" \
+  load-balancer.l2-mode=true
 
 # --- Export kubeconfig ---
 echo "==> Exporting kubeconfig to ${KUBECONFIG_PATH}"
-lxc exec "${VM_NAME}" -- k8s config > "${KUBECONFIG_PATH}"
+lxc exec "${VM_NAME}" -- k8s config >"${KUBECONFIG_PATH}"
 
 # --- Final status ---
 echo "==> Cluster status:"
