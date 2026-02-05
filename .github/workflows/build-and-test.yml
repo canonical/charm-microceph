@@ -1197,11 +1197,11 @@ jobs:
         include:
           - agent: grafana-agent
             agent_deploy: "juju deploy grafana-agent --base ubuntu@24.04"
-            agent_wait: "juju wait-for application grafana-agent --query='name==\"grafana-agent\" && (status==\"blocked\" || status==\"idle\")' --timeout=20m"
+            agent_wait: "juju wait-for application grafana-agent --query='status==\"active\"' --timeout=20m"
             artifact_suffix: cos
           - agent: opentelemetry-collector
             agent_deploy: "juju deploy opentelemetry-collector --channel 2/stable"
-            agent_wait: "juju wait-for application opentelemetry-collector --query='forEach(units, unit => unit.workload-status==\"active\" && unit.agent-status==\"idle\")' --timeout=10m"
+            agent_wait: "juju wait-for application opentelemetry-collector --query='status==\"active\"' --timeout=10m"
             artifact_suffix: otel
     steps:
       - name: Download charm

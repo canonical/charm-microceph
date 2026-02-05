@@ -7,7 +7,7 @@
 # GitHub Actions integration notes:
 # ---------------------------------
 # - Runs after COS Lite and MicroCeph are deployed and integrated.
-# - Requires juju, curl, jq, and python3 on the runner/host.
+# - Requires juju, curl, and jq on the runner/host.
 # - COS_MODEL is the Juju model where COS Lite is deployed.
 # - EXPECTED_DASHBOARDS_FILE points to the file listing expected dashboard titles.
 # - POLL_ATTEMPTS and POLL_INTERVAL control retry behaviour.

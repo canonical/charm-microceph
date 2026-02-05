@@ -25,8 +25,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 MODEL_NAME="${MODEL_NAME:-cos-lite}"
 # Maximum seconds to wait for all units to settle to active/idle.
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-1200}"
@@ -52,7 +50,10 @@ for app in ${COS_APPS}; do
 done
 
 # --- Wait for all units to reach active/idle ---
-if ! wait_for_juju_idle "${WAIT_TIMEOUT}" 15; then
+echo "==> Waiting for all units to settle (timeout: ${WAIT_TIMEOUT}s)"
+if ! juju wait-for model "${MODEL_NAME}" \
+  --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' \
+  --timeout="${WAIT_TIMEOUT}s"; then
   echo "==> Juju debug-log (last 50 lines):"
   juju debug-log --replay --tail 50 --no-tail || true
   echo ""

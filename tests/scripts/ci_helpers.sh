@@ -380,16 +380,6 @@ function prepare_3_vms() {
   done
 }
 
-# Wait for all Juju units to reach active/idle state
-# Usage: wait_for_juju_idle [timeout_seconds] [poll_interval]
-function wait_for_juju_idle() {
-    local timeout="${1:-600}"
-    local interval="${2:-10}"
-    local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    python3 "${script_dir}/wait_for_juju_idle.py" --timeout "${timeout}" --interval "${interval}"
-}
-
 function juju_crashdump() {
     local model=${1:-microceph-test}
     if ! snap list | grep -q "^juju-crashdump"; then
