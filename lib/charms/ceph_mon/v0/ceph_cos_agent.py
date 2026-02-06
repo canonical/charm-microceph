@@ -8,11 +8,6 @@ Library for handling ceph observability integrations
 import logging
 import socket
 import tenacity
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import charm
-
 from charms.grafana_agent.v0 import cos_agent
 from charms_ceph import utils as ceph_utils
 
@@ -24,7 +19,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 3
+LIBPATCH = 4
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +56,9 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
             return
 
         if callable(self._refresh_cb):
-            self._refresh_cb(event) 
+            self._refresh_cb(event)
         else:
-            # ceph mon failback
+            # ceph mon fallback
             if not ceph_utils.is_bootstrapped():
                 logger.debug("not bootstrapped, defer _on_refresh: %s", event)
                 event.defer()
@@ -76,8 +71,9 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
 
     def _on_relation_departed(self, event):
         """Disable prometheus on depart of relation"""
-        if self._charm.unit.is_leader():
+        if not self._charm.unit.is_leader():
             logger.debug("Not the charm leader, skipping relation_departed: %s.", event)
+            return
 
         if callable(self._departed_cb):
             self._departed_cb(event)
@@ -117,7 +113,7 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
                         "regex": "(.+)",
                         "target_label": "instance",
                         "action": "replace",
-                        "replacement": "${1}",
+                        "replacement": "$${1}",
                     },
                     {   # tack on the domain to the instance label to make it
                         # conform to grafana-agent's node-exporter expectations
@@ -125,7 +121,7 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
                         "regex": "(.*)",
                         "target_label": "instance",
                         "action": "replace",
-                        "replacement": "${1}." + domain,
+                        "replacement": "$${1}." + domain,
                     },
                 ]
             },
