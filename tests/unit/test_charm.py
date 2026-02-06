@@ -951,6 +951,56 @@ class TestCharm(testbase.TestBaseCharm):
             ]
         )
 
+    @patch("microceph.is_ready")
+    @patch("ceph.enable_mgr_module")
+    @patch("ceph.disable_mgr_module")
+    @patch("utils.subprocess")
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    def test_cos_agent_relation_departed_leader(
+        self, ceph_utils, _sub, disable_mgr_module, enable_mgr_module, is_ready
+    ):
+        """Test that prometheus module is disabled when cos-agent relation departs on leader."""
+        is_ready.return_value = True
+        self.harness.set_leader()
+
+        # Add the relation
+        rel_id = self.harness.add_relation("cos-agent", "grafana-agent")
+        self.harness.add_relation_unit(rel_id, "grafana-agent/0")
+
+        # Reset mock to clear calls from relation_joined/changed
+        disable_mgr_module.reset_mock()
+
+        # Remove the relation to trigger relation_departed
+        self.harness.remove_relation(rel_id)
+
+        # Verify prometheus module is disabled on leader
+        disable_mgr_module.assert_called_once_with("prometheus")
+
+    @patch("microceph.is_ready")
+    @patch("ceph.enable_mgr_module")
+    @patch("ceph.disable_mgr_module")
+    @patch("utils.subprocess")
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    def test_cos_agent_relation_departed_non_leader(
+        self, ceph_utils, _sub, disable_mgr_module, enable_mgr_module, is_ready
+    ):
+        """Test prometheus module is NOT disabled on cos-agent depart for non-leader."""
+        is_ready.return_value = True
+        # Not setting leader - unit is non-leader by default
+
+        # Add the relation
+        rel_id = self.harness.add_relation("cos-agent", "grafana-agent")
+        self.harness.add_relation_unit(rel_id, "grafana-agent/0")
+
+        # Reset mock to clear calls from relation_joined/changed
+        disable_mgr_module.reset_mock()
+
+        # Remove the relation to trigger relation_departed
+        self.harness.remove_relation(rel_id)
+
+        # Verify prometheus module is NOT disabled on non-leader
+        disable_mgr_module.assert_not_called()
+
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("ceph.enable_mgr_module")
     @patch("microceph.is_ready")
