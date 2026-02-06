@@ -27,6 +27,7 @@ from ops.model import ActiveStatus, MaintenanceStatus
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 import microceph
+from device_flags import DeviceAddFlags, parse_device_add_flags
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class StorageHandler(Object):
     2) *_storage_detaching
     3) add_osd_action
     4) list_disks_action
+    5) config_changed (for osd-devices processing)
     """
 
     name = "storage"
@@ -54,7 +56,12 @@ class StorageHandler(Object):
 
     def __init__(self, charm: CharmBase, name="storage"):
         super().__init__(charm, name)
-        self._stored.set_default(osd_data={})
+        self._stored.set_default(
+            osd_data={},
+            last_osd_devices="",
+            last_wipe_osd=False,
+            last_encrypt_osd=False,
+        )
         self.charm = charm
         self.name = name
 
@@ -72,6 +79,9 @@ class StorageHandler(Object):
 
         self.framework.observe(charm.on.add_osd_action, self._add_osd_action)
         self.framework.observe(charm.on.list_disks_action, self._list_disks_action)
+
+        # Observe config-changed for osd-devices processing
+        self.framework.observe(charm.on.config_changed, self._on_config_changed_osd_devices)
 
     # storage event handlers
 
@@ -114,7 +124,8 @@ class StorageHandler(Object):
             try:
                 self.remove_osd(osd_num)
             except CalledProcessError as e:
-                if self._is_safety_failure(e.stderr):
+                err_msg = self._error_message(e)
+                if self._is_safety_failure(err_msg):
                     warning = f"Storage {event.storage.full_id} detached, provide replacement for osd.{osd_num}."
                     logger.warning(warning)
                     # forcefully remove OSD and entry from stored state
@@ -152,8 +163,9 @@ class StorageHandler(Object):
                 microceph.add_osd_cmd(spec, wipe=wipe)
                 result["result"].append({"spec": spec, "status": "success"})
             except (CalledProcessError, TimeoutExpired) as e:
-                logger.error(e.stderr)
-                result["result"].append({"spec": spec, "status": "failure", "message": e.stderr})
+                err_msg = self._error_message(e)
+                logger.error("Failed add-osd for spec=%s wipe=%s: %s", spec, wipe, err_msg)
+                result["result"].append({"spec": spec, "status": "failure", "message": err_msg})
                 error = True
 
         event.set_results(result)
@@ -161,7 +173,7 @@ class StorageHandler(Object):
             event.fail()
 
     def _list_disks_action(self, event: ActionEvent):
-        """List enrolled and uncofigured disks."""
+        """List enrolled and unconfigured disks."""
         if not self.charm.peers.interface.state.joined:
             event.set_results({"message": "Node not yet joined in microceph cluster"})
             event.fail()
@@ -171,8 +183,9 @@ class StorageHandler(Object):
         try:
             disks = microceph.list_disk_cmd(host_only=host_only)
         except (CalledProcessError, TimeoutExpired) as e:
-            logger.warning(e.stderr)
-            event.set_results({"message": e.stderr})
+            err_msg = self._error_message(e)
+            logger.warning("Failed list-disks host_only=%s: %s", host_only, err_msg)
+            event.set_results({"message": err_msg})
             event.fail()
             return
 
@@ -181,6 +194,107 @@ class StorageHandler(Object):
 
         # result should conform to previous expectations.
         event.set_results({"osds": osds, "unpartitioned-disks": available_disks})
+
+    def _on_config_changed_osd_devices(self, event):
+        """Process osd-devices config option.
+
+        This method is called on config-changed events to enroll matching
+        devices as OSDs. The DSL expression is passed to the MicroCeph snap
+        which performs device matching and enrollment.
+        """
+        osd_devices = self.charm.model.config.get("osd-devices", "")
+        device_add_flags = self.charm.model.config.get("device-add-flags", "")
+        osd_match = osd_devices.strip()
+
+        # Skip if osd-devices is not configured
+        if not osd_match:
+            logger.debug("osd-devices config not set, skipping config-based OSD enrollment")
+            self._reset_osd_config_cache()
+            return
+
+        # Wait for cluster to be ready
+        if not self.charm.ready_for_service():
+            logger.warning("MicroCeph not ready yet, deferring osd-devices processing")
+            event.defer()
+            return
+
+        # Execute the OSD match command
+        with sunbeam_guard.guard(self.charm, self.name):
+            flags = self._parse_osd_device_flags(device_add_flags)
+            if self._is_cached_osd_config(osd_match, flags):
+                logger.debug(
+                    "Skipping osd-devices processing: unchanged config osd_match=%s wipe=%s encrypt=%s",
+                    osd_match,
+                    flags.wipe_osd,
+                    flags.encrypt_osd,
+                )
+                return
+
+            self._apply_osd_config(osd_match, flags)
+
+    def _reset_osd_config_cache(self):
+        """Reset cache for last successfully applied osd-devices configuration."""
+        self._stored.last_osd_devices = ""
+        self._stored.last_wipe_osd = False
+        self._stored.last_encrypt_osd = False
+        logger.debug("Reset osd-devices config cache")
+
+    def _set_osd_config_cache(self, osd_match: str, flags: DeviceAddFlags):
+        """Persist cache for last successfully applied osd-devices configuration."""
+        self._stored.last_osd_devices = osd_match
+        self._stored.last_wipe_osd = flags.wipe_osd
+        self._stored.last_encrypt_osd = flags.encrypt_osd
+        logger.debug(
+            "Updated osd-devices config cache osd_match=%s wipe=%s encrypt=%s",
+            osd_match,
+            flags.wipe_osd,
+            flags.encrypt_osd,
+        )
+
+    def _is_cached_osd_config(self, osd_match: str, flags: DeviceAddFlags) -> bool:
+        """Check whether current osd-devices configuration was already applied."""
+        return (
+            self._stored.last_osd_devices == osd_match
+            and self._stored.last_wipe_osd == flags.wipe_osd
+            and self._stored.last_encrypt_osd == flags.encrypt_osd
+        )
+
+    def _parse_osd_device_flags(self, device_add_flags: str) -> DeviceAddFlags:
+        """Parse device-add-flags for osd-devices handling."""
+        try:
+            return parse_device_add_flags(device_add_flags)
+        except ValueError as e:
+            raise sunbeam_guard.BlockedExceptionError(f"Invalid device-add-flags: {e}")
+
+    def _apply_osd_config(self, osd_match: str, flags: DeviceAddFlags):
+        """Execute OSD enrollment via osd-match and cache successful configs."""
+        logger.info(
+            "Processing osd-devices config osd_match=%s wipe=%s encrypt=%s",
+            osd_match,
+            flags.wipe_osd,
+            flags.encrypt_osd,
+        )
+        try:
+            self.charm.status.set(MaintenanceStatus("Processing osd-devices config"))
+            microceph.add_osd_match_cmd(
+                osd_match=osd_match,
+                wipe=flags.wipe_osd,
+                encrypt=flags.encrypt_osd,
+            )
+            self.charm.status.set(ActiveStatus("charm is ready"))
+            self._set_osd_config_cache(osd_match, flags)
+            logger.info("Successfully processed osd-devices config: %s", osd_match)
+        except (CalledProcessError, TimeoutExpired) as e:
+            err_msg = self._error_message(e)
+            # "no devices matched" is not an error - it's a valid scenario
+            if "no devices matched" in err_msg.lower():
+                logger.info("No devices matched osd-devices DSL expression")
+                self.charm.status.set(ActiveStatus("charm is ready"))
+                self._set_osd_config_cache(osd_match, flags)
+                return
+
+            logger.error("Failed to process osd-devices config %s: %s", osd_match, err_msg)
+            raise sunbeam_guard.BlockedExceptionError(f"Failed to add OSDs via config: {err_msg}")
 
     # helper functions
 
@@ -199,7 +313,11 @@ class StorageHandler(Object):
 
     def _is_safety_failure(self, err: str) -> bool:
         """Checks if the subprocess error is caused by safety check."""
-        return "need at least 3 OSDs" in err
+        return "need at least 3 OSDs" in (err or "")
+
+    def _error_message(self, exc: Exception) -> str:
+        """Build an actionable error message from subprocess exceptions."""
+        return getattr(exc, "stderr", None) or str(exc)
 
     def _run(self, cmd: list) -> str:
         """Wrapper around subprocess run for storage commands."""

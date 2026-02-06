@@ -260,3 +260,69 @@ class TestMicroCeph(unittest.TestCase):
                 "--wipe",
             ]
         )
+
+    @patch("utils.run_cmd")
+    def test_add_osd_match_cmd_basic(self, run_cmd):
+        """Test add_osd_match_cmd with basic DSL expression."""
+        microceph.add_osd_match_cmd("eq(@type,'nvme')")
+        run_cmd.assert_called_with(["microceph", "disk", "add", "--osd-match", "eq(@type,'nvme')"])
+
+    @patch("utils.run_cmd")
+    def test_add_osd_match_cmd_with_wipe(self, run_cmd):
+        """Test add_osd_match_cmd with wipe flag."""
+        microceph.add_osd_match_cmd("eq(@type,'nvme')", wipe=True)
+        run_cmd.assert_called_with(
+            ["microceph", "disk", "add", "--osd-match", "eq(@type,'nvme')", "--wipe"]
+        )
+
+    @patch("utils.run_cmd")
+    def test_add_osd_match_cmd_with_encrypt(self, run_cmd):
+        """Test add_osd_match_cmd with encrypt flag."""
+        microceph.add_osd_match_cmd("eq(@type,'nvme')", encrypt=True)
+        run_cmd.assert_called_with(
+            ["microceph", "disk", "add", "--osd-match", "eq(@type,'nvme')", "--encrypt"]
+        )
+
+    @patch("utils.run_cmd")
+    def test_add_osd_match_cmd_with_dry_run(self, run_cmd):
+        """Test add_osd_match_cmd with dry_run flag."""
+        microceph.add_osd_match_cmd("eq(@type,'nvme')", dry_run=True)
+        run_cmd.assert_called_with(
+            ["microceph", "disk", "add", "--osd-match", "eq(@type,'nvme')", "--dry-run"]
+        )
+
+    @patch("utils.run_cmd")
+    def test_add_osd_match_cmd_all_options(self, run_cmd):
+        """Test add_osd_match_cmd with all options enabled."""
+        microceph.add_osd_match_cmd(
+            "and(eq(@type,'nvme'),ge(@size,100GiB))",
+            wipe=True,
+            encrypt=True,
+            dry_run=True,
+        )
+        run_cmd.assert_called_with(
+            [
+                "microceph",
+                "disk",
+                "add",
+                "--osd-match",
+                "and(eq(@type,'nvme'),ge(@size,100GiB))",
+                "--wipe",
+                "--encrypt",
+                "--dry-run",
+            ]
+        )
+
+    @patch("utils.run_cmd")
+    def test_add_osd_match_cmd_complex_dsl(self, run_cmd):
+        """Test add_osd_match_cmd with complex DSL expression from spec."""
+        dsl = "or(and(re(@host,'^compute-'),re(@vendor,'Samsung')),and(re(@host,'^stor-'),re(@vendor,'Seagate')))"
+        microceph.add_osd_match_cmd(dsl)
+        run_cmd.assert_called_with(["microceph", "disk", "add", "--osd-match", dsl])
+
+    @patch("utils.run_cmd")
+    def test_add_osd_match_cmd_returns_output(self, run_cmd):
+        """Test add_osd_match_cmd returns command output."""
+        run_cmd.return_value = "Matched 3 devices: /dev/nvme0n1, /dev/nvme1n1, /dev/nvme2n1"
+        result = microceph.add_osd_match_cmd("eq(@type,'nvme')", dry_run=True)
+        self.assertEqual(result, "Matched 3 devices: /dev/nvme0n1, /dev/nvme1n1, /dev/nvme2n1")

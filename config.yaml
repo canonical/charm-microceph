@@ -61,3 +61,32 @@ options:
     description: |
       Whether charm microceph should wait for an external ceph cluster to yield admin credentials using which microceph will
       adopt the external cluster rather than bootstrapping a new ceph cluster on microceph bootstrap.
+  osd-devices:
+    type: string
+    default: ""
+    description: |
+      DSL expression to match block devices for OSD enrollment.
+      The DSL uses functional syntax with predicates and variables.
+
+      Supported predicates: and(), or(), not(), eq(), ne(), gt(), ge(), lt(), le(), in(), re()
+      Supported variables: @type, @vendor, @model, @size, @devnode, @host
+
+      Examples:
+        eq(@type,'nvme')
+        and(eq(@type,'ssd'), ge(@size,100GiB))
+        or(eq(@type,'ssd'), eq(@type,'nvme'))
+
+      When set, the charm evaluates this expression against available
+      block devices on each unit and enrolls matching devices as OSDs.
+      This is additive to action-based and Juju storage-based OSDs.
+  device-add-flags:
+    type: string
+    default: ""
+    description: |
+      Comma-separated list of flags controlling device addition.
+
+      Supported flags:
+        wipe:osd    - Wipe non-pristine OSD devices before enrollment
+        encrypt:osd - Encrypt OSD devices
+
+      Example: wipe:osd,encrypt:osd

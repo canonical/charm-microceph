@@ -13,6 +13,7 @@ from typing import Any, Iterable, Iterator
 from urllib import request
 
 import jubilant
+import yaml
 from tenacity import retry, stop_after_delay, wait_fixed
 
 CEPHTOOLS_URL = "https://github.com/canonical/cephtools/releases/download/latest/cephtools"
@@ -83,6 +84,23 @@ def wait_for_apps(
         error=jubilant.any_error,
         timeout=timeout,
     )
+
+
+def wait_for_status(
+    juju: jubilant.Juju,
+    app: str,
+    statuses: tuple[str, ...],
+    timeout: int = DEFAULT_TIMEOUT,
+) -> None:
+    """Wait for *app* to reach one of the given *statuses*."""
+
+    def _check(status: jubilant.Status) -> bool:
+        app_status = status.apps.get(app)
+        if not app_status:
+            return False
+        return app_status.app_status.current in statuses
+
+    juju.wait(_check, timeout=timeout)
 
 
 def wait_for_microceph_units(
@@ -167,11 +185,40 @@ def wait_for_broker_response(
     )
 
 
+def get_unit_info(unit: str, model: str) -> dict[str, Any]:
+    """Return ``juju show-unit`` data for a specific unit."""
+    proc = subprocess.run(
+        ["juju", "show-unit", "-m", model, unit],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    raw_data = proc.stdout.strip()
+    data = yaml.safe_load(raw_data) if raw_data else None
+
+    if not data:
+        raise ValueError(f"No unit info available for {unit}")
+
+    if unit not in data:
+        raise KeyError(unit, f"not in {data!r}")
+
+    return data[unit]
+
+
+def get_relation_data(unit: str, endpoint: str, related_unit: str, model: str) -> dict[str, str]:
+    """Return relation data for a local endpoint and remote unit."""
+    unit_data = get_unit_info(unit, model)
+    for relation in unit_data.get("relation-info", []):
+        related_units = relation.get("related-units", {})
+        if endpoint == relation.get("endpoint") and related_unit in related_units:
+            return related_units.get(related_unit).get("data")
+
+    return {}
+
+
 def _get_relation_data(requirer_unit: str, provider_unit: str, model_name: str) -> dict[str, str]:
     """Fetch relation data between requirer and provider units."""
-    from ..integration import test_utils  # Local import to avoid circular dependencies
-
-    return test_utils.get_relation_data(requirer_unit, "ceph", provider_unit, model_name)
+    return get_relation_data(requirer_unit, "ceph", provider_unit, model_name)
 
 
 def fetch_ceph_status(juju: jubilant.Juju, app: str) -> dict[str, Any]:
