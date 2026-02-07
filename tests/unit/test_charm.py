@@ -410,6 +410,84 @@ class TestCharm(testbase.TestBaseCharm):
             timeout=180,
         )
 
+    @patch("microceph.utils.snap_has_connection", return_value=True)
+    @patch("utils.subprocess")
+    @patch("ceph.check_output")
+    def test_add_osds_action_with_encrypt(self, _chk, subprocess, mock_has_conn):
+        """Test action add_osds with encrypt flag when dm-crypt is connected."""
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness._charm.peers.interface.state.joined = True
+
+        action_event = MagicMock()
+        action_event.params = {"device-id": "/dev/sdb", "encrypt": True}
+        self.harness.charm.storage._add_osd_action(action_event)
+
+        action_event.set_results.assert_called()
+        action_event.fail.assert_not_called()
+        subprocess.run.assert_any_call(
+            ["modinfo", "dm-crypt"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+        subprocess.run.assert_any_call(
+            ["microceph", "disk", "add", "/dev/sdb", "--encrypt"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+
+    @patch("microceph.utils.snap_has_connection", return_value=False)
+    @patch("utils.subprocess")
+    @patch("ceph.check_output")
+    def test_add_osds_action_with_encrypt_connects_dm_crypt(self, _chk, subprocess, mock_has_conn):
+        """Test action add_osds connects dm-crypt plug and restarts daemon when not connected."""
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness._charm.peers.interface.state.joined = True
+
+        action_event = MagicMock()
+        action_event.params = {"device-id": "/dev/sdb", "encrypt": True}
+        self.harness.charm.storage._add_osd_action(action_event)
+
+        action_event.set_results.assert_called()
+        action_event.fail.assert_not_called()
+        subprocess.run.assert_any_call(
+            ["snap", "connect", "microceph:dm-crypt"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+        subprocess.run.assert_any_call(
+            ["snap", "restart", "microceph.daemon"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+
+    @patch("utils.subprocess")
+    @patch("ceph.check_output")
+    def test_add_osds_action_encrypt_no_dm_crypt(self, _chk, subprocess):
+        """Test action add_osds fails when dm-crypt module is unavailable."""
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness._charm.peers.interface.state.joined = True
+
+        subprocess.CalledProcessError = CalledProcessError
+        subprocess.run.side_effect = CalledProcessError(
+            returncode=1,
+            cmd=["modinfo", "dm-crypt"],
+            stderr="modinfo: ERROR: Module dm-crypt not found.",
+        )
+
+        action_event = MagicMock()
+        action_event.params = {"device-id": "/dev/sdb", "encrypt": True}
+        self.harness.charm.storage._add_osd_action(action_event)
+
+        action_event.fail.assert_called()
+
     def test_add_osds_action_node_not_bootstrapped(self):
         """Test action add_osds when node not bootstrapped."""
         test_utils.add_complete_peer_relation(self.harness)

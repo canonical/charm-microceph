@@ -26,6 +26,11 @@ add-osd:
         Wipe the disk before adding it.
         Note: This will destroy all data on the disk.
       default: false
+    encrypt:
+      type: boolean
+      description: |
+        Encrypt the disk prior to use (only block devices)
+      default: false
   additionalProperties: false
 set-pool-size:
   description: |

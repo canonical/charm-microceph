@@ -155,12 +155,13 @@ class StorageHandler(Object):
 
         # fetch requested wipe flag.
         wipe = event.params.get("wipe", False)
+        encrypt = event.params.get("encrypt", False)
 
         error = False
         result = {"result": []}
         for spec in add_osd_specs:
             try:
-                microceph.add_osd_cmd(spec, wipe=wipe)
+                microceph.add_osd_cmd(spec, wipe=wipe, encrypt=encrypt)
                 result["result"].append({"spec": spec, "status": "success"})
             except (CalledProcessError, TimeoutExpired) as e:
                 err_msg = self._error_message(e)
