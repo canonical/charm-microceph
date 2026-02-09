@@ -171,10 +171,19 @@ class CephCSIProvidesHandler(RelationHandler):
         return {str(v).strip().lower() for v in items if str(v).strip()}
 
     def _get_workloads(self, relation) -> Set[str]:
-        remote_data = relation.data[relation.app]
-        workloads = remote_data.get("workloads")
-        parsed = self._parse_workloads(workloads)
-        return parsed or {"rbd"}
+        """Read workloads from the remote leader's unit data.
+
+        Unit data is used instead of app data to work around Juju bug
+        LP#1960934 where cross-model relations don't expose remote app data.
+        Only the leader unit on the requirer side writes workloads.
+        """
+        for unit in relation.units:
+            workloads = relation.data[unit].get("workloads")
+            if workloads:
+                parsed = self._parse_workloads(workloads)
+                if parsed:
+                    return parsed
+        return set()
 
     def _ensure_fs_volume(self, fs_name: str) -> None:
         for volume in ceph.list_fs_volumes():

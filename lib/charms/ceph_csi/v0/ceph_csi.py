@@ -147,12 +147,17 @@ class CephCSIRequires(Object):
         return self.framework.model.get_relation(self.relation_name)
 
     def request_workloads(self, workloads: Iterable[str]) -> None:
-        """Request workloads to be enabled for the client."""
+        """Request workloads to be enabled for the client.
+
+        Writes to the leader's unit data bag instead of the app data bag
+        to work around Juju bug LP#1960934 where cross-model relations
+        don't expose remote app data to the provider.
+        """
         if not self._relation or not self.model.unit.is_leader():
             return
 
         payload = json.dumps(list(workloads))
-        self._relation.data[self.model.app]["workloads"] = payload
+        self._relation.data[self.model.unit]["workloads"] = payload
 
     def get_relation_data(self) -> dict:
         """Get relation data for ceph-csi."""
