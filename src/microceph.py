@@ -350,7 +350,7 @@ def _setup_dm_crypt() -> None:
     try:
         utils.run_cmd(["modprobe", "dm_crypt"])
     except subprocess.CalledProcessError as e:
-        logger.error("Encryption requested but dm-crypt is not available on this system")
+        logger.error(f"Encryption requested but dm-crypt is not available on this system: {e}")
         raise
 
     if not utils.snap_has_connection("microceph.daemon", "dm-crypt"):
