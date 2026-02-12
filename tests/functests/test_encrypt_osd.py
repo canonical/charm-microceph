@@ -15,67 +15,66 @@
 """Functest for MicroCeph disk ops."""
 
 import logging
-from pathlib import Path
 
 import jubilant
 import pytest
 
 from tests import helpers
-from tests.helpers import lxd
+from tests.functests.conftest import APP_NAME
 
 logger = logging.getLogger(__name__)
 
-APP_NAME = "microceph"
+
+@pytest.mark.abort_on_fail
+def test_add_osd_encrypt(juju: jubilant.Juju, attached_lxd_volume: str):
+    """Verify add-osd action with encrypt=True on a disk."""
+    disk_path = attached_lxd_volume
+    unit_name = helpers.first_unit_name(juju.status(), APP_NAME)
+
+    logger.info("Running add-osd action with encrypt=true")
+    action = juju.run(unit_name, "add-osd", {"device-id": disk_path, "encrypt": True}, wait=1200)
+    action.raise_on_failure()
+
+    logger.info("Verifying OSD count")
+    helpers.assert_osd_count(juju, APP_NAME, expected_osds=1)
+
+    logger.info("Checking LUKS header on disk")
+    luks_dump = juju.ssh(unit_name, f"sudo cryptsetup luksDump {disk_path}")
+    assert "LUKS header information" in luks_dump
 
 
 @pytest.mark.abort_on_fail
-def test_add_osd_encrypt(juju: jubilant.Juju, microceph_charm: Path):
-    """Deploy MicroCeph and verify add-osd action with encrypt=True on a disk."""
-    logger.info("Deploying MicroCeph")
-    juju.deploy(
-        str(microceph_charm),
-        APP_NAME,
-        config={"snap-channel": "squid/edge"},
-        constraints={
-            "virt-type": "virtual-machine",
-            "root-disk": "16G",
-            "mem": "4G",
-        },
-    )
-
-    with helpers.fast_forward(juju):
-        helpers.wait_for_apps(juju, APP_NAME, timeout=3600)
-
+def test_add_osd_encrypt_no_dmcrypt(juju: jubilant.Juju, attached_lxd_volume: str):
+    """Verify add-osd encrypt fails gracefully when dm-crypt is unavailable."""
+    disk_path = attached_lxd_volume
     unit_name = helpers.first_unit_name(juju.status(), APP_NAME)
 
-    # Prepare lxd vol to add as bdev
-    inst_id = lxd.get_instance_id(juju, APP_NAME, unit_name)
-    logger.info(f"Instance ID: {inst_id}")
-
-    chosen_pool = lxd.get_lxd_storage_pool()
-    logger.info(f"Using LXD storage pool: {chosen_pool}")
-
-    model_name = juju.status().model.name
-    vol_name = f"encrypt-test-{model_name}"
+    # Move the dm_crypt module file so modprobe can't load it
+    juju.ssh(
+        unit_name,
+        "sudo bash -c '"
+        "mv /lib/modules/$(uname -r)/kernel/drivers/md/dm-crypt.ko.zst"
+        " /lib/modules/$(uname -r)/kernel/drivers/md/dm-crypt.ko.zst.bak"
+        " && depmod -a'",
+    )
 
     try:
-        lxd.create_and_attach_volume(chosen_pool, vol_name, inst_id)
+        # Unload the module if currently loaded
+        try:
+            juju.ssh(unit_name, "sudo", "modprobe", "-r", "dm_crypt")
+        except jubilant.CLIError:
+            pass
 
-        disk_path = lxd.wait_for_disk(juju, unit_name)
-        logger.info(f"Found disk at {disk_path}")
-
-        logger.info("Running add-osd action with encrypt=true")
-        action = juju.run(
-            unit_name, "add-osd", {"device-id": disk_path, "encrypt": True}, wait=1200
-        )
-        action.raise_on_failure()
-
-        logger.info("Verifying OSD count")
-        helpers.assert_osd_count(juju, APP_NAME, expected_osds=1)
-
-        logger.info("Formatting disk to make it dirty")
-        luks_dump = juju.ssh(unit_name, f"sudo cryptsetup luksDump {disk_path}")
-        assert "LUKS header information" in luks_dump
+        with pytest.raises(jubilant.TaskError, match="dm_crypt") as exc_info:
+            juju.run(unit_name, "add-osd", {"device-id": disk_path, "encrypt": True}, wait=120)
+        assert exc_info.value.task.status == "failed"
 
     finally:
-        lxd.cleanup_volume(chosen_pool, vol_name, inst_id)
+        # Restore the module file
+        juju.ssh(
+            unit_name,
+            "sudo bash -c '"
+            "mv /lib/modules/$(uname -r)/kernel/drivers/md/dm-crypt.ko.zst.bak"
+            " /lib/modules/$(uname -r)/kernel/drivers/md/dm-crypt.ko.zst"
+            " && depmod -a'",
+        )

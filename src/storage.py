@@ -163,7 +163,7 @@ class StorageHandler(Object):
             try:
                 microceph.add_osd_cmd(spec, wipe=wipe, encrypt=encrypt)
                 result["result"].append({"spec": spec, "status": "success"})
-            except (CalledProcessError, TimeoutExpired) as e:
+            except (CalledProcessError, TimeoutExpired, ValueError) as e:
                 err_msg = self._error_message(e)
                 logger.error("Failed add-osd for spec=%s wipe=%s: %s", spec, wipe, err_msg)
                 result["result"].append({"spec": spec, "status": "failure", "message": err_msg})

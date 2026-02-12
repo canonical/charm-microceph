@@ -334,13 +334,24 @@ def add_osd_cmd(
 def _setup_dm_crypt() -> None:
     """Ensure dm-crypt is available and the snap plug is connected."""
 
-    @tenacity.retry(wait=tenacity.wait_fixed(5), stop=tenacity.stop_after_attempt(12))
+    @tenacity.retry(
+        wait=tenacity.wait_fixed(5), stop=tenacity.stop_after_attempt(12), reraise=True
+    )
     def _wait_for_microceph_daemon():
         """Wait for the microceph daemon to be ready after restart."""
-        utils.run_cmd(["microceph", "disk", "list"])
-        utils.run_cmd(["snap", "run", "--shell", "microceph.daemon", "-c", "cryptsetup --version"])
+        utils.run_cmd(["microceph", "disk", "list"], timeout=30)
+        utils.run_cmd(
+            ["snap", "run", "--shell", "microceph.daemon", "-c", "cryptsetup --version"],
+            timeout=30,
+        )
 
-    utils.run_cmd(["modinfo", "dm-crypt"])  # Raise if dm-crypt unavail
+    # Try to load the module (noop if already loaded), required in case dm-crypt present
+    # but not enabled
+    try:
+        utils.run_cmd(["modprobe", "dm_crypt"])
+    except subprocess.CalledProcessError as e:
+        logger.error("Encryption requested but dm-crypt is not available on this system")
+        raise
 
     if not utils.snap_has_connection("microceph.daemon", "dm-crypt"):
         logger.info(

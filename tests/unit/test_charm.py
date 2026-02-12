@@ -425,7 +425,7 @@ class TestCharm(testbase.TestBaseCharm):
         action_event.set_results.assert_called()
         action_event.fail.assert_not_called()
         subprocess.run.assert_any_call(
-            ["modinfo", "dm-crypt"],
+            ["modprobe", "dm_crypt"],
             capture_output=True,
             text=True,
             check=True,
@@ -454,6 +454,13 @@ class TestCharm(testbase.TestBaseCharm):
         action_event.set_results.assert_called()
         action_event.fail.assert_not_called()
         subprocess.run.assert_any_call(
+            ["modprobe", "dm_crypt"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+        subprocess.run.assert_any_call(
             ["snap", "connect", "microceph:dm-crypt"],
             capture_output=True,
             text=True,
@@ -471,15 +478,13 @@ class TestCharm(testbase.TestBaseCharm):
     @patch("utils.subprocess")
     @patch("ceph.check_output")
     def test_add_osds_action_encrypt_no_dm_crypt(self, _chk, subprocess):
-        """Test action add_osds fails when dm-crypt module is unavailable."""
+        """Test action add_osds fails when dm-crypt is unavailable."""
         test_utils.add_complete_peer_relation(self.harness)
         self.harness._charm.peers.interface.state.joined = True
 
         subprocess.CalledProcessError = CalledProcessError
         subprocess.run.side_effect = CalledProcessError(
-            returncode=1,
-            cmd=["modinfo", "dm-crypt"],
-            stderr="modinfo: ERROR: Module dm-crypt not found.",
+            1, ["modprobe", "dm_crypt"], "", "modprobe: FATAL: Module dm_crypt not found"
         )
 
         action_event = MagicMock()
