@@ -63,10 +63,11 @@ def snap_has_connection(snap_name: str, plug_or_slot: str) -> bool:
     :param plug_or_slot: Plug or slot to check for connection
     """
     cmd = ["snap", "run", "--shell", snap_name, "-c", f"snapctl is-connected {plug_or_slot}"]
+    logger.debug("Checking snap connection: %s %s", snap_name, plug_or_slot)
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
         return True
-    if result.returncode == 1 and not result.stderr:
+    if result.returncode == 1 and not result.stderr.strip():
         return False
     logger.error(f"Failed executing cmd: {cmd}, error: {result.stderr}")
     raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)

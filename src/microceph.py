@@ -326,13 +326,16 @@ def add_osd_cmd(
     if wipe:
         cmd.append("--wipe")
     if encrypt:
+        logger.debug("Called with --encrypt flag")
         _setup_dm_crypt()
         cmd.append("--encrypt")
+
     utils.run_cmd(cmd)
 
 
 def _setup_dm_crypt() -> None:
     """Ensure dm-crypt is available and the snap plug is connected."""
+    logger.debug("Setting up dm-crypt for encryption")
 
     @tenacity.retry(
         wait=tenacity.wait_fixed(5), stop=tenacity.stop_after_attempt(12), reraise=True

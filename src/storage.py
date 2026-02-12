@@ -165,7 +165,13 @@ class StorageHandler(Object):
                 result["result"].append({"spec": spec, "status": "success"})
             except (CalledProcessError, TimeoutExpired, ValueError) as e:
                 err_msg = self._error_message(e)
-                logger.error("Failed add-osd for spec=%s wipe=%s: %s", spec, wipe, err_msg)
+                logger.error(
+                    "Failed add-osd for spec=%s wipe=%s encrypt=%s: %s",
+                    spec,
+                    wipe,
+                    encrypt,
+                    err_msg,
+                )
                 result["result"].append({"spec": spec, "status": "failure", "message": err_msg})
                 error = True
 
