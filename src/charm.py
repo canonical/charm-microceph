@@ -273,7 +273,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 "description": "Object Store service",
                 "internal_url": swift_url,
                 "public_url": swift_url,
-                "admin_url": f"{ingress_url}/swift",
+                "admin_url": f"{ingress_url}/swift/v1",
             },
             {
                 "service_name": "s3",
