@@ -22,6 +22,7 @@ import subprocess
 from socket import gethostname
 
 import requests
+import tenacity
 from charms.operator_libs_linux.v2 import snap
 
 import ceph
@@ -313,7 +314,9 @@ def microceph_has_service(service_name) -> bool:
 
 
 # Disk CMDs and Helpers
-def add_osd_cmd(spec: str, wal_dev: str = None, db_dev: str = None, wipe: bool = False) -> None:
+def add_osd_cmd(
+    spec: str, wal_dev: str = None, db_dev: str = None, wipe: bool = False, encrypt: bool = False
+) -> None:
     """Executes MicroCeph add osd cmd with provided spec."""
     cmd = ["microceph", "disk", "add", spec]
     if wal_dev:
@@ -322,7 +325,44 @@ def add_osd_cmd(spec: str, wal_dev: str = None, db_dev: str = None, wipe: bool =
         cmd.extend(["--db-device", db_dev, "--db-wipe"])
     if wipe:
         cmd.append("--wipe")
+    if encrypt:
+        logger.debug("Called with --encrypt flag")
+        _setup_dm_crypt()
+        cmd.append("--encrypt")
+
     utils.run_cmd(cmd)
+
+
+def _setup_dm_crypt() -> None:
+    """Ensure dm-crypt is available and the snap plug is connected."""
+    logger.debug("Setting up dm-crypt for encryption")
+
+    @tenacity.retry(
+        wait=tenacity.wait_fixed(5), stop=tenacity.stop_after_attempt(12), reraise=True
+    )
+    def _wait_for_microceph_daemon():
+        """Wait for the microceph daemon to be ready after restart."""
+        utils.run_cmd(["microceph", "disk", "list"], timeout=30)
+        utils.run_cmd(
+            ["snap", "run", "--shell", "microceph.daemon", "-c", "cryptsetup --version"],
+            timeout=30,
+        )
+
+    # Try to load the module (noop if already loaded), required in case dm-crypt present
+    # but not enabled
+    try:
+        utils.run_cmd(["modprobe", "dm_crypt"])
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Encryption requested but dm-crypt is not available on this system: {e}")
+        raise
+
+    if not utils.snap_has_connection("microceph.daemon", "dm-crypt"):
+        logger.info(
+            "dm-crypt was not connected to microceph, connecting and restarting microceph."
+        )
+        utils.run_cmd(["snap", "connect", "microceph:dm-crypt"])
+        utils.run_cmd(["snap", "restart", "microceph.daemon"])
+        _wait_for_microceph_daemon()
 
 
 def add_batch_osds(disks: list) -> None:

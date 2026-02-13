@@ -155,16 +155,23 @@ class StorageHandler(Object):
 
         # fetch requested wipe flag.
         wipe = event.params.get("wipe", False)
+        encrypt = event.params.get("encrypt", False)
 
         error = False
         result = {"result": []}
         for spec in add_osd_specs:
             try:
-                microceph.add_osd_cmd(spec, wipe=wipe)
+                microceph.add_osd_cmd(spec, wipe=wipe, encrypt=encrypt)
                 result["result"].append({"spec": spec, "status": "success"})
-            except (CalledProcessError, TimeoutExpired) as e:
+            except (CalledProcessError, TimeoutExpired, ValueError) as e:
                 err_msg = self._error_message(e)
-                logger.error("Failed add-osd for spec=%s wipe=%s: %s", spec, wipe, err_msg)
+                logger.error(
+                    "Failed add-osd for spec=%s wipe=%s encrypt=%s: %s",
+                    spec,
+                    wipe,
+                    encrypt,
+                    err_msg,
+                )
                 result["result"].append({"spec": spec, "status": "failure", "message": err_msg})
                 error = True
 

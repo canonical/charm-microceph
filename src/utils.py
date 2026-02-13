@@ -56,6 +56,23 @@ def run_cmd_with_input(cmd: list, input_data: str) -> str:
         raise e
 
 
+def snap_has_connection(snap_name: str, plug_or_slot: str) -> bool:
+    """Check if a snap has a specific connection.
+
+    :param snap_name: Snap to check connection for
+    :param plug_or_slot: Plug or slot to check for connection
+    """
+    cmd = ["snap", "run", "--shell", snap_name, "-c", f"snapctl is-connected {plug_or_slot}"]
+    logger.debug("Checking snap connection: %s %s", snap_name, plug_or_slot)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1 and not result.stderr.strip():
+        return False
+    logger.error(f"Failed executing cmd: {cmd}, error: {result.stderr}")
+    raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+
+
 def get_mon_addresses():
     """Get the Ceph mon addresses."""
     client = Client.from_socket()
