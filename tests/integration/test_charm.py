@@ -36,11 +36,16 @@ LOOP_OSD_SPEC = "1G,3"
 def deployed_apps(juju: jubilant.Juju, microceph_charm: Path, cephclient_charm: Path):
     """Deploy MicroCeph and the cephclient tester charm."""
     logger.info("Deploying charms: %s and %s", APP_NAME, CEPHCLIENT_APP)
-    juju.deploy(str(microceph_charm), APP_NAME)
+    helpers.deploy_microceph(
+        juju,
+        microceph_charm,
+        APP_NAME,
+        loop_osd_spec=LOOP_OSD_SPEC,
+        timeout=1000,
+    )
     juju.deploy(str(cephclient_charm), CEPHCLIENT_APP)
     with helpers.fast_forward(juju):
         helpers.wait_for_apps(juju, APP_NAME, CEPHCLIENT_APP, timeout=1000)
-    helpers.ensure_loop_osd(juju, APP_NAME, LOOP_OSD_SPEC)
     return (APP_NAME, CEPHCLIENT_APP)
 
 
