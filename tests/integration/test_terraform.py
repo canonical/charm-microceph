@@ -25,6 +25,19 @@ APP_NAME = "microceph"
 LOOP_OSD_SPEC = "1G,3"
 LOOP_OSDS_PER_UNIT = int(LOOP_OSD_SPEC.split(",")[1])
 DEFAULT_TIMEOUT = 7200
+ROOT_DISK_CONSTRAINT = "root-disk=32G"
+
+
+@pytest.fixture(scope="module")
+def juju_vm_constraints() -> tuple[str, ...]:
+    """Override VM constraints for Terraform integration tests."""
+    return ("virt-type=virtual-machine", "mem=4G", ROOT_DISK_CONSTRAINT)
+
+
+@pytest.fixture(scope="module")
+def juju(juju_vm: jubilant.Juju) -> jubilant.Juju:
+    """Alias VM-backed Juju model fixture for this module."""
+    return juju_vm
 
 
 def _terraform_env(juju: jubilant.Juju) -> dict[str, str]:
@@ -209,6 +222,11 @@ class TerraformController:
             # Adding loop osds on new units
             helpers.ensure_loop_osd(self._juju, APP_NAME, LOOP_OSD_SPEC, new_units)
         helpers.wait_for_apps(self._juju, APP_NAME, timeout=DEFAULT_TIMEOUT)
+
+        # Pools like .mgr may miss application metadata in some environments,
+        # which leads to persistent HEALTH_WARN and stalls the test.
+        helpers.enable_missing_pool_apps(self._juju, APP_NAME)
+
         self._known_units = current_units
         return helpers.wait_for_ceph_health_ok(self._juju, APP_NAME, timeout=DEFAULT_TIMEOUT)
 
