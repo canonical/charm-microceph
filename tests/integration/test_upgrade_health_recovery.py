@@ -14,7 +14,6 @@
 
 """Integration test for issue #182 update-status recovery."""
 
-import json
 import logging
 import time
 from pathlib import Path
