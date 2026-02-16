@@ -36,7 +36,7 @@ import requests
 from charms.ceph_mon.v0 import ceph_cos_agent
 from charms.operator_libs_linux.v2 import snap
 from ops.main import main
-from ops.model import ActiveStatus
+from ops.model import ActiveStatus, BlockedStatus
 
 import ceph
 import cluster
@@ -133,9 +133,15 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def _on_update_status(self, event: ops.framework.EventBase) -> None:
         """Update status event handler."""
+        snap_chan = self.model.config.get("snap-channel")
+        # Cleanup can run on all units, including units that are no longer leader.
+        self._clear_resolved_upgrade_blocked_status(snap_chan)
+
         if not self.unit.is_leader():
             logger.debug(f"Unit {self.unit.name} is not leader, skipping rgw readiness update")
             return
+
+        self._reconcile_pending_upgrade(snap_chan)
 
         if not self.ready_for_service():
             logger.debug("Microceph not ready for service, skipping rgw readiness update")
@@ -146,6 +152,38 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             return
 
         self.ceph_rgw.set_readiness_on_related_units()
+
+    def _reconcile_pending_upgrade(self, snap_chan: str) -> None:
+        """Retry pending upgrade checks on leader when an upgrade is still pending."""
+        if not self.cluster_upgrades.upgrade_requested(snap_chan):
+            return
+
+        if not self.ready_for_service():
+            logger.debug(
+                "Microceph not ready for service, skipping pending upgrade reconciliation"
+            )
+            return
+
+        with sunbeam_guard.guard(self, "Checking pending charm upgrades"):
+            self.handle_config_leader_charm_upgrade()
+
+        self._clear_resolved_upgrade_blocked_status(snap_chan)
+
+    def _clear_resolved_upgrade_blocked_status(self, snap_chan: str) -> None:
+        """Clear stale blocked status once a health-gated upgrade has recovered."""
+        status = self.status.status
+        if not isinstance(status, BlockedStatus):
+            return
+
+        if not status.message.startswith(cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX):
+            return
+
+        if self.cluster_upgrades.upgrade_requested(snap_chan):
+            logger.debug("Upgrade still pending, keeping blocked health status")
+            return
+
+        logger.info("Clearing stale blocked status from resolved Ceph health warning")
+        self.status.set(ActiveStatus(""))
 
     def _on_peer_relation_created(self, event: ops.framework.EventBase) -> None:
         logging.debug(f"Peer relation created: {event}")

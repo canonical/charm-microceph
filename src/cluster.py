@@ -34,6 +34,7 @@ import utils
 from ceph import CephHealth, CephStatus
 
 logger = logging.getLogger(__name__)
+UPGRADE_HEALTH_BLOCKED_MSG_PREFIX = "Cannot upgrade, ceph health not ok"
 
 
 class ClusterNodes(ops.framework.Object):
@@ -142,7 +143,7 @@ class ClusterUpgrades(ops.framework.Object):
             return False, msg
         health, det = CephStatus().ceph_health()
         if health != CephHealth.Ok:
-            msg = f"Cannot upgrade, ceph health not ok: {health}, {det}"
+            msg = f"{UPGRADE_HEALTH_BLOCKED_MSG_PREFIX}: {health}, {det}"
             logger.warning(msg)
             return False, msg
         return True, ""
