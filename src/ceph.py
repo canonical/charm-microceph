@@ -190,6 +190,29 @@ def ceph_auth_get(key_name):
         pass
 
 
+def _update_auth_caps(name: str, caps: Capabilities) -> None:
+    """Update capabilities for an existing cephx key.
+
+    :param name: Client name (e.g., "client.csi-kubernetes")
+    :param caps: dict of cephx capabilities
+    """
+    cmd = [
+        "microceph.ceph",
+        "--name",
+        "mon.",
+        "--keyring",
+        f"{VAR_LIB_CEPH}/mon/ceph-{socket.gethostname()}/keyring",
+        "auth",
+        "caps",
+        name,
+    ]
+    for subsystem, subcaps in caps.items():
+        cmd.extend([subsystem, "; ".join(subcaps)])
+
+    log("Updating caps for {}: {}".format(name, cmd), level=DEBUG)
+    check_output(cmd)
+
+
 def get_named_key(name, caps=None, pool_list=None):
     """Retrieve a specific named cephx key.
 
@@ -198,12 +221,14 @@ def get_named_key(name, caps=None, pool_list=None):
     :param caps: dict of cephx capabilities
     :returns: Returns a cephx key
     """
+    caps = caps or _default_caps
     key = ceph_auth_get(name)
     if key:
+        # Key exists - update caps to ensure they match desired state
+        _update_auth_caps(name, caps)
         return key
 
     log("Creating new key for {}".format(name), level=DEBUG)
-    caps = caps or _default_caps
     cmd = [
         "microceph.ceph",
         "--name",
