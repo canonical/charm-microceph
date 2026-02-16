@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Mapping
 from urllib import request
 
 import jubilant
@@ -84,6 +84,30 @@ def wait_for_apps(
         error=jubilant.any_error,
         timeout=timeout,
     )
+
+
+def deploy_microceph(
+    juju: jubilant.Juju,
+    charm_path: Path | str,
+    app: str,
+    *,
+    config: Mapping[str, Any] | None = None,
+    loop_osd_spec: str | None = None,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> str:
+    """Deploy a MicroCeph app and optionally enroll loop-backed OSDs."""
+    if config:
+        juju.deploy(str(charm_path), app, config=dict(config))
+    else:
+        juju.deploy(str(charm_path), app)
+
+    with fast_forward(juju):
+        wait_for_apps(juju, app, timeout=timeout)
+
+    if loop_osd_spec:
+        ensure_loop_osd(juju, app, loop_osd_spec)
+
+    return app
 
 
 def wait_for_status(
