@@ -3,6 +3,7 @@
 import contextlib
 import functools
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -19,6 +20,8 @@ from tenacity import retry, stop_after_delay, wait_fixed
 CEPHTOOLS_URL = "https://github.com/canonical/cephtools/releases/download/latest/cephtools"
 CEPHTOOLS_PATH = Path("/usr/local/bin/cephtools")
 DEFAULT_TIMEOUT = 1200
+
+logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=1)
@@ -265,6 +268,65 @@ def wait_for_ceph_health_ok(
             return last_status
         time.sleep(15)
     raise AssertionError(f"Ceph health did not reach HEALTH_OK; last status: {last_status}")
+
+
+def _guess_pool_application(pool_name: str) -> str:
+    """Guess a sensible ceph pool application for a pool name."""
+    normalized = pool_name.lstrip(".").lower()
+    if normalized == "mgr":
+        return "mgr"
+    if "rgw" in normalized:
+        return "rgw"
+    if "cephfs" in normalized or "mds" in normalized:
+        return "cephfs"
+    return "rbd"
+
+
+def enable_missing_pool_apps(
+    juju: jubilant.Juju,
+    app: str,
+    *,
+    unit_name: str | None = None,
+) -> None:
+    """Enable pool application metadata for pools that do not have one."""
+    if unit_name is None:
+        unit_name = first_unit_name(juju.status(), app)
+
+    output = juju.ssh(
+        unit_name,
+        "sudo",
+        "ceph",
+        "osd",
+        "pool",
+        "ls",
+        "detail",
+        "--format",
+        "json",
+    )
+    pools = json.loads(output)
+
+    for pool in pools:
+        pool_name = pool.get("pool_name")
+        if not pool_name:
+            continue
+
+        app_metadata = pool.get("application_metadata") or {}
+        if app_metadata:
+            continue
+
+        app_name = _guess_pool_application(pool_name)
+        logger.info("Enabling app %s on ceph pool %s", app_name, pool_name)
+        juju.ssh(
+            unit_name,
+            "sudo",
+            "ceph",
+            "osd",
+            "pool",
+            "application",
+            "enable",
+            pool_name,
+            app_name,
+        )
 
 
 def exercise_rgw(juju: jubilant.Juju, unit_name: str, filename: str = "test") -> None:

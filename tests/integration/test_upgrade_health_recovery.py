@@ -14,7 +14,6 @@
 
 """Integration test for issue #182 update-status recovery."""
 
-import json
 import logging
 import time
 from pathlib import Path
@@ -59,7 +58,7 @@ def deployed_microceph(juju: jubilant.Juju, microceph_charm: Path) -> str:
     _wait_for_ceph_status_available(juju, APP_NAME, timeout=DEFAULT_TIMEOUT)
 
     unit_name = helpers.first_unit_name(juju.status(), APP_NAME)
-    _enable_missing_pool_apps(juju, unit_name)
+    helpers.enable_missing_pool_apps(juju, APP_NAME, unit_name=unit_name)
     helpers.wait_for_ceph_health_ok(juju, APP_NAME, timeout=DEFAULT_TIMEOUT)
     return APP_NAME
 
@@ -93,47 +92,6 @@ def _wait_for_ceph_status_available(
             time.sleep(10)
 
     raise AssertionError("Timed out waiting for ceph status output")
-
-
-def _guess_pool_application(pool_name: str) -> str:
-    """Guess a sensible ceph pool application for test bootstrap pools."""
-    normalized = pool_name.lstrip(".").lower()
-    if normalized == "mgr":
-        return "mgr"
-    if "rgw" in normalized:
-        return "rgw"
-    if "cephfs" in normalized or "mds" in normalized:
-        return "cephfs"
-    return "rbd"
-
-
-def _enable_missing_pool_apps(juju: jubilant.Juju, unit_name: str) -> None:
-    """Enable application metadata for pools that don't have one."""
-    output = juju.ssh(unit_name, "sudo", "ceph", "osd", "pool", "ls", "detail", "--format", "json")
-    pools = json.loads(output)
-
-    for pool in pools:
-        pool_name = pool.get("pool_name")
-        if not pool_name:
-            continue
-
-        app_metadata = pool.get("application_metadata") or {}
-        if app_metadata:
-            continue
-
-        app = _guess_pool_application(pool_name)
-        logger.info("Enabling app %s on ceph pool %s", app, pool_name)
-        juju.ssh(
-            unit_name,
-            "sudo",
-            "ceph",
-            "osd",
-            "pool",
-            "application",
-            "enable",
-            pool_name,
-            app,
-        )
 
 
 def _noout_flag_present(status: dict) -> bool:

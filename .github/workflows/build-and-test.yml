@@ -114,7 +114,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: microceph_juju_functional_test_logs
+          name: microceph_juju_integration_test_logs
           path: logs
           retention-days: 30
 
