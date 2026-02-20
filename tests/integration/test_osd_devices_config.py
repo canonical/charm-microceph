@@ -77,32 +77,16 @@ def _clear_osd_config_and_wait(juju_vm: jubilant.Juju, timeout: int = 300) -> No
 
 
 @pytest.fixture(scope="module")
-def juju_vm(request: pytest.FixtureRequest) -> Iterator[jubilant.Juju]:
-    """Provide a temporary Juju model with VM constraints for OSD testing."""
-    keep_models = bool(request.config.getoption("--keep-models"))
-    with jubilant.temp_model(keep=keep_models) as juju:
-        juju.wait_timeout = 60 * 60  # 1 hour for VM deployments
-        # Set model constraints for VMs
-        juju.cli("set-model-constraints", "virt-type=virtual-machine", "mem=4G", "root-disk=16G")
-        yield juju
-        if request.session.testsfailed:
-            log = juju.debug_log(limit=1000)
-            if log:
-                print(log, end="")
-
-
-@pytest.fixture(scope="module")
 def deployed_microceph(juju_vm: jubilant.Juju, microceph_charm: Path):
     """Deploy MicroCeph in a VM for config testing."""
     logger.info("Deploying MicroCeph (VM)")
-    juju_vm.deploy(
-        str(microceph_charm),
+    helpers.deploy_microceph(
+        juju_vm,
+        microceph_charm,
         APP_NAME,
         config={"snap-channel": "latest/edge"},
+        timeout=3600,
     )
-
-    _wait_for_active(juju_vm, timeout=3600)
-
     return APP_NAME
 
 
