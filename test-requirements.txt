@@ -1,13 +1,8 @@
-# This file is managed centrally by release-tools and should not be modified
-# within individual charm repos.  See the 'global' dir contents for available
-# choices of *requirements.txt files for OpenStack Charms:
-#     https://github.com/openstack-charmers/release-tools
-#
-
 coverage
 mock
 flake8
-stestr
+pytest
+jubilant~=1.0
 ops<3.4
 pydantic>=2.12,<2.13 
 cosl==0.0.55
