@@ -34,10 +34,12 @@ from ceph import (
     WARNING,
     ErasurePool,
     ReplicatedPool,
+    create_fs_volume,
     delete_pool,
     erasure_profile_exists,
     get_osd_weight,
     get_osds,
+    list_fs_volumes,
     log,
     monitor_key_get,
     monitor_key_set,
@@ -837,6 +839,38 @@ def handle_put_osd_in_bucket(request, service):
         return {"exit-code": 1, "stderr": msg}
 
 
+def _ensure_cephfs_for_client(permissions, service):
+    """Auto-create a default CephFS if the client requests MDS caps and none exists."""
+    # Check if permissions include MDS capabilities
+    has_mds = False
+    for perm in permissions:
+        if perm == "mds":
+            has_mds = True
+            break
+    if not has_mds:
+        return
+
+    # Check if the default 'cephfs' volume already exists
+    try:
+        fs_volumes = list_fs_volumes()
+        for vol in fs_volumes:
+            if vol.get("name") == "cephfs":
+                return
+    except Exception:
+        log("Failed to list CephFS volumes", level=WARNING)
+        return
+
+    # Create default CephFS volume (auto-creates pools and assigns MDS)
+    log(
+        "Client requested MDS caps but no 'cephfs' volume exists. Creating it now.",
+        level=INFO,
+    )
+    try:
+        create_fs_volume("cephfs")
+    except Exception as e:
+        log("Failed to auto-create CephFS volume: {}".format(e), level=ERROR)
+
+
 def handle_set_key_permissions(request, service):
     """Ensure the key has the requested permissions."""
     permissions = request.get("permissions")
@@ -853,6 +887,9 @@ def handle_set_key_permissions(request, service):
         check_call(call)
     except CalledProcessError as e:
         log("Error updating key capabilities: {}".format(e), level=ERROR)
+
+    # Auto-create CephFS if client requests MDS capabilities
+    _ensure_cephfs_for_client(permissions, service)
 
 
 def handle_add_permissions_to_key(request, service):

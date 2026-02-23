@@ -189,6 +189,91 @@ class TestBroker(test_utils.CharmTestCase):
         rv = broker.handle_put_osd_in_bucket(req, "admin")
         self.assertIsNone(rv)
 
+    @patch.object(broker, "create_fs_volume")
+    @patch.object(broker, "list_fs_volumes")
+    @patch.object(broker, "check_call")
+    def test_set_key_permissions_creates_cephfs(
+        self, check_call, list_fs_volumes, create_fs_volume
+    ):
+        """When MDS caps present and no 'cephfs' volume exists, create it."""
+        list_fs_volumes.return_value = []
+        req = {
+            "client": "ceph-csi",
+            "permissions": [
+                "mon",
+                "allow r",
+                "osd",
+                "allow rw",
+                "mds",
+                "allow rw",
+            ],
+        }
+        broker.handle_set_key_permissions(req, "admin")
+        check_call.assert_called_once()
+        list_fs_volumes.assert_called_once()
+        create_fs_volume.assert_called_once_with("cephfs")
+
+    @patch.object(broker, "create_fs_volume")
+    @patch.object(broker, "list_fs_volumes")
+    @patch.object(broker, "check_call")
+    def test_set_key_permissions_creates_cephfs_other_volumes_exist(
+        self, check_call, list_fs_volumes, create_fs_volume
+    ):
+        """When other CephFS volumes exist but not 'cephfs', still create it."""
+        list_fs_volumes.return_value = [{"name": "other-fs"}]
+        req = {
+            "client": "ceph-csi",
+            "permissions": [
+                "mon",
+                "allow r",
+                "mds",
+                "allow rw",
+            ],
+        }
+        broker.handle_set_key_permissions(req, "admin")
+        create_fs_volume.assert_called_once_with("cephfs")
+
+    @patch.object(broker, "create_fs_volume")
+    @patch.object(broker, "list_fs_volumes")
+    @patch.object(broker, "check_call")
+    def test_set_key_permissions_skips_cephfs_if_exists(
+        self, check_call, list_fs_volumes, create_fs_volume
+    ):
+        """When 'cephfs' volume already exists, skip creation."""
+        list_fs_volumes.return_value = [{"name": "cephfs"}]
+        req = {
+            "client": "ceph-csi",
+            "permissions": [
+                "mon",
+                "allow r",
+                "mds",
+                "allow rw",
+            ],
+        }
+        broker.handle_set_key_permissions(req, "admin")
+        check_call.assert_called_once()
+        list_fs_volumes.assert_called_once()
+        create_fs_volume.assert_not_called()
+
+    @patch.object(broker, "create_fs_volume")
+    @patch.object(broker, "list_fs_volumes")
+    @patch.object(broker, "check_call")
+    def test_set_key_permissions_no_mds_caps(self, check_call, list_fs_volumes, create_fs_volume):
+        """When no MDS caps in permissions, skip CephFS check entirely."""
+        req = {
+            "client": "ceph-csi",
+            "permissions": [
+                "mon",
+                "allow r",
+                "osd",
+                "allow rw",
+            ],
+        }
+        broker.handle_set_key_permissions(req, "admin")
+        check_call.assert_called_once()
+        list_fs_volumes.assert_not_called()
+        create_fs_volume.assert_not_called()
+
     @patch("ceph.check_call")
     @patch("ceph.check_output")
     def test_broker_misc(self, check_output, check_call):
