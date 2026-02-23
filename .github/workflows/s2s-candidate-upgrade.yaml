@@ -1,0 +1,121 @@
+name: Upgrade a s/stable charm to s/candidate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  s2s-candidate-upgrade:
+    name: Test squid/stable to squid/candidate charm upgrade
+    runs-on: self-hosted-linux-amd64-noble-xlarge
+    timeout-minutes: 150
+    env:
+      STABLE_CHANNEL: squid/stable
+      CANDIDATE_CHANNEL: squid/candidate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.1
+        with:
+          channel: 5.21/stable
+
+      - name: Install dependencies
+        run: ./tests/scripts/ci_helpers.sh install_deps
+
+      - name: Deploy MicroCeph charm from stable
+        run: |
+          set -eux
+          juju deploy microceph --channel "${STABLE_CHANNEL}" --config default-pool-size=1
+          ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
+          juju status
+
+      - name: Add OSDs
+        run: |
+          set -eux
+          for i in 0 1 2; do
+            juju run microceph/$i add-osd loop-spec=4G,1 --wait=2m
+          done
+          juju wait-for application microceph \
+            --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' \
+            --timeout=20m
+          juju ssh microceph/0 -- sudo microceph.ceph -s
+          juju ssh microceph/0 -- sudo microceph.ceph health | grep HEALTH_OK
+
+      - name: Enable RGW
+        run: |
+          set -eux
+          juju config microceph enable-rgw="*"
+          for i in $(seq 1 20); do
+            if juju ssh microceph/0 -- "sudo microceph.ceph -s | grep -q 'rgw:'"; then
+              echo "RGW enabled"
+              break
+            fi
+            sleep 15
+          done
+          juju ssh microceph/0 -- sudo microceph.ceph -s
+
+      - name: Exercise RGW before upgrade
+        run: |
+          set -eux
+          juju ssh microceph/0 -- bash -s <<'EOF'
+          set -euo pipefail
+          sudo apt-get -qq -y install s3cmd || true
+          if ! sudo microceph.radosgw-admin user list | grep -q test; then
+            sudo microceph.radosgw-admin user create --uid=test --display-name=test
+            sudo microceph.radosgw-admin key create --uid=test --key-type=s3 \
+              --access-key fooAccessKey --secret-key fooSecretKey
+          fi
+          tmpfile=$(mktemp /tmp/rgw-object.XXXXXX)
+          echo hello-radosgw > "$tmpfile"
+          s3_args=(--host localhost --host-bucket="localhost/%(bucket)" \
+            --access_key=fooAccessKey --secret_key=fooSecretKey --no-ssl)
+          s3cmd "${s3_args[@]}" mb s3://testbucket || true
+          s3cmd "${s3_args[@]}" put -P "$tmpfile" s3://testbucket/pre-upgrade.txt
+          curl -s http://localhost/testbucket/pre-upgrade.txt | grep -F hello-radosgw
+          EOF
+
+      - name: Upgrade charm to candidate
+        run: |
+          set -eux
+          juju refresh microceph --channel "${CANDIDATE_CHANNEL}"
+          juju wait-for application microceph \
+            --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' \
+            --timeout=40m
+          juju status
+
+      - name: Exercise RGW after upgrade
+        run: |
+          set -eux
+          juju ssh microceph/0 -- bash -s <<'EOF'
+          set -euo pipefail
+          sudo apt-get -qq -y install s3cmd || true
+          if ! sudo microceph.radosgw-admin user list | grep -q test; then
+            sudo microceph.radosgw-admin user create --uid=test --display-name=test
+            sudo microceph.radosgw-admin key create --uid=test --key-type=s3 \
+              --access-key fooAccessKey --secret-key fooSecretKey
+          fi
+          tmpfile=$(mktemp /tmp/rgw-object.XXXXXX)
+          echo hello-radosgw > "$tmpfile"
+          s3_args=(--host localhost --host-bucket="localhost/%(bucket)" \
+            --access_key=fooAccessKey --secret_key=fooSecretKey --no-ssl)
+          s3cmd "${s3_args[@]}" mb s3://testbucket || true
+          s3cmd "${s3_args[@]}" put -P "$tmpfile" s3://testbucket/post-upgrade.txt
+          curl -s http://localhost/testbucket/post-upgrade.txt | grep -F hello-radosgw
+          EOF
+
+      - name: Collect logs
+        if: failure()
+        run: ./tests/scripts/ci_helpers.sh collect_microceph_logs
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: microceph_charm_s2s_upgrade_logs
+          path: logs
+          retention-days: 30
+
+      - name: Setup tmate session
+        if: ${{ failure() && runner.debug }}
+        uses: canonical/action-tmate@main
