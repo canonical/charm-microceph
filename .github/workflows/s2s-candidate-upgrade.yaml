@@ -26,7 +26,7 @@ jobs:
       - name: Deploy MicroCeph charm from stable
         run: |
           set -eux
-          juju deploy microceph --channel "${STABLE_CHANNEL}" --config default-pool-size=1
+          juju deploy -n 3 microceph --channel "${STABLE_CHANNEL}" --config default-pool-size=1
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           juju status
 
@@ -53,6 +53,11 @@ jobs:
             fi
             sleep 15
           done
+          if ! juju ssh microceph/0 -- "sudo microceph.ceph -s | grep -q 'rgw:'"; then
+            echo "RGW did not become ready"
+            juju ssh microceph/0 -- sudo microceph.ceph -s
+            exit 1
+          fi
           juju ssh microceph/0 -- sudo microceph.ceph -s
 
       - name: Exercise RGW before upgrade
@@ -83,6 +88,8 @@ jobs:
             --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' \
             --timeout=40m
           juju status
+          juju ssh microceph/0 -- sudo microceph.ceph -s
+          juju ssh microceph/0 -- sudo microceph.ceph health | grep HEALTH_OK
 
       - name: Exercise RGW after upgrade
         run: |
@@ -101,6 +108,7 @@ jobs:
             --access_key=fooAccessKey --secret_key=fooSecretKey --no-ssl)
           s3cmd "${s3_args[@]}" mb s3://testbucket || true
           s3cmd "${s3_args[@]}" put -P "$tmpfile" s3://testbucket/post-upgrade.txt
+          curl -s http://localhost/testbucket/pre-upgrade.txt | grep -F hello-radosgw
           curl -s http://localhost/testbucket/post-upgrade.txt | grep -F hello-radosgw
           EOF
 
