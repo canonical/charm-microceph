@@ -75,6 +75,40 @@ class TestUpdateStatusUpgradeReconcile(testbase.TestBaseCharm):
 
         self.assertIsInstance(self.harness.charm.status.status, ActiveStatus)
 
+    def test_update_status_does_not_clear_unrelated_blocked_status(self):
+        self.harness.set_leader(False)
+        self.harness.charm.status.set(BlockedStatus("waiting for something else"))
+
+        with patch.object(
+            self.harness.charm.cluster_upgrades,
+            "upgrade_requested",
+        ) as mock_upgrade_requested:
+            self.harness.charm.on.update_status.emit()
+
+        status = self.harness.charm.status.status
+        self.assertIsInstance(status, BlockedStatus)
+        self.assertEqual(status.message, "waiting for something else")
+        mock_upgrade_requested.assert_not_called()
+
+    def test_update_status_does_not_clear_upgrade_health_blocked_when_upgrade_pending(self):
+        self.harness.set_leader(False)
+        self.harness.charm.status.set(
+            BlockedStatus(f"{charm.cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX}: HEALTH_WARN")
+        )
+
+        snap_chan = self.harness.charm.model.config.get("snap-channel")
+        with patch.object(
+            self.harness.charm.cluster_upgrades,
+            "upgrade_requested",
+            return_value=True,
+        ) as mock_upgrade_requested:
+            self.harness.charm.on.update_status.emit()
+
+        status = self.harness.charm.status.status
+        self.assertIsInstance(status, BlockedStatus)
+        self.assertIn(charm.cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX, status.message)
+        mock_upgrade_requested.assert_called_once_with(snap_chan)
+
     def test_update_status_non_leader_clears_stale_upgrade_health_blocked(self):
         self.harness.set_leader(False)
         self.harness.charm.status.set(
