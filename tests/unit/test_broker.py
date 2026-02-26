@@ -274,6 +274,74 @@ class TestBroker(test_utils.CharmTestCase):
         list_fs_volumes.assert_not_called()
         create_fs_volume.assert_not_called()
 
+    @patch.object(broker, "create_fs_volume")
+    @patch.object(broker, "list_fs_volumes")
+    @patch.object(broker, "check_call")
+    def test_set_key_permissions_list_fs_volumes_fails(
+        self, check_call, list_fs_volumes, create_fs_volume
+    ):
+        """When list_fs_volumes raises, log warning and skip creation."""
+        list_fs_volumes.side_effect = Exception("ceph command failed")
+        req = {
+            "client": "ceph-csi",
+            "permissions": [
+                "mon",
+                "allow r",
+                "mds",
+                "allow rw",
+            ],
+        }
+        broker.handle_set_key_permissions(req, "admin")
+        check_call.assert_called_once()
+        list_fs_volumes.assert_called_once()
+        create_fs_volume.assert_not_called()
+
+    @patch.object(broker, "create_fs_volume")
+    @patch.object(broker, "list_fs_volumes")
+    @patch.object(broker, "check_call")
+    def test_set_key_permissions_create_fs_volume_fails(
+        self, check_call, list_fs_volumes, create_fs_volume
+    ):
+        """When create_fs_volume raises, log error and continue."""
+        list_fs_volumes.return_value = []
+        create_fs_volume.side_effect = Exception("ceph fs volume create failed")
+        req = {
+            "client": "ceph-csi",
+            "permissions": [
+                "mon",
+                "allow r",
+                "mds",
+                "allow rw",
+            ],
+        }
+        # Should not raise
+        broker.handle_set_key_permissions(req, "admin")
+        check_call.assert_called_once()
+        list_fs_volumes.assert_called_once()
+        create_fs_volume.assert_called_once_with(broker.DEFAULT_CEPHFS_NAME)
+
+    @patch.object(broker, "create_fs_volume")
+    @patch.object(broker, "list_fs_volumes")
+    @patch.object(broker, "check_call")
+    def test_set_key_permissions_check_call_fails(
+        self, check_call, list_fs_volumes, create_fs_volume
+    ):
+        """When check_call fails, do not attempt CephFS creation."""
+        check_call.side_effect = broker.CalledProcessError(1, "ceph auth caps")
+        req = {
+            "client": "ceph-csi",
+            "permissions": [
+                "mon",
+                "allow r",
+                "mds",
+                "allow rw",
+            ],
+        }
+        broker.handle_set_key_permissions(req, "admin")
+        check_call.assert_called_once()
+        list_fs_volumes.assert_not_called()
+        create_fs_volume.assert_not_called()
+
     @patch("ceph.check_call")
     @patch("ceph.check_output")
     def test_broker_misc(self, check_output, check_call):

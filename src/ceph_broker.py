@@ -49,6 +49,8 @@ from ceph import (
     snapshot_pool,
 )
 
+DEFAULT_CEPHFS_NAME = "cephfs"
+
 
 def decode_req_encode_rsp(f):
     """Decorator to decode incoming requests and encode responses."""
@@ -839,22 +841,18 @@ def handle_put_osd_in_bucket(request, service):
         return {"exit-code": 1, "stderr": msg}
 
 
-def _ensure_cephfs_for_client(permissions, service):
+def _ensure_cephfs_for_client(permissions):
     """Auto-create a default CephFS if the client requests MDS caps and none exists."""
-    # Check if permissions include MDS capabilities
-    has_mds = False
-    for perm in permissions:
-        if perm == "mds":
-            has_mds = True
-            break
-    if not has_mds:
+    if "mds" not in permissions:
+        log("No MDS capabilities requested, skipping CephFS check", level=DEBUG)
         return
 
-    # Check if the default 'cephfs' volume already exists
+    # Check if the default CephFS volume already exists
     try:
         fs_volumes = list_fs_volumes()
         for vol in fs_volumes:
-            if vol.get("name") == "cephfs":
+            if vol.get("name") == DEFAULT_CEPHFS_NAME:
+                log("CephFS volume '{}' already exists".format(DEFAULT_CEPHFS_NAME), level=DEBUG)
                 return
     except Exception:
         log("Failed to list CephFS volumes", level=WARNING)
@@ -862,11 +860,14 @@ def _ensure_cephfs_for_client(permissions, service):
 
     # Create default CephFS volume (auto-creates pools and assigns MDS)
     log(
-        "Client requested MDS caps but no 'cephfs' volume exists. Creating it now.",
+        "Client requested MDS caps but no '{}' volume exists. Creating it now.".format(
+            DEFAULT_CEPHFS_NAME
+        ),
         level=INFO,
     )
     try:
-        create_fs_volume("cephfs")
+        create_fs_volume(DEFAULT_CEPHFS_NAME)
+        log("Successfully created CephFS volume '{}'".format(DEFAULT_CEPHFS_NAME), level=DEBUG)
     except Exception as e:
         log("Failed to auto-create CephFS volume: {}".format(e), level=ERROR)
 
@@ -887,9 +888,10 @@ def handle_set_key_permissions(request, service):
         check_call(call)
     except CalledProcessError as e:
         log("Error updating key capabilities: {}".format(e), level=ERROR)
+        return
 
     # Auto-create CephFS if client requests MDS capabilities
-    _ensure_cephfs_for_client(permissions, service)
+    _ensure_cephfs_for_client(permissions)
 
 
 def handle_add_permissions_to_key(request, service):
