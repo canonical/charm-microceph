@@ -327,7 +327,7 @@ jobs:
       - name: Install MicroCeph charm
         run: |
           date
-          juju deploy -n 3 ~/artifacts/microceph.charm
+          juju deploy -n 4 ~/artifacts/microceph.charm
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           date
 
@@ -340,23 +340,23 @@ jobs:
         run: |
           set -eux
 
-          for i in 0 1 2 ; do
+          for i in 0 1 2 3 ; do
             juju run microceph/$i add-osd loop-spec=4G,1 --wait=2m
           done
 
-          # wait for the cluster to report 3 osds are up and in.
-          N=3
+          # wait for the cluster to report 4 osds are up and in.
+          N=4
           for i in {0..100}; do
               if juju ssh microceph/0 -- "sudo microceph.ceph osd stat | grep -E '$N osds: $N up .* $N in .*'" ; then
-                echo "Cluster now report the 3 osds are up and in."
+                echo "Cluster now report the 4 osds are up and in."
                 exit 0
               else
-                echo "Waiting for the cluster to report the 3 osds to be up and in..."
+                echo "Waiting for the cluster to report the 4 osds to be up and in..."
               fi
               sleep 1
           done
 
-          echo "Did not reach 3 osds up and in state"
+          echo "Did not reach 4 osds up and in state"
           exit 1
 
       - name: Show Ceph status
@@ -395,26 +395,26 @@ jobs:
 
           echo "Test running enter-maintenance action."
 
-          result=$(juju run microceph/2 enter-maintenance stop-osds=true --format json)
+          result=$(juju run microceph/3 enter-maintenance stop-osds=true --format json)
           echo $result
 
-          status=$(echo $result | jq '."microceph/2".results.status' -r )
+          status=$(echo $result | jq '."microceph/3".results.status' -r )
           if [ "$status" != "success" ] ; then
             echo "Expect enter-maintenance to succeed."
             exit 1
           fi
 
-          if ! $(juju ssh microceph/2 -- sudo microceph.ceph osd dump | grep noout > /dev/null 2>&1) ; then
+          if ! $(juju ssh microceph/3 -- sudo microceph.ceph osd dump | grep noout > /dev/null 2>&1) ; then
             echo "Expect osd noout is set"
             exit 1
           fi
 
-          if ! $(juju ssh microceph/2 -- snap services microceph.osd | grep inactive > /dev/null 2>&1) ; then
+          if ! $(juju ssh microceph/3 -- snap services microceph.osd | grep inactive > /dev/null 2>&1) ; then
             echo "Expect osd service is inactive"
             exit 1
           fi
 
-          if ! $(juju ssh microceph/2 -- snap services microceph.osd | grep disabled > /dev/null 2>&1) ; then
+          if ! $(juju ssh microceph/3 -- snap services microceph.osd | grep disabled > /dev/null 2>&1) ; then
             echo "Expect osd service is disabled"
             exit 1
           fi
@@ -425,26 +425,26 @@ jobs:
 
           echo "Test running exit-maintenance action."
 
-          result=$(juju run microceph/2 exit-maintenance --format json)
+          result=$(juju run microceph/3 exit-maintenance --format json)
           echo $result
 
-          status=$(echo $result | jq '."microceph/2".results.status' -r )
+          status=$(echo $result | jq '."microceph/3".results.status' -r )
           if [ "$status" != "success" ] ; then
             echo "Expect exit-maintenance to succeed."
             exit 1
           fi
 
-          if $(juju ssh microceph/2 -- sudo microceph.ceph osd dump | grep noout > /dev/null 2>&1) ; then
+          if $(juju ssh microceph/3 -- sudo microceph.ceph osd dump | grep noout > /dev/null 2>&1) ; then
             echo "Expect osd noout is unset"
             exit 1
           fi
 
-          if ! $(juju ssh microceph/2 -- snap services microceph.osd | grep active > /dev/null 2>&1) ; then
+          if ! $(juju ssh microceph/3 -- snap services microceph.osd | grep active > /dev/null 2>&1) ; then
             echo "Expect osd service is active"
             exit 1
           fi
 
-          if ! $(juju ssh microceph/2 -- snap services microceph.osd | grep enabled > /dev/null 2>&1) ; then
+          if ! $(juju ssh microceph/3 -- snap services microceph.osd | grep enabled > /dev/null 2>&1) ; then
             echo "Expect osd service is enabled"
             exit 1
           fi
@@ -453,7 +453,7 @@ jobs:
         run: |
           set -eux
 
-          # reduce to only 2 active mons in a 3 node cluster
+          # reduce to only 2 active mons in a 4 node cluster (mons auto-scale to 3 units: 0, 1, 2)
           juju ssh microceph/2 -- sudo snap stop microceph.mon --disable
 
           # wait for the cluster to report mon quorum warning
@@ -467,7 +467,7 @@ jobs:
               sleep 1
           done
 
-          echo "Did not reach cluster warning state when there is only 2 out of 3 active mons"
+          echo "Did not reach cluster warning state when there are only 2 out of 3 active mons"
           exit 1
 
       - name: Test enter maintenance mode fail
@@ -481,8 +481,8 @@ jobs:
 
           has_errors=$(echo $result | jq '."microceph/1".results.errors != ""')
           if [ "$has_errors" != "true" ] ; then
-            echo "Expect enter-maintenance to fail with error message because there is only 2 out of 3 active mons for a 3 node cluster,"
-            echo "and stopping 1 more mon in this cluster will cause loss of quorum."
+            echo "Expect enter-maintenance to fail because there are only 2 out of 3 active mons,"
+            echo "and entering maintenance on another mon-hosting node will drop active mons below quorum majority."
             exit 1
           fi
 
