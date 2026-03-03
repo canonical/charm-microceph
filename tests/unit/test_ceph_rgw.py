@@ -28,9 +28,11 @@ def test_ceph_rgw_connected_ready(_ceph_check_output, _get_osd_count, ctx):
     service_status = {"rgw": {"9999": {}}}
     with patch(
         "utils.run_cmd",
-        side_effect=lambda cmd: json.dumps(service_status)
-        if cmd == ["sudo", "microceph.ceph", "service", "status"]
-        else MagicMock(),
+        side_effect=lambda cmd: (
+            json.dumps(service_status)
+            if cmd == ["sudo", "microceph.ceph", "service", "status"]
+            else MagicMock()
+        ),
     ):
         rgw_rel = testing.Relation(
             ceph_rgw.CEPH_RGW_READY_RELATION,
@@ -50,14 +52,18 @@ def test_ceph_rgw_connected_ready(_ceph_check_output, _get_osd_count, ctx):
     assert rel_out.local_app_data.get("ready") == "true"
 
 
-@pytest.mark.xfail(reason="Scenario multi-step readiness transition differs from harness behavior", strict=False)
+@pytest.mark.xfail(
+    reason="Scenario multi-step readiness transition differs from harness behavior", strict=False
+)
 def test_set_readiness_on_related_units(ctx):
     svc_status = {}
     with patch(
         "utils.run_cmd",
-        side_effect=lambda cmd: json.dumps(svc_status)
-        if cmd == ["sudo", "microceph.ceph", "service", "status"]
-        else MagicMock(),
+        side_effect=lambda cmd: (
+            json.dumps(svc_status)
+            if cmd == ["sudo", "microceph.ceph", "service", "status"]
+            else MagicMock()
+        ),
     ) as run_cmd, patch("ceph.get_osd_count") as get_osd_count, patch("ceph.check_output"):
         rgw_rel = testing.Relation(
             ceph_rgw.CEPH_RGW_READY_RELATION,

@@ -27,7 +27,9 @@ from tests.unit.conftest import default_network
 
 def test_update_status_retries_pending_upgrade(ctx):
     state = testing.State(leader=True, networks=[default_network()])
-    with patch.object(charm.cluster.ClusterUpgrades, "upgrade_requested", return_value=True), patch.object(
+    with patch.object(
+        charm.cluster.ClusterUpgrades, "upgrade_requested", return_value=True
+    ), patch.object(
         charm.MicroCephCharm, "handle_config_leader_charm_upgrade"
     ) as mock_upgrade, patch.object(
         charm.MicroCephCharm,
@@ -38,19 +40,25 @@ def test_update_status_retries_pending_upgrade(ctx):
     mock_upgrade.assert_called_once()
 
 
-@pytest.mark.xfail(reason="Scenario bootstrap status precedence differs from harness", strict=False)
+@pytest.mark.xfail(
+    reason="Scenario bootstrap status precedence differs from harness", strict=False
+)
 def test_update_status_clears_stale_upgrade_health_blocked(ctx):
     state = testing.State(
         leader=True,
         unit_status=BlockedStatus(f"{cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX}: HEALTH_WARN"),
         networks=[default_network()],
     )
-    with patch.object(charm.cluster.ClusterUpgrades, "upgrade_requested", side_effect=[False, False]):
+    with patch.object(
+        charm.cluster.ClusterUpgrades, "upgrade_requested", side_effect=[False, False]
+    ):
         state_out = ctx.run(ctx.on.update_status(), state)
     assert isinstance(state_out.unit_status, ActiveStatus)
 
 
-@pytest.mark.xfail(reason="Scenario bootstrap status precedence differs from harness", strict=False)
+@pytest.mark.xfail(
+    reason="Scenario bootstrap status precedence differs from harness", strict=False
+)
 def test_update_status_does_not_clear_unrelated_blocked_status(ctx):
     state = testing.State(
         leader=False,
@@ -63,7 +71,9 @@ def test_update_status_does_not_clear_unrelated_blocked_status(ctx):
     mock_requested.assert_not_called()
 
 
-@pytest.mark.xfail(reason="Scenario bootstrap status precedence differs from harness", strict=False)
+@pytest.mark.xfail(
+    reason="Scenario bootstrap status precedence differs from harness", strict=False
+)
 def test_update_status_does_not_clear_upgrade_health_blocked_when_upgrade_pending(ctx):
     snap_chan = "1.0/stable"
     state = testing.State(
@@ -72,22 +82,26 @@ def test_update_status_does_not_clear_upgrade_health_blocked_when_upgrade_pendin
         unit_status=BlockedStatus(f"{cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX}: HEALTH_WARN"),
         networks=[default_network()],
     )
-    with patch.object(charm.cluster.ClusterUpgrades, "upgrade_requested", return_value=True) as mock_requested:
+    with patch.object(
+        charm.cluster.ClusterUpgrades, "upgrade_requested", return_value=True
+    ) as mock_requested:
         state_out = ctx.run(ctx.on.update_status(), state)
     assert cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX in state_out.unit_status.message
     mock_requested.assert_called_once_with(snap_chan)
 
 
-@pytest.mark.xfail(reason="Scenario bootstrap status precedence differs from harness", strict=False)
+@pytest.mark.xfail(
+    reason="Scenario bootstrap status precedence differs from harness", strict=False
+)
 def test_update_status_non_leader_clears_stale_upgrade_health_blocked(ctx):
     state = testing.State(
         leader=False,
         unit_status=BlockedStatus(f"{cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX}: HEALTH_WARN"),
         networks=[default_network()],
     )
-    with patch.object(charm.cluster.ClusterUpgrades, "upgrade_requested", return_value=False), patch.object(
-        charm.MicroCephCharm, "handle_config_leader_charm_upgrade"
-    ) as mock_handler:
+    with patch.object(
+        charm.cluster.ClusterUpgrades, "upgrade_requested", return_value=False
+    ), patch.object(charm.MicroCephCharm, "handle_config_leader_charm_upgrade") as mock_handler:
         state_out = ctx.run(ctx.on.update_status(), state)
     assert isinstance(state_out.unit_status, ActiveStatus)
     mock_handler.assert_not_called()

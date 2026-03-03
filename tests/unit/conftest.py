@@ -4,6 +4,7 @@ import pytest
 from ops import testing
 
 import charm
+
 from .testbase import DUMMY_CA_CERT
 
 

@@ -22,7 +22,6 @@ from ops import testing
 
 from tests.unit.conftest import default_network, peer_relation
 
-
 pytestmark = pytest.mark.xfail(
     reason="Scenario runtime aborts this handler path during migration from Harness",
     strict=False,
@@ -76,7 +75,9 @@ def test_unchanged_config_skips_snap_call(add_osd_match_cmd, ctx):
 
 
 def test_empty_osd_devices_resets_config_cache(ctx):
-    with ctx(ctx.on.update_status(), _state(config={"osd-devices": "", "device-add-flags": "wipe:osd"})) as mgr:
+    with ctx(
+        ctx.on.update_status(), _state(config={"osd-devices": "", "device-add-flags": "wipe:osd"})
+    ) as mgr:
         mgr.charm.storage._stored.last_osd_devices = "eq(@type,'nvme')"
         mgr.charm.storage._stored.last_wipe_osd = True
         mgr.charm.storage._stored.last_encrypt_osd = True
@@ -99,7 +100,9 @@ def test_success_calls_add_osd_match(add_osd_match_cmd, ctx):
         _state(config={"osd-devices": "eq(@type,'nvme')"}, relations=[peer_relation()]),
         ready=True,
     )
-    add_osd_match_cmd.assert_called_once_with(osd_match="eq(@type,'nvme')", wipe=False, encrypt=False)
+    add_osd_match_cmd.assert_called_once_with(
+        osd_match="eq(@type,'nvme')", wipe=False, encrypt=False
+    )
     event.defer.assert_not_called()
 
 
@@ -113,7 +116,9 @@ def test_success_with_wipe_flag(add_osd_match_cmd, ctx):
         ),
         ready=True,
     )
-    add_osd_match_cmd.assert_called_once_with(osd_match="eq(@type,'nvme')", wipe=True, encrypt=False)
+    add_osd_match_cmd.assert_called_once_with(
+        osd_match="eq(@type,'nvme')", wipe=True, encrypt=False
+    )
 
 
 @patch("microceph.add_osd_match_cmd")
@@ -126,7 +131,9 @@ def test_success_with_encrypt_flag(add_osd_match_cmd, ctx):
         ),
         ready=True,
     )
-    add_osd_match_cmd.assert_called_once_with(osd_match="eq(@type,'nvme')", wipe=False, encrypt=True)
+    add_osd_match_cmd.assert_called_once_with(
+        osd_match="eq(@type,'nvme')", wipe=False, encrypt=True
+    )
 
 
 @patch("microceph.add_osd_match_cmd")
@@ -139,7 +146,9 @@ def test_success_with_all_flags(add_osd_match_cmd, ctx):
         ),
         ready=True,
     )
-    add_osd_match_cmd.assert_called_once_with(osd_match="eq(@type,'nvme')", wipe=True, encrypt=True)
+    add_osd_match_cmd.assert_called_once_with(
+        osd_match="eq(@type,'nvme')", wipe=True, encrypt=True
+    )
 
 
 @patch("microceph.add_osd_match_cmd")
@@ -149,7 +158,9 @@ def test_strips_whitespace_from_dsl(add_osd_match_cmd, ctx):
         _state(config={"osd-devices": "  eq(@type,'nvme')  "}, relations=[peer_relation()]),
         ready=True,
     )
-    add_osd_match_cmd.assert_called_once_with(osd_match="eq(@type,'nvme')", wipe=False, encrypt=False)
+    add_osd_match_cmd.assert_called_once_with(
+        osd_match="eq(@type,'nvme')", wipe=False, encrypt=False
+    )
 
 
 @patch("microceph.add_osd_match_cmd")

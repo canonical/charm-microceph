@@ -127,7 +127,10 @@ def test_all_relations_with_enable_rgw_config(
         mgr.charm.peers.interface.state.joined = True
         mgr.run()
     assert subprocess.run.called
-    assert cclient.from_socket().cluster.update_config.called or not cclient.from_socket().cluster.update_config.called
+    assert (
+        cclient.from_socket().cluster.update_config.called
+        or not cclient.from_socket().cluster.update_config.called
+    )
 
 
 @patch.object(ceph_cos_agent, "ceph_utils")
@@ -150,14 +153,23 @@ def test_all_relations_with_enable_rgw_config_and_namespace_projects(
             "enable-rgw": "*",
             "namespace-projects": True,
         },
-        relations=[p_rel, id_rel, ingress_relation(), cert_transfer_relation(), ceph_nfs_relation()],
+        relations=[
+            p_rel,
+            id_rel,
+            ingress_relation(),
+            cert_transfer_relation(),
+            ceph_nfs_relation(),
+        ],
         secrets=[id_sec],
     )
     with ctx(ctx.on.config_changed(), state) as mgr:
         mgr.charm.peers.interface.state.joined = True
         mgr.run()
     assert subprocess.run.called
-    assert cclient.from_socket().cluster.update_config.called or not cclient.from_socket().cluster.update_config.called
+    assert (
+        cclient.from_socket().cluster.update_config.called
+        or not cclient.from_socket().cluster.update_config.called
+    )
 
 
 @patch.object(ceph_cos_agent, "ceph_utils")
@@ -262,7 +274,9 @@ def test_add_osds_action_with_loop_spec(_chk, subprocess, ctx):
 def test_add_osds_action_with_wipe(_chk, subprocess, ctx):
     p_rel = peer_relation()
     state = _base_state(relations=[p_rel])
-    with ctx(ctx.on.action("add-osd", params={"device-id": "/dev/sdb", "wipe": True}), state) as mgr:
+    with ctx(
+        ctx.on.action("add-osd", params={"device-id": "/dev/sdb", "wipe": True}), state
+    ) as mgr:
         mgr.charm.peers.interface.state.joined = True
         mgr.run()
     subprocess.run.assert_called_with(
@@ -280,7 +294,9 @@ def test_add_osds_action_with_wipe(_chk, subprocess, ctx):
 def test_add_osds_action_with_encrypt(_chk, subprocess, mock_has_conn, ctx):
     p_rel = peer_relation()
     state = _base_state(relations=[p_rel])
-    with ctx(ctx.on.action("add-osd", params={"device-id": "/dev/sdb", "encrypt": True}), state) as mgr:
+    with ctx(
+        ctx.on.action("add-osd", params={"device-id": "/dev/sdb", "encrypt": True}), state
+    ) as mgr:
         mgr.charm.peers.interface.state.joined = True
         mgr.run()
     subprocess.run.assert_any_call(
@@ -305,7 +321,9 @@ def test_add_osds_action_with_encrypt(_chk, subprocess, mock_has_conn, ctx):
 def test_add_osds_action_with_encrypt_connects_dm_crypt(_chk, subprocess, mock_has_conn, ctx):
     p_rel = peer_relation()
     state = _base_state(relations=[p_rel])
-    with ctx(ctx.on.action("add-osd", params={"device-id": "/dev/sdb", "encrypt": True}), state) as mgr:
+    with ctx(
+        ctx.on.action("add-osd", params={"device-id": "/dev/sdb", "encrypt": True}), state
+    ) as mgr:
         mgr.charm.peers.interface.state.joined = True
         mgr.run()
     subprocess.run.assert_any_call(
@@ -336,7 +354,9 @@ def test_add_osds_action_encrypt_no_dm_crypt(_chk, subprocess, ctx):
     )
     p_rel = peer_relation()
     state = _base_state(relations=[p_rel])
-    with ctx(ctx.on.action("add-osd", params={"device-id": "/dev/sdb", "encrypt": True}), state) as mgr:
+    with ctx(
+        ctx.on.action("add-osd", params={"device-id": "/dev/sdb", "encrypt": True}), state
+    ) as mgr:
         mgr.charm.peers.interface.state.joined = True
         mgr.run()
 
@@ -681,14 +701,16 @@ def test_exit_maintenance_action_success(cclient, ctx):
 
 @patch("charm.microceph_client.Client")
 def test_exit_maintenance_action_failure(cclient, ctx):
-    cclient.from_socket().cluster.exit_maintenance_mode.side_effect = MaintenanceOperationFailedException(
-        "some errors",
-        {
-            "metadata": [
-                {"name": "A-ops", "error": "some error", "action": "description of A-ops"},
-                {"name": "B-ops", "error": "some error", "action": "description of B-ops"},
-            ]
-        },
+    cclient.from_socket().cluster.exit_maintenance_mode.side_effect = (
+        MaintenanceOperationFailedException(
+            "some errors",
+            {
+                "metadata": [
+                    {"name": "A-ops", "error": "some error", "action": "description of A-ops"},
+                    {"name": "B-ops", "error": "some error", "action": "description of B-ops"},
+                ]
+            },
+        )
     )
     state = _base_state()
     with pytest.raises(testing.ActionFailed):
@@ -721,7 +743,9 @@ def test_exit_maintenance_action_mutually_exclusive(cclient, ctx):
 def test_cos_integration(
     ceph_utils, _sub, enable_mgr_module, mock_refresh_cb, is_ready, ctx, real_cos_agent_init
 ):
-    cos_rel = testing.Relation("cos-agent", remote_app_name="grafana-agent", remote_units_data={0: {}})
+    cos_rel = testing.Relation(
+        "cos-agent", remote_app_name="grafana-agent", remote_units_data={0: {}}
+    )
     p_rel = peer_relation()
     state = _base_state(
         config={"rbd-stats-pools": "abcd", "enable-perf-metrics": True}, relations=[cos_rel]
@@ -749,7 +773,9 @@ def test_cos_integration(
 @patch("ceph.disable_mgr_module")
 @patch("utils.subprocess")
 @patch.object(ceph_cos_agent, "ceph_utils")
-@pytest.mark.xfail(reason="COS departed callback wiring is not scenario-stable with current lib", strict=False)
+@pytest.mark.xfail(
+    reason="COS departed callback wiring is not scenario-stable with current lib", strict=False
+)
 def test_cos_agent_relation_departed_leader(
     ceph_utils,
     _sub,
@@ -760,7 +786,9 @@ def test_cos_agent_relation_departed_leader(
     ctx,
     real_cos_agent_init,
 ):
-    cos_rel = testing.Relation("cos-agent", remote_app_name="grafana-agent", remote_units_data={0: {}})
+    cos_rel = testing.Relation(
+        "cos-agent", remote_app_name="grafana-agent", remote_units_data={0: {}}
+    )
     p_rel = peer_relation()
     state = _base_state(relations=[p_rel, cos_rel])
     with ctx(ctx.on.relation_changed(cos_rel, remote_unit=0), state) as mgr:
@@ -780,7 +808,9 @@ def test_cos_agent_relation_departed_leader(
 @patch("ceph.disable_mgr_module")
 @patch("utils.subprocess")
 @patch.object(ceph_cos_agent, "ceph_utils")
-@pytest.mark.xfail(reason="COS departed callback wiring is not scenario-stable with current lib", strict=False)
+@pytest.mark.xfail(
+    reason="COS departed callback wiring is not scenario-stable with current lib", strict=False
+)
 def test_cos_agent_relation_departed_non_leader(
     ceph_utils,
     _sub,
@@ -791,7 +821,9 @@ def test_cos_agent_relation_departed_non_leader(
     ctx,
     real_cos_agent_init,
 ):
-    cos_rel = testing.Relation("cos-agent", remote_app_name="grafana-agent", remote_units_data={0: {}})
+    cos_rel = testing.Relation(
+        "cos-agent", remote_app_name="grafana-agent", remote_units_data={0: {}}
+    )
     p_rel = peer_relation()
     state = testing.State(leader=False, relations=[p_rel, cos_rel], networks=[default_network()])
     with ctx(ctx.on.relation_departed(cos_rel, remote_unit=0), state) as mgr:

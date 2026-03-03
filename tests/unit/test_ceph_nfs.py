@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 from contextlib import ExitStack
 from unittest.mock import MagicMock, call, patch
 
@@ -94,7 +93,9 @@ def _state(relations, leader=True):
     return testing.State(leader=leader, relations=relations, networks=[default_network()])
 
 
-@pytest.mark.xfail(reason="Scenario status transitions differ from harness for initial NFS relation", strict=False)
+@pytest.mark.xfail(
+    reason="Scenario status transitions differ from harness for initial NFS relation", strict=False
+)
 def test_ceph_nfs_connected_not_emitted(nfs_mocks, ctx):
     nfs_mocks["get_osd_count"].return_value = 0
     nfs_rel = ceph_nfs_relation()
@@ -112,7 +113,9 @@ def test_ceph_nfs_connected_not_emitted(nfs_mocks, ctx):
     assert nfs_mocks["get_osd_count"].call_count == 1
 
 
-@pytest.mark.xfail(reason="Scenario ceph-nfs servicability flow differs from harness sequencing", strict=False)
+@pytest.mark.xfail(
+    reason="Scenario ceph-nfs servicability flow differs from harness sequencing", strict=False
+)
 def test_ceph_nfs_servicability(nfs_mocks, ctx):
     nfs_rel = ceph_nfs_relation()
 
@@ -208,7 +211,9 @@ def test_relation_data_clear(nfs_mocks, ctx):
     assert rel_out2.local_app_data == {}
 
 
-@pytest.mark.xfail(reason="Scenario deferred event ordering differs for peer data propagation", strict=False)
+@pytest.mark.xfail(
+    reason="Scenario deferred event ordering differs for peer data propagation", strict=False
+)
 def test_peers_updated_rel_data(nfs_mocks, ctx):
     nfs_mocks["get_mon_addresses"].return_value = []
     nfs_rel = ceph_nfs_relation()
@@ -250,7 +255,10 @@ def test_relation_no_longer_servicable(nfs_mocks, ctx):
     assert state_out2.get_relation(nfs_rel.id).local_app_data == {}
 
 
-@pytest.mark.xfail(reason="Scenario departed/rebalance behavior differs from harness in this conversion", strict=False)
+@pytest.mark.xfail(
+    reason="Scenario departed/rebalance behavior differs from harness in this conversion",
+    strict=False,
+)
 def test_remove_relation_rebalance(nfs_mocks, ctx):
     peer_rel = make_peer_rel([1, 2, 3])
     ceph_rel = ceph_nfs_relation("manila-cephfs")
