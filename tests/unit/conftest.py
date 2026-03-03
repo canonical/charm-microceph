@@ -8,12 +8,21 @@ from .testbase import DUMMY_CA_CERT
 
 
 @pytest.fixture(autouse=True)
-def cos_agent_patched():
+def cos_agent_patched(request):
+    if "real_cos_agent_init" in request.fixturenames:
+        yield
+        return
+
     with patch(
         "charms.ceph_mon.v0.ceph_cos_agent.CephCOSAgentProvider.__init__",
         return_value=None,
     ):
         yield
+
+
+@pytest.fixture
+def real_cos_agent_init():
+    return True
 
 
 @pytest.fixture
@@ -67,10 +76,12 @@ def identity_relation(secret_id: str) -> testing.Relation:
 
 
 def identity_secret(relation_id: int) -> testing.Secret:
+    creds = {"username": "svcuser1", "password": "svcpass1"}
     return testing.Secret(
         id="secret:keystone-creds",
-        contents={0: {"username": "svcuser1", "password": "svcpass1"}},
-        owner="keystone",
+        tracked_content=creds,
+        latest_content=creds,
+        owner="app",
         remote_grants={relation_id: {"microceph/0"}},
     )
 
