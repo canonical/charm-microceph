@@ -386,7 +386,7 @@ function juju_crashdump() {
         sudo snap install --classic juju-crashdump
     fi
     juju-crashdump \
-      -m $model \
+      -m "$model" \
       -o logs \
       -a juju-show-unit \
       -a juju-show-unit \
@@ -397,39 +397,180 @@ function juju_crashdump() {
       /var/snap/microceph/
 }
 
-function collect_microceph_logs() {
-    mkdir -p logs
-    local model=${1:-microceph-test}
-    # Replace slash with - in model name if any
-    local model_=${model/\//-}
-    juju status -m $model -o logs/$model_.yaml
-    juju debug-log -m $model --replay &> logs/$model_-debug-log.txt || echo "Not able to get logs for model $model"
-    juju ssh microceph/leader sudo microceph status &> logs/microceph-status.txt || true
-    juju ssh microceph/leader sudo microceph.ceph status &> logs/ceph-status.txt || true
-    cat logs/$model_.yaml
-    cat logs/microceph-status.txt
-    juju_crashdump $model
+function sanitize_model_name() {
+    local model="${1?missing}"
+    local model_="${model//\//-}"
+    echo "${model_//:/-}"
 }
 
+function model_has_microceph_app() {
+    local model="${1?missing}"
+    juju status -m "$model" --format json | jq -e '.applications.microceph != null' > /dev/null 2>&1
+}
+
+function resolve_target_models() {
+    local explicit_model="${1:-}"
+    local discovered_models
+    local model
+    local models=()
+
+    if [[ -n "$explicit_model" ]]; then
+      printf "%s\n" "$explicit_model"
+      return
+    fi
+
+    if discovered_models=$(juju models --format json | jq -r '.models[].name'); then
+      while read -r model; do
+        [[ -z "$model" ]] && continue
+        case "$model" in
+          controller|*/controller)
+            continue
+            ;;
+        esac
+        models+=("$model")
+      done <<< "$discovered_models"
+    else
+      echo "Unable to discover models via 'juju models'; falling back to microceph-test" >&2
+      models=("microceph-test")
+    fi
+
+    if [[ ${#models[@]} -eq 0 ]]; then
+      echo "No non-controller models found; falling back to microceph-test" >&2
+      models=("microceph-test")
+    fi
+
+    printf "%s\n" "${models[@]}"
+}
+
+function collect_juju_logs_for_model() {
+    local model="${1?missing}"
+    local model_
+    model_=$(sanitize_model_name "$model")
+
+    echo "Collecting logs for model: $model"
+    juju status -m "$model" -o "logs/${model_}.yaml" || {
+      echo "Not able to get status for model $model"
+      return 1
+    }
+    cat "logs/${model_}.yaml"
+
+    juju debug-log -m "$model" --replay --no-tail --limit 5000 &> "logs/${model_}-debug-log.txt" \
+      || echo "Not able to get debug logs for model $model"
+}
+
+function collect_microceph_specific_logs_for_model() {
+    local model="${1?missing}"
+    local model_
+    model_=$(sanitize_model_name "$model")
+
+    if ! model_has_microceph_app "$model"; then
+      echo "Model $model has no microceph app; skipping microceph-specific collection"
+      return 1
+    fi
+
+    juju ssh -m "$model" microceph/leader sudo microceph status &> "logs/${model_}-microceph-status.txt" || true
+    juju ssh -m "$model" microceph/leader sudo microceph.ceph status &> "logs/${model_}-ceph-status.txt" || true
+
+    juju_crashdump "$model" || echo "Not able to collect crashdump for model $model"
+}
+
+function collect_microceph_logs_for_model() {
+    local model="${1?missing}"
+    local model_
+    model_=$(sanitize_model_name "$model")
+
+    collect_juju_logs_for_model "$model" || return 0
+
+    if collect_microceph_specific_logs_for_model "$model"; then
+      cat "logs/${model_}-microceph-status.txt"
+    fi
+}
+
+# Collect Juju/MicroCeph diagnostics.
+#
+# Usage:
+#   collect_microceph_logs <model>
+#     - collect only from the explicitly provided model.
+#   collect_microceph_logs
+#     - auto-discover all non-controller models on the current controller and
+#       collect diagnostics from each.
+function collect_microceph_logs() {
+    mkdir -p logs
+    local explicit_model="${1:-}"
+    local model
+    local models=()
+
+    if [[ -n "$explicit_model" ]]; then
+      collect_microceph_logs_for_model "$explicit_model"
+      return
+    fi
+
+    mapfile -t models < <(resolve_target_models)
+    printf "%s\n" "${models[@]}" > logs/models-collected.txt
+
+    for model in "${models[@]}"; do
+      collect_microceph_logs_for_model "$model"
+    done
+}
+
+function collect_k8s_pod_logs_for_model() {
+    local model="${1?missing}"
+    local kubectl="${2:-microk8s.kubectl}"
+    local model_ name pods pod
+
+    model_=$(sanitize_model_name "$model")
+    name="${model##*/}"
+
+    if command -v "$kubectl" > /dev/null 2>&1; then
+      if sudo "$kubectl" get namespace "$name" > /dev/null 2>&1; then
+        pods=$(sudo "$kubectl" get pods -n "$name" -o=jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+        for pod in $pods; do
+          sudo "$kubectl" logs --ignore-errors -n "$name" --all-containers "$pod" \
+            &> "logs/${model_}-${pod}.log" || echo "Not able to get log for pod $pod"
+        done
+      else
+        echo "Namespace $name not found; skipping pod log collection"
+      fi
+    else
+      echo "$kubectl command not found; skipping pod log collection"
+    fi
+}
+
+# Collect Sunbeam + MicroCeph diagnostics.
+#
+# Usage:
+#   collect_sunbeam_and_microceph_logs <model>
+#     - collect only from the explicitly provided model.
+#   collect_sunbeam_and_microceph_logs
+#     - auto-discover all non-controller models on the current controller and
+#       collect diagnostics from each.
+#
+# Notes:
+#   - Kubernetes pod logs are collected from a namespace matching the Juju model
+#     name (suffix after '/'), if that namespace exists.
+#   - MicroCeph-specific commands and crashdump are only run when a microceph
+#     application exists in the model.
 function collect_sunbeam_and_microceph_logs() {
     mkdir -p logs
-    kubectl="microk8s.kubectl"
-    cp -rf $HOME/snap/openstack/common/logs/*.log logs/
-    models=$(juju models --format json | jq -r .models[].name)
-    for model in $models;
-    do
-      name=$(echo $model | cut -d/ -f2);
-      juju status -m $model -o logs/$name.yaml;
-      cat logs/$name.yaml;
-      juju debug-log -m $model --replay &> logs/$name-debug-log.txt || echo "Not able to get logs for model $model"
-      for pod in $(sudo $kubectl get pods -n $name -o=jsonpath='{.items[*].metadata.name}');
-      do
-        sudo $kubectl logs --ignore-errors -n $name --all-containers $pod &> logs/$pod.log || echo "Not able to get log for $pod"
-      done
-      juju_crashdump $model
+    local kubectl="microk8s.kubectl"
+    local explicit_model="${1:-}"
+    local model
+    local models=()
+
+    if compgen -G "$HOME/snap/openstack/common/logs/*.log" > /dev/null; then
+      cp -rf "$HOME"/snap/openstack/common/logs/*.log logs/ || echo "Not able to copy sunbeam service logs"
+    else
+      echo "No sunbeam service logs found at $HOME/snap/openstack/common/logs/*.log"
+    fi
+
+    mapfile -t models < <(resolve_target_models "$explicit_model")
+    printf "%s\n" "${models[@]}" > logs/models-collected.txt
+
+    for model in "${models[@]}"; do
+      collect_juju_logs_for_model "$model" || continue
+      collect_k8s_pod_logs_for_model "$model" "$kubectl"
+      collect_microceph_specific_logs_for_model "$model" || true
     done
-    juju ssh microceph/leader sudo microceph status &> logs/microceph-status.txt || true
-    juju ssh microceph/leader sudo microceph.ceph status &> logs/ceph-status.txt || true
 }
 
 run="${1}"

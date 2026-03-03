@@ -11,3 +11,4 @@ __pycache__/
 *.swp
 .terragrunt-cache/
 .terraform.lock.hcl
+/.pi/
