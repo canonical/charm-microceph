@@ -347,7 +347,7 @@ jobs:
           # wait for the cluster to report 4 osds are up and in.
           N=4
           for i in {0..100}; do
-              if juju ssh microceph/0 -- "sudo microceph.ceph osd stat | grep -E '$N osds: $N up .* $N in .*'" ; then
+              if juju ssh microceph/0 -- "sudo microceph.ceph osd stat | grep -E \"$N osds: $N up .* $N in .*\"" ; then
                 echo "Cluster now report the 4 osds are up and in."
                 exit 0
               else
@@ -385,7 +385,7 @@ jobs:
 
           action_counts=$(echo $result | jq '."microceph/0".results.actions | length')
           if [ "$action_counts" != "4" ] ; then
-            echo "Expect dry run enter-maintenance to produce 3 steps."
+            echo "Expect dry run enter-maintenance to produce 4 steps."
             exit 1
           fi
 
