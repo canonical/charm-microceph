@@ -327,8 +327,7 @@ jobs:
       - name: Install MicroCeph charm
         run: |
           date
-          # FIXME: change to squid/stable when maintenance feature is landed
-          juju deploy -n 4 ~/artifacts/microceph.charm --config snap-channel=squid/edge
+          juju deploy -n 4 ~/artifacts/microceph.charm
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           date
 
@@ -337,34 +336,34 @@ jobs:
           set -eux
           juju status
 
-      - name: Enable one extra ceph mon for redundancy
-        run: |
-          set -eux
-
-          echo "Make sure all units have ceph monitor enabled."
-
-          for i in 0 1 2 3 ; do
-            juju ssh microceph/$i -- sudo microceph enable mon || true
-          done
-
       - name: Add disks
         run: |
           set -eux
-          juju run microceph/0 add-osd loop-spec=4G,1 --wait=2m
-          juju run microceph/1 add-osd loop-spec=4G,1 --wait=2m
-          juju run microceph/2 add-osd loop-spec=4G,1 --wait=2m
-          juju run microceph/3 add-osd loop-spec=4G,1 --wait=2m
+
+          for i in 0 1 2 3 ; do
+            juju run microceph/$i add-osd loop-spec=4G,1 --wait=2m
+          done
+
+          # wait for the cluster to report 4 osds are up and in.
+          N=4
+          for i in {0..100}; do
+              if juju ssh microceph/0 -- "sudo microceph.ceph osd stat | grep -E \"$N osds: $N up .* $N in .*\"" ; then
+                echo "Cluster now report the 4 osds are up and in."
+                exit 0
+              else
+                echo "Waiting for the cluster to report the 4 osds to be up and in..."
+              fi
+              sleep 1
+          done
+
+          echo "Did not reach 4 osds up and in state"
+          exit 1
 
       - name: Show Ceph status
         run: |
           set -eux
           juju ssh microceph/0 -- sudo microceph status
           juju ssh microceph/0 -- sudo microceph.ceph -s
-
-      - name: Assert Ceph is in healthy state before running test
-        run: |
-          set -eux
-          juju ssh microceph/0 -- sudo microceph.ceph health | grep HEALTH_OK
 
       - name: Dry run test
         run: |
@@ -386,7 +385,7 @@ jobs:
 
           action_counts=$(echo $result | jq '."microceph/0".results.actions | length')
           if [ "$action_counts" != "4" ] ; then
-            echo "Expect dry run enter-maintenance to produce 3 steps."
+            echo "Expect dry run enter-maintenance to produce 4 steps."
             exit 1
           fi
 
@@ -450,10 +449,26 @@ jobs:
             exit 1
           fi
 
-      - name: Remove Unit
+      - name: Stop one Ceph monitor
         run: |
-          set -x
-          ./tests/scripts/ci_helpers.sh remove_unit_wait "microceph/3"
+          set -eux
+
+          # reduce to only 2 active mons in a 4 node cluster (mons auto-scale to 3 units: 0, 1, 2)
+          juju ssh microceph/2 -- sudo snap stop microceph.mon --disable
+
+          # wait for the cluster to report mon quorum warning
+          for i in {0..100}; do
+              if juju ssh microceph/0 -- "sudo microceph.ceph health | grep quorum > /dev/null 2>&1" ; then
+                echo "Cluster reports MON quorum warning as expected."
+                exit 0
+              else
+                echo "Waiting for cluster to report MON quorum warning..."
+              fi
+              sleep 1
+          done
+
+          echo "Did not reach cluster warning state when there are only 2 out of 3 active mons"
+          exit 1
 
       - name: Test enter maintenance mode fail
         run: |
@@ -461,18 +476,27 @@ jobs:
 
           echo "Test running enter-maintenance action (fail case)."
 
-          result=$(juju run microceph/2 enter-maintenance stop-osds=true --format json)
+          result=$(juju run microceph/1 enter-maintenance stop-osds=true --format json)
           echo $result
 
-          has_errors=$(echo $result | jq '."microceph/2".results.errors != ""')
+          has_errors=$(echo $result | jq '."microceph/1".results.errors != ""')
           if [ "$has_errors" != "true" ] ; then
-            echo "Expect enter-maintenance to fail with error message because there is only 3 nodes."
+            echo "Expect enter-maintenance to fail because there are only 2 out of 3 active mons,"
+            echo "and entering maintenance on another mon-hosting node will drop active mons below quorum majority."
             exit 1
           fi
 
-          status_failure=$(echo $result | jq '."microceph/2".results.status == "failure"')
+          status_failure=$(echo $result | jq '."microceph/1".results.status == "failure"')
           if [ "$status_failure" != "true" ] ; then
             echo "Expect enter-maintenance to fail with status=failure."
+            exit 1
+          fi
+
+          # Verify the error is specifically about insufficient non-OSD services (mon quorum),
+          # not a spurious failure from an unrelated check.
+          errors=$(echo $result | jq '."microceph/1".results.errors' -r)
+          if ! echo "$errors" | grep -qi "Insufficient non OSD services" ; then
+            echo "Expect error message to mention insufficient non-OSD services, got: $errors"
             exit 1
           fi
 
