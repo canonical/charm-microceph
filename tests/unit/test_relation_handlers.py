@@ -42,3 +42,27 @@ def test_collect_peer_data(gethostname):
     current_data[model.unit.name] = "test-hostname"
     with pytest.raises(relation_handlers.HostnameChangeError):
         relation_handlers.collect_peer_data(model)
+
+
+@patch("relation_handlers.gethostname")
+def test_collect_peer_data_hostname_unchanged(gethostname):
+    gethostname.return_value = "test-hostname"
+    model = MagicMock()
+    unit = MagicMock()
+    unit.name = "microceph/0"
+    model.unit = unit
+    # hostname already recorded in databag with the same value
+    current_data = {
+        "public-address": "10.0.0.10",
+        "microceph/0": "test-hostname",
+    }
+    relation = MagicMock()
+    relation.data = {unit: current_data}
+    model.get_relation.return_value = relation
+    binding = MagicMock()
+    binding.network.bind_address = "10.0.0.10"
+    model.get_binding.return_value = binding
+
+    change_data = relation_handlers.collect_peer_data(model)
+    # hostname unchanged → unit_name should NOT be in the returned update dict
+    assert model.unit.name not in change_data

@@ -39,7 +39,7 @@ def _state(config=None, relations=None):
 
 def _run_handler(ctx, state, event=None, ready=False):
     event = event or MagicMock()
-    with ctx(ctx.on.update_status(), state) as mgr:
+    with ctx(ctx.on.config_changed(), state) as mgr:
         if ready:
             mgr.charm.peers.interface.state.joined = True
             mgr.charm.ready_for_service = MagicMock(return_value=True)

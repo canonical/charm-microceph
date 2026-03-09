@@ -127,10 +127,9 @@ def test_all_relations_with_enable_rgw_config(
         mgr.charm.peers.interface.state.joined = True
         mgr.run()
     assert subprocess.run.called
-    assert (
-        cclient.from_socket().cluster.update_config.called
-        or not cclient.from_socket().cluster.update_config.called
-    )
+    # update-ca-certificates runs via charm.subprocess (not mocked here), so the charm
+    # blocks before reaching configure_rgw_ceph; update_config is not called in this path.
+    cclient.from_socket().cluster.update_config.assert_not_called()
 
 
 @patch.object(ceph_cos_agent, "ceph_utils")
@@ -166,10 +165,9 @@ def test_all_relations_with_enable_rgw_config_and_namespace_projects(
         mgr.charm.peers.interface.state.joined = True
         mgr.run()
     assert subprocess.run.called
-    assert (
-        cclient.from_socket().cluster.update_config.called
-        or not cclient.from_socket().cluster.update_config.called
-    )
+    # update-ca-certificates runs via charm.subprocess (not mocked here), so the charm
+    # blocks before reaching configure_rgw_ceph; update_config is not called in this path.
+    cclient.from_socket().cluster.update_config.assert_not_called()
 
 
 @patch.object(ceph_cos_agent, "ceph_utils")
@@ -748,9 +746,6 @@ def test_cos_integration(
     )
     p_rel = peer_relation()
     state = _base_state(
-        config={"rbd-stats-pools": "abcd", "enable-perf-metrics": True}, relations=[cos_rel]
-    )
-    state = _base_state(
         config={"rbd-stats-pools": "abcd", "enable-perf-metrics": True},
         relations=[p_rel, cos_rel],
     )
@@ -758,7 +753,10 @@ def test_cos_integration(
         mgr.charm.peers.interface.state.joined = True
         mgr.charm.set_leader_ready()
         mgr.run()
+    is_ready.assert_called()
     mock_refresh_cb.assert_called()
+    # cos_agent_refresh_cb is mocked so enable_mgr_module is never invoked via that path
+    enable_mgr_module.assert_not_called()
     ceph_utils.mgr_config_set.assert_has_calls(
         [
             call("mgr/prometheus/rbd_stats_pools", "abcd"),
