@@ -365,6 +365,31 @@ jobs:
           juju ssh microceph/0 -- sudo microceph status
           juju ssh microceph/0 -- sudo microceph.ceph -s
 
+      - name: Assert Ceph is in healthy state before running test
+        run: |
+          set -eux
+          # Allow known-benign warnings (low disk space from small loop devices, clock skew)
+          # but fail on anything else that indicates a broken cluster.
+          health=$(juju ssh microceph/0 -- sudo microceph.ceph health)
+          echo "Ceph health: $health"
+          if echo "$health" | grep -q "HEALTH_ERR" ; then
+            echo "Cluster is in HEALTH_ERR state, cannot proceed with test."
+            juju ssh microceph/0 -- sudo microceph.ceph health detail
+            exit 1
+          fi
+          if echo "$health" | grep -q "HEALTH_WARN" ; then
+            detail=$(juju ssh microceph/0 -- sudo microceph.ceph health detail)
+            echo "$detail"
+            # Filter out benign warnings; fail if any unexpected warnings remain
+            unexpected=$(echo "$detail" | grep -E "^\s+" | grep -v -E "(low on available space|clock skew)" || true)
+            if [ -n "$unexpected" ] ; then
+              echo "Unexpected HEALTH_WARN details found:"
+              echo "$unexpected"
+              exit 1
+            fi
+            echo "Only benign warnings found (low disk space / clock skew), proceeding."
+          fi
+
       - name: Dry run test
         run: |
           set -eux
@@ -446,6 +471,24 @@ jobs:
 
           if ! $(juju ssh microceph/3 -- snap services microceph.osd | grep enabled > /dev/null 2>&1) ; then
             echo "Expect osd service is enabled"
+            exit 1
+          fi
+
+      - name: Test enter maintenance check-only on mon-bearing unit (safe case)
+        run: |
+          set -eux
+
+          echo "Test that enter-maintenance check-only succeeds on a mon-bearing unit when quorum is healthy."
+
+          # microceph/1 hosts a mon; with all 3 mons active, quorum calc should pass.
+          result=$(juju run microceph/1 enter-maintenance stop-osds=true check-only=true --format json)
+          echo "$result"
+
+          status=$(echo "$result" | jq '."microceph/1".results.status' -r)
+          if [ "$status" != "success" ] ; then
+            echo "Expect check-only enter-maintenance to succeed on mon-bearing unit with healthy quorum, got status: $status"
+            errors=$(echo "$result" | jq '."microceph/1".results.errors' -r)
+            echo "Errors: $errors"
             exit 1
           fi
 
