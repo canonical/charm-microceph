@@ -173,6 +173,149 @@ class TestMicroCeph(unittest.TestCase):
         )
 
     @patch("utils.run_cmd")
+    @patch("microceph.gethostname")
+    def test_join_cluster_with_availability_zone(self, gethn, run_cmd):
+        """Test join_cluster includes --availability-zone when provided."""
+        gethn.return_value = "host"
+        run_cmd.return_value = ""  # not a member yet
+        microceph.join_cluster("token", "10.10.10.10", availability_zone="az-2")
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "join",
+                "token",
+                "--microceph-ip",
+                "10.10.10.10",
+                "--availability-zone",
+                "az-2",
+            ]
+        )
+
+    @patch("utils.run_cmd")
+    @patch("microceph.gethostname")
+    def test_join_cluster_without_availability_zone(self, gethn, run_cmd):
+        """Test join_cluster omits --availability-zone when not provided."""
+        gethn.return_value = "host"
+        run_cmd.return_value = ""  # not a member yet
+        microceph.join_cluster("token", "10.10.10.10")
+        run_cmd.assert_called_with(
+            cmd=["microceph", "cluster", "join", "token", "--microceph-ip", "10.10.10.10"]
+        )
+
+    @patch("utils.run_cmd")
+    def test_bootstrap_cluster_with_availability_zone(self, run_cmd):
+        """Test bootstrap_cluster includes --availability-zone when provided."""
+        microceph.bootstrap_cluster(
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+            availability_zone="az-1",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+                "--availability-zone",
+                "az-1",
+            ]
+        )
+
+    @patch("utils.run_cmd")
+    def test_bootstrap_cluster_without_availability_zone(self, run_cmd):
+        """Test bootstrap_cluster omits --availability-zone when not provided."""
+        microceph.bootstrap_cluster(
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+            ]
+        )
+
+    @patch("utils.run_cmd_with_input")
+    def test_adopt_ceph_cluster_with_availability_zone(self, run_cmd):
+        """Test adopt_ceph_cluster includes --availability-zone when provided."""
+        microceph.adopt_ceph_cluster(
+            fsid="test-fsid",
+            mon_hosts=["10.0.0.1"],
+            admin_key="test-key",
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+            availability_zone="az-1",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "adopt",
+                "-",
+                "--fsid",
+                "test-fsid",
+                "--mon-hosts",
+                "10.0.0.1",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+                "--availability-zone",
+                "az-1",
+            ],
+            input_data="test-key",
+        )
+
+    @patch("utils.run_cmd_with_input")
+    def test_adopt_ceph_cluster_without_availability_zone(self, run_cmd):
+        """Test adopt_ceph_cluster omits --availability-zone when not provided."""
+        microceph.adopt_ceph_cluster(
+            fsid="test-fsid",
+            mon_hosts=["10.0.0.1"],
+            admin_key="test-key",
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "adopt",
+                "-",
+                "--fsid",
+                "test-fsid",
+                "--mon-hosts",
+                "10.0.0.1",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+            ],
+            input_data="test-key",
+        )
+
+    @patch("utils.run_cmd")
     def test_enable_nfs(self, run_cmd):
         microceph.enable_nfs("foo", "lish", "addr")
 
