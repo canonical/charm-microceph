@@ -16,7 +16,7 @@
 
 from pathlib import Path
 from subprocess import CalledProcessError
-from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch, ANY
+from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch
 
 import ops_sunbeam.test_utils as test_utils
 from charms.ceph_mon.v0 import ceph_cos_agent
