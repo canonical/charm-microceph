@@ -22,6 +22,7 @@ This charm deploys and manages microceph.
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 from socket import gethostname
@@ -588,10 +589,14 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         except ops.model.ModelError as e:
             logger.exception(e)
         finally:
+            # Get availability zone from Juju environment
+            availability_zone = os.environ.get("JUJU_AVAILABILITY_ZONE", "")
+
             return {
                 "public_net": format(public_net),
                 "cluster_net": format(cluster_net),
                 "micro_ip": format(micro_ip),
+                "availability_zone": availability_zone,
             }
 
     def adopt_cluster(self, fsid, mon_hosts, admin_key):
@@ -605,6 +610,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 micro_ip=network_params.get("micro_ip", ""),
                 public_net=network_params.get("public_net", ""),
                 cluster_net=network_params.get("cluster_net", ""),
+                availability_zone=network_params.get("availability_zone", ""),
             )
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True

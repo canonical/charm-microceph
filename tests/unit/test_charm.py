@@ -1136,3 +1136,48 @@ class TestCharm(testbase.TestBaseCharm):
 
             # Verify that handle_config_leader_set_ready was NOT called
             mock_set_ready.assert_not_called()
+
+    @patch.dict("os.environ", {"JUJU_AVAILABILITY_ZONE": "az-1"})
+    @patch.object(ceph_cos_agent, "CephCOSAgentProvider")
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    @patch.object(microceph, "Client")
+    @patch("utils.subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
+    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
+    def test_bootstrap_with_availability_zone(
+        self,
+        _mock_file,
+        _mock_path_wb,
+        _mock_path_chmod,
+        subprocess,
+        cclient,
+        _utils,
+        _cos_agent,
+    ):
+        """Test bootstrap includes --availability-zone when JUJU_AVAILABILITY_ZONE is set."""
+        cclient.from_socket().cluster.list_services.return_value = []
+
+        self.harness.set_leader()
+        self.harness.update_config({"snap-channel": "1.0/stable"})
+        self.add_complete_peer_relation(self.harness)
+
+        subprocess.run.assert_any_call(
+            [
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+                "--availability-zone",
+                "az-1",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
