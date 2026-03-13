@@ -109,6 +109,34 @@ class TestMicroCeph(unittest.TestCase):
         cclient.from_socket().cluster.update_config.assert_not_called()
 
     @patch("microceph.Client")
+    def test_update_cluster_configs_triggers_restart_when_last_alphabetical_unchanged(
+        self, cclient
+    ):
+        """Regression test for GH#246: restart must fire exactly once when configs change.
+
+        When TLS is enabled, rgw_keystone_url and rgw_keystone_verify_ssl change.
+        """
+        cclient.from_socket().cluster.get_config.return_value = [
+            {"key": "rgw_keystone_url", "value": "http://dummy-ip", "wait": False},
+            {"key": "rgw_keystone_verify_ssl", "value": "false", "wait": False},
+            {"key": "rgw_swift_versioning_enabled", "value": "true", "wait": False},
+        ]
+        configs_to_update = {
+            "rgw_keystone_url": "https://dummy-ip",  # changed
+            "rgw_keystone_verify_ssl": "true",  # changed
+            "rgw_swift_versioning_enabled": "true",  # NOT changed
+        }
+        microceph.update_cluster_configs(configs_to_update)
+
+        update_calls = cclient.from_socket().cluster.update_config.mock_calls
+        skip_restart_values = [call.args[2] for call in update_calls]
+        # Exactly one restart must be triggered regardless of how many configs changed
+        assert skip_restart_values.count(False) == 1, (
+            f"Expected exactly one update_config call with skip_restart=False, "
+            f"got: {skip_restart_values}"
+        )
+
+    @patch("microceph.Client")
     def test_delete_cluster_configs(self, cclient):
         """Test delete_cluster_configs with configs to delete not in db."""
         cclient.from_socket().cluster.get_config.return_value = [
