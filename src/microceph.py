@@ -166,11 +166,16 @@ def update_cluster_configs(configs: dict):
         except UnrecognizedClusterConfigOption:
             raise UnrecognizedClusterConfigOption(f"Option {key} not recognized by microceph")
 
-    # Set config, but restart only on the last item
-    items = sorted(configs.items())
-    for key, value in items[:-1]:
+    # Only trigger restart on the last *changed* item to avoid multiple restarts.
+    changed = [
+        (k, v)
+        for k, v in sorted(configs.items())
+        if not (k in configs_from_db and v == configs_from_db.get(k))
+    ]
+    for key, value in changed[:-1]:
         set_config(key, value, skip_restart=True)
-    set_config(items[-1][0], items[-1][1], skip_restart=False)
+    if changed:
+        set_config(changed[-1][0], changed[-1][1], skip_restart=False)
 
 
 def delete_cluster_configs(configs: list):
