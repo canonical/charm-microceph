@@ -15,7 +15,7 @@
 """Tests for Microceph helper functions."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import microceph
 
@@ -128,13 +128,16 @@ class TestMicroCeph(unittest.TestCase):
         }
         microceph.update_cluster_configs(configs_to_update)
 
-        update_calls = cclient.from_socket().cluster.update_config.mock_calls
-        skip_restart_values = [call.args[2] for call in update_calls]
-        # Exactly one restart must be triggered regardless of how many configs changed
-        assert skip_restart_values.count(False) == 1, (
-            f"Expected exactly one update_config call with skip_restart=False, "
-            f"got: {skip_restart_values}"
+        cluster = cclient.from_socket().cluster
+        # Exactly one restart must be triggered regardless of how many configs changed,
+        # on the last changed key in sorted order, with all prior keys skipping restart.
+        cluster.update_config.assert_has_calls(
+            [
+                call("rgw_keystone_url", "https://dummy-ip", True),
+                call("rgw_keystone_verify_ssl", "true", False),
+            ]
         )
+        assert cluster.update_config.call_count == 2
 
     @patch("microceph.Client")
     def test_delete_cluster_configs(self, cclient):
