@@ -15,7 +15,7 @@
 """Tests for Microceph helper functions."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import microceph
 
@@ -107,6 +107,37 @@ class TestMicroCeph(unittest.TestCase):
         microceph.update_cluster_configs(configs_to_update)
 
         cclient.from_socket().cluster.update_config.assert_not_called()
+
+    @patch("microceph.Client")
+    def test_update_cluster_configs_triggers_restart_when_last_alphabetical_unchanged(
+        self, cclient
+    ):
+        """Regression test for GH#246: restart must fire exactly once when configs change.
+
+        When TLS is enabled, rgw_keystone_url and rgw_keystone_verify_ssl change.
+        """
+        cclient.from_socket().cluster.get_config.return_value = [
+            {"key": "rgw_keystone_url", "value": "http://dummy-ip", "wait": False},
+            {"key": "rgw_keystone_verify_ssl", "value": "false", "wait": False},
+            {"key": "rgw_swift_versioning_enabled", "value": "true", "wait": False},
+        ]
+        configs_to_update = {
+            "rgw_keystone_url": "https://dummy-ip",  # changed
+            "rgw_keystone_verify_ssl": "true",  # changed
+            "rgw_swift_versioning_enabled": "true",  # NOT changed
+        }
+        microceph.update_cluster_configs(configs_to_update)
+
+        cluster = cclient.from_socket().cluster
+        # Exactly one restart must be triggered regardless of how many configs changed,
+        # on the last changed key in sorted order, with all prior keys skipping restart.
+        cluster.update_config.assert_has_calls(
+            [
+                call("rgw_keystone_url", "https://dummy-ip", True),
+                call("rgw_keystone_verify_ssl", "true", False),
+            ]
+        )
+        assert cluster.update_config.call_count == 2
 
     @patch("microceph.Client")
     def test_delete_cluster_configs(self, cclient):
