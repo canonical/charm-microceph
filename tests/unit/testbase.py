@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import patch
+"""Shared constants for unit tests.
 
-from charms.ceph_mon.v0 import ceph_cos_agent
-from ops.testing import Harness
-from ops_sunbeam import test_utils
+`TestBaseCharm`, `_MicroCephCharm`, and Harness helper methods were removed as part of
+migrating charm-lifecycle unit tests from `ops.testing.Harness` to ops-scenario via
+`ops[testing]`.
 
-import charm
+Pure Python tests (`test_ceph.py`, `test_microceph.py`, `test_broker.py`,
+`test_device_flags.py`, and `test_utils.py`) are intentionally not migrated because
+those tests validate pure Python functions and logic, not charm lifecycle behavior.
+"""
 
 DUMMY_CA_CERT = """-----BEGIN CERTIFICATE-----
 MIIDdzCCAl+gAwIBAgIUexFR59kb53PwxGKCFFO32jHAGKwwDQYJKoZIhvcNAQEL
@@ -42,109 +45,3 @@ aU6GF5joUr0UWjFkoXpINM+ozet/bYvxa8MJ5OvSeU1ahHFeOmv0axs0JHvV0rW4
 I7bWFePvjNsCPUyBSGu3GCisT5/FaxcS/IOA
 -----END CERTIFICATE-----
 """
-
-
-class _MicroCephCharm(charm.MicroCephCharm):
-    """MicroCeph test charm."""
-
-    def __init__(self, framework):
-        """Setup event logging."""
-        self.seen_events = []
-        # Patch CephCOSAgentProvider to mock is_ready_cb
-        original_init = ceph_cos_agent.CephCOSAgentProvider.__init__
-
-        def patched_init(provider_self, charm_instance, **kwargs):
-            # Replace is_ready_cb with a mock that always returns True
-            if "is_ready_cb" in kwargs:
-                kwargs["is_ready_cb"] = lambda: True
-            return original_init(provider_self, charm_instance, **kwargs)
-
-        self._cos_agent_patch = patch.object(
-            ceph_cos_agent.CephCOSAgentProvider, "__init__", patched_init
-        )
-        self._cos_agent_patch.start()
-        super().__init__(framework)
-
-    def tearDown(self):
-        """Stop the patches."""
-        self._cos_agent_patch.stop()
-
-    def configure_ceph(self, event):
-        return
-
-
-class TestBaseCharm(test_utils.CharmTestCase):
-    def add_complete_identity_relation(self, harness: Harness) -> None:
-        """Add complete identity-service relation."""
-        credentials_content = {"username": "svcuser1", "password": "svcpass1"}
-        credentials_id = harness.add_model_secret("keystone", credentials_content)
-        app_data = {
-            "admin-domain-id": "admindomid1",
-            "admin-project-id": "adminprojid1",
-            "admin-user-id": "adminuserid1",
-            "api-version": "3",
-            "auth-host": "keystone.local",
-            "auth-port": "12345",
-            "auth-protocol": "http",
-            "internal-host": "keystone.internal",
-            "internal-port": "5000",
-            "internal-protocol": "http",
-            "internal-auth-url": "http://keystone.internal/v3",
-            "service-domain": "servicedom",
-            "service-domain_id": "svcdomid1",
-            "service-host": "keystone.service",
-            "service-port": "5000",
-            "service-protocol": "http",
-            "service-project": "svcproj1",
-            "service-project-id": "svcprojid1",
-            "service-credentials": credentials_id,
-        }
-
-        # Cannot use ops add_relation [1] directly due to secrets
-        # [1] https://ops.readthedocs.io/en/latest/#ops.testing.Harness.add_relation
-        rel_id = test_utils.add_base_identity_service_relation(harness)
-        harness.grant_secret(credentials_id, harness.charm.app.name)
-        harness.update_relation_data(rel_id, "keystone", app_data)
-
-    def add_complete_ingress_relation(self, harness: Harness) -> None:
-        """Add complete traefik-route relations."""
-        harness.add_relation(
-            "traefik-route-rgw",
-            "traefik",
-            app_data={"external_host": "dummy-ip", "scheme": "http"},
-        )
-
-    def add_complete_peer_relation(self, harness: Harness, unit_data=None) -> None:
-        """Add complete peer relation data."""
-        unit_data = unit_data or {"public-address": "dummy-ip"}
-        rel_id = harness.add_relation("peers", harness.charm.app.name, unit_data=unit_data)
-        return rel_id
-
-    def add_complete_certificate_transfer_relation(self, harness: Harness) -> None:
-        """Add complete certificate_transfer relation."""
-        harness.add_relation("receive-ca-cert", "keystone", unit_data={"ca": DUMMY_CA_CERT})
-
-    def add_cos_agent_integration(self, harness: Harness) -> None:
-        """Add cos agent integration."""
-        harness.add_relation("cos-agent", harness.charm.app.name)
-
-    def add_ceph_nfs_relation(self, harness: Harness, app_name="manila-cephfs") -> int:
-        """Add ceph-nfs-client relation."""
-        return harness.add_relation("ceph-nfs", app_name, unit_data={"foo": "lish"})
-
-    def add_ceph_remote_relation(
-        self, harness: Harness, relation_name: str = "remote-requirer"
-    ) -> int:
-        """Add ceph-remote-client relation."""
-        return harness.add_relation(
-            relation_name,
-            "remote-microceph",
-            app_data={
-                "site-name": "secondary",
-                "token": "eyJmc2lkIjoiNGM4Mzc1ZDYtMWNlZi00MzJhLWJkMTYtMDU3Y2I4YTJmNjdmIiwia2V5cmluZy5jbGllbnQucHJpbWFyeSI6IkFRQ2NPdjlvVUtLWE1CQUFLWlNBc25mSGgrMG95dkdjUEhEYzNBPT0iLCJtb24uaG9zdC53b3JrYm9vayI6IjE5Mi4xNjguMS41OSIsInB1YmxpY19uZXR3b3JrIjoiMTkyLjE2OC4xLjU5LzI0In0=",
-            },
-        )
-
-    def add_unit(self, harness: Harness, rel_id: int, unit_name: str, unit_data={}) -> None:
-        harness.add_relation_unit(rel_id, unit_name)
-        harness.update_relation_data(rel_id, unit_name, unit_data)

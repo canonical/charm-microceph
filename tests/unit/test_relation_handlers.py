@@ -12,56 +12,57 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
+from unittest.mock import MagicMock, patch
 
-import ops_sunbeam.test_utils as test_utils
-from unit import testbase
+import pytest
 
 import relation_handlers
 
 
-class TestRelationHelpers(testbase.TestBaseCharm):
-    PATCHES = [
-        "gethostname",
-    ]
+@patch("relation_handlers.gethostname")
+def test_collect_peer_data(gethostname):
+    gethostname.return_value = "test-hostname"
+    model = MagicMock()
+    unit = MagicMock()
+    unit.name = "microceph/0"
+    model.unit = unit
+    current_data = {"public-address": "10.0.0.10"}
+    relation = MagicMock()
+    relation.data = {unit: current_data}
+    model.get_relation.return_value = relation
+    binding = MagicMock()
+    binding.network.bind_address = "192.0.2.0"
+    model.get_binding.return_value = binding
 
-    def setUp(self):
-        """Setup MicroCeph Charm tests."""
-        super().setUp(relation_handlers, self.PATCHES)
-        with open("config.yaml", "r") as f:
-            config_data = f.read()
-        with open("metadata.yaml", "r") as f:
-            metadata = f.read()
-        self.harness = test_utils.get_harness(
-            testbase._MicroCephCharm,
-            container_calls=self.container_calls,
-            charm_config=config_data,
-            charm_metadata=metadata,
-        )
-        self.addCleanup(self.harness.cleanup)
-        self.harness.begin()
+    change_data = relation_handlers.collect_peer_data(model)
+    assert change_data[model.unit.name] == "test-hostname"
+    assert change_data["public-address"] == "192.0.2.0"
 
-    def test_collect_peer_data(self):
-        self.harness.set_leader()
-        rel_id = self.add_complete_peer_relation(self.harness)
-        unit_name = self.harness.model.unit.name
-        # set up some initial relation data
-        self.harness.update_relation_data(
-            rel_id,
-            "microceph/0",
-            {
-                unit_name: "test-hostname",
-            },
-        )
-        self.gethostname.return_value = "test-hostname"
-        change_data = relation_handlers.collect_peer_data(self.harness.model)
-        self.assertNotIn(unit_name, change_data)
-        self.assertEqual(change_data["public-address"], "10.0.0.10")
-        self.gethostname.return_value = "changed-hostname"
-        # assert that collect_peer_data raises an exception
-        with self.assertRaises(relation_handlers.HostnameChangeError):
-            relation_handlers.collect_peer_data(self.harness.model)
+    gethostname.return_value = "changed-hostname"
+    current_data[model.unit.name] = "test-hostname"
+    with pytest.raises(relation_handlers.HostnameChangeError):
+        relation_handlers.collect_peer_data(model)
 
 
-if __name__ == "__main__":
-    unittest.main()
+@patch("relation_handlers.gethostname")
+def test_collect_peer_data_hostname_unchanged(gethostname):
+    gethostname.return_value = "test-hostname"
+    model = MagicMock()
+    unit = MagicMock()
+    unit.name = "microceph/0"
+    model.unit = unit
+    # hostname already recorded in databag with the same value
+    current_data = {
+        "public-address": "10.0.0.10",
+        "microceph/0": "test-hostname",
+    }
+    relation = MagicMock()
+    relation.data = {unit: current_data}
+    model.get_relation.return_value = relation
+    binding = MagicMock()
+    binding.network.bind_address = "10.0.0.10"
+    model.get_binding.return_value = binding
+
+    change_data = relation_handlers.collect_peer_data(model)
+    # hostname unchanged → unit_name should NOT be in the returned update dict
+    assert model.unit.name not in change_data
