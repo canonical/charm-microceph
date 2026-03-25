@@ -1201,7 +1201,7 @@ def cluster_has_quorum() -> bool:
     In adopted ceph environments, microceph may not have a local mon up.
     Thus, this method checks if the accessible ceph cluster has some quorum.
     """
-    cmd = ["ceph", "status", "--format=json"]
+    cmd = ["microceph.ceph", "status", "--format=json"]
     try:
         result = json.loads(str(check_output(cmd).decode("UTF-8")))
     except CalledProcessError:

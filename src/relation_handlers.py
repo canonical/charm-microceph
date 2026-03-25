@@ -557,8 +557,8 @@ class CephClientProvides(Object):
             "- providing client with keys, processing broker requests"
         )
 
-        settings = relation.data[unit]
-        if "broker_req" not in settings:
+        settings = relation.data.get(unit)
+        if not settings or "broker_req" not in settings:
             logger.warning(f"broker_req not in settings: {settings}")
             return
 

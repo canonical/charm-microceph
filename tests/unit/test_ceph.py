@@ -46,6 +46,25 @@ class TestCeph(unittest.TestCase):
         check_output.return_value = b'{"quorum": [ 0 ]}'
         self.assertTrue(ceph.cluster_has_quorum())
 
+    @patch("ceph.check_output")
+    def test_cluster_has_quorum_uses_microceph_ceph(self, check_output):
+        """Verify cluster_has_quorum calls microceph.ceph, not bare ceph."""
+        check_output.return_value = b'{"quorum": [ 0, 1, 2 ]}'
+        ceph.cluster_has_quorum()
+        check_output.assert_called_once_with(["microceph.ceph", "status", "--format=json"])
+
+    @patch("ceph.check_output")
+    def test_cluster_has_quorum_no_quorum(self, check_output):
+        check_output.return_value = b'{"quorum": []}'
+        self.assertFalse(ceph.cluster_has_quorum())
+
+    @patch("ceph.check_output")
+    def test_cluster_has_quorum_command_failure(self, check_output):
+        from subprocess import CalledProcessError
+
+        check_output.side_effect = CalledProcessError(1, "cmd")
+        self.assertFalse(ceph.cluster_has_quorum())
+
     @patch("utils.run_cmd")
     def test_create_fs_volume(self, run_cmd):
         ceph.create_fs_volume("volly")

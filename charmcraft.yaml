@@ -32,4 +32,3 @@ parts:
       - astral-uv
     build-packages:
       - git
-

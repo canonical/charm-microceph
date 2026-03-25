@@ -66,11 +66,9 @@ class ClusterNodes(ops.framework.Object):
             self.charm.peers.set_app_data({f"{event.unit.name}.join_token": token})
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(e.stderr)
-            error_node_already_exists = (
-                'Failed to create "internal_token_records" entry: UNIQUE '
-                "constraint failed: internal_token_records.name"
-            )
-            if error_node_already_exists not in e.stderr:
+            # MicroCeph renamed the table from internal_token_records to
+            # core_token_records in the squid release. Handle both.
+            if "UNIQUE constraint failed" not in e.stderr or "token_records.name" not in e.stderr:
                 raise e
 
     def join_node_to_cluster(self, event: ops.framework.EventBase) -> None:
