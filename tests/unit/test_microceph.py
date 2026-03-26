@@ -275,10 +275,12 @@ class TestMicroCeph(unittest.TestCase):
             ["microceph", "disk", "add", "--osd-match", "eq(@type,'nvme')", "--wipe"]
         )
 
+    @patch("microceph._setup_dm_crypt")
     @patch("utils.run_cmd")
-    def test_add_osd_match_cmd_with_encrypt(self, run_cmd):
-        """Test add_osd_match_cmd with encrypt flag."""
+    def test_add_osd_match_cmd_with_encrypt(self, run_cmd, mock_setup_dm_crypt):
+        """Test add_osd_match_cmd with encrypt flag calls _setup_dm_crypt."""
         microceph.add_osd_match_cmd("eq(@type,'nvme')", encrypt=True)
+        mock_setup_dm_crypt.assert_called_once()
         run_cmd.assert_called_with(
             ["microceph", "disk", "add", "--osd-match", "eq(@type,'nvme')", "--encrypt"]
         )
@@ -291,8 +293,9 @@ class TestMicroCeph(unittest.TestCase):
             ["microceph", "disk", "add", "--osd-match", "eq(@type,'nvme')", "--dry-run"]
         )
 
+    @patch("microceph._setup_dm_crypt")
     @patch("utils.run_cmd")
-    def test_add_osd_match_cmd_all_options(self, run_cmd):
+    def test_add_osd_match_cmd_all_options(self, run_cmd, mock_setup_dm_crypt):
         """Test add_osd_match_cmd with all options enabled."""
         microceph.add_osd_match_cmd(
             "and(eq(@type,'nvme'),ge(@size,100GiB))",
@@ -300,6 +303,7 @@ class TestMicroCeph(unittest.TestCase):
             encrypt=True,
             dry_run=True,
         )
+        mock_setup_dm_crypt.assert_called_once()
         run_cmd.assert_called_with(
             [
                 "microceph",

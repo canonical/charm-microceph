@@ -400,6 +400,7 @@ def add_osd_match_cmd(
     if wipe:
         cmd.append("--wipe")
     if encrypt:
+        _setup_dm_crypt()
         cmd.append("--encrypt")
     if dry_run:
         cmd.append("--dry-run")

@@ -144,8 +144,9 @@ class TestConfigChangedOsdDevices(testbase.TestBaseCharm):
             timeout=180,
         )
 
+    @patch("microceph._setup_dm_crypt")
     @patch("utils.subprocess")
-    def test_success_with_encrypt_flag(self, subprocess):
+    def test_success_with_encrypt_flag(self, subprocess, mock_setup_dm_crypt):
         """Handler passes --encrypt when encrypt:osd flag is set."""
         self._setup_ready_charm()
         self.harness.update_config(
@@ -154,6 +155,7 @@ class TestConfigChangedOsdDevices(testbase.TestBaseCharm):
 
         self._call_handler()
 
+        mock_setup_dm_crypt.assert_called_once()
         subprocess.run.assert_called_with(
             ["microceph", "disk", "add", "--osd-match", "eq(@type,'nvme')", "--encrypt"],
             capture_output=True,
@@ -162,8 +164,9 @@ class TestConfigChangedOsdDevices(testbase.TestBaseCharm):
             timeout=180,
         )
 
+    @patch("microceph._setup_dm_crypt")
     @patch("utils.subprocess")
-    def test_success_with_all_flags(self, subprocess):
+    def test_success_with_all_flags(self, subprocess, mock_setup_dm_crypt):
         """Handler passes both --wipe and --encrypt when both flags are set."""
         self._setup_ready_charm()
         self.harness.update_config(
@@ -172,6 +175,7 @@ class TestConfigChangedOsdDevices(testbase.TestBaseCharm):
 
         self._call_handler()
 
+        mock_setup_dm_crypt.assert_called_once()
         subprocess.run.assert_called_with(
             [
                 "microceph",
