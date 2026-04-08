@@ -1,0 +1,95 @@
+name: Update MicroCeph charm docs submodule
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+
+  workflow_dispatch:
+
+jobs:
+  update-docs-submodule:
+    name: Open PR to update charm-microceph docs submodule
+    runs-on: ubuntu-latest
+    env:
+      BASE_BRANCH: main
+      PR_BRANCH: auto/update-charm-microceph-docs-submodule-${{ github.sha }}
+      # Path to the submodule inside the microceph repository
+      SUBMODULE_PATH: docs/charm-microceph
+    steps:
+
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: canonical/microceph
+          ref: ${{ env.BASE_BRANCH }}
+          token: ${{ secrets.PAT }}
+          submodules: true
+          path: target-repo
+
+      - name: Get reviewers
+        id: get-reviewers
+        working-directory: target-repo
+        run: |
+          REVIEWERS=$(grep "${SUBMODULE_PATH}" .github/CODEOWNERS \
+            | awk '{for(i=2;i<=NF;i++) print substr($i,2)}' \
+            | paste -sd "," -)
+
+          echo "REVIEWERS=${REVIEWERS}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git signing
+        working-directory: target-repo
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.CI_COMMITS_SSH_SIGNING_KEY }}" > ~/.ssh/ssh-key
+          chmod 600 ~/.ssh/ssh-key
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git config --global gpg.format ssh
+          git config --global user.signingkey ~/.ssh/ssh-key
+          git config --global commit.gpgsign true
+
+      - name: Update submodule to latest commit
+        working-directory: target-repo
+        run: |
+          cd "${SUBMODULE_PATH}"
+          git fetch origin
+          git checkout ${{ github.sha }}
+          cd ..
+          git add "${SUBMODULE_PATH}"
+
+      - name: Commit changes
+        working-directory: target-repo
+        run: |
+          if git ls-remote --exit-code --heads origin "${PR_BRANCH}" >/dev/null 2>&1; then
+            echo "ERROR: Branch '${PR_BRANCH}' already exists on remote. Refusing to overwrite it."
+            exit 1
+          fi
+
+          git checkout -b "${PR_BRANCH}"
+          git commit -m "docs: update charm-microceph submodule to ${{ github.sha }}"
+
+      - name: Push branch
+        working-directory: target-repo
+        run: |
+          git push origin "${PR_BRANCH}"
+
+      - name: Open Pull Request
+        working-directory: target-repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+        run: |
+          BODY="Automated update of the charm-microceph docs submodule to commit [\`${{ github.sha }}\`](https://github.com/canonical/charm-microceph/commit/${{ github.sha }})."
+
+          PR_URL=$(gh pr create \
+            --title "docs: update charm-microceph docs submodule" \
+            --body "${BODY}" \
+            --base "${{ env.BASE_BRANCH }}" \
+            --head "${PR_BRANCH}" \
+            --reviewer "${{ steps.get-reviewers.outputs.REVIEWERS }}"
+          )
+          echo "- ${PR_URL}" >> "$GITHUB_STEP_SUMMARY"
