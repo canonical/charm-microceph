@@ -204,6 +204,217 @@ class TestMicroCeph(unittest.TestCase):
         )
 
     @patch("utils.run_cmd")
+    @patch("microceph.gethostname")
+    @patch("microceph._az_flag_supported", new=lambda: True)
+    def test_join_cluster_with_availability_zone(self, gethn, run_cmd):
+        """Test join_cluster includes --availability-zone when snap supports it."""
+        gethn.return_value = "host"
+        run_cmd.return_value = ""  # not a member yet
+        microceph.join_cluster("token", "10.10.10.10", availability_zone="az-2")
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "join",
+                "token",
+                "--microceph-ip",
+                "10.10.10.10",
+                "--availability-zone",
+                "az-2",
+            ]
+        )
+
+    @patch("utils.run_cmd")
+    @patch("microceph._az_flag_supported", new=lambda: True)
+    def test_bootstrap_cluster_with_availability_zone(self, run_cmd):
+        """Test bootstrap_cluster includes --availability-zone when snap supports it."""
+        microceph.bootstrap_cluster(
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+            availability_zone="az-1",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+                "--availability-zone",
+                "az-1",
+            ]
+        )
+
+    @patch("utils.run_cmd")
+    def test_bootstrap_cluster_without_availability_zone(self, run_cmd):
+        """Test bootstrap_cluster omits --availability-zone when not provided."""
+        microceph.bootstrap_cluster(
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+            ]
+        )
+
+    @patch("utils.run_cmd_with_input")
+    @patch("microceph._az_flag_supported", new=lambda: True)
+    def test_adopt_ceph_cluster_with_availability_zone(self, run_cmd):
+        """Test adopt_ceph_cluster includes --availability-zone when snap supports it."""
+        microceph.adopt_ceph_cluster(
+            fsid="test-fsid",
+            mon_hosts=["10.0.0.1"],
+            admin_key="test-key",
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+            availability_zone="az-1",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "adopt",
+                "-",
+                "--fsid",
+                "test-fsid",
+                "--mon-hosts",
+                "10.0.0.1",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+                "--availability-zone",
+                "az-1",
+            ],
+            input_data="test-key",
+        )
+
+    @patch("utils.run_cmd_with_input")
+    def test_adopt_ceph_cluster_without_availability_zone(self, run_cmd):
+        """Test adopt_ceph_cluster omits --availability-zone when not provided."""
+        microceph.adopt_ceph_cluster(
+            fsid="test-fsid",
+            mon_hosts=["10.0.0.1"],
+            admin_key="test-key",
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "adopt",
+                "-",
+                "--fsid",
+                "test-fsid",
+                "--mon-hosts",
+                "10.0.0.1",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+            ],
+            input_data="test-key",
+        )
+
+    @patch("utils.run_cmd")
+    @patch("microceph._az_flag_supported", new=lambda: False)
+    def test_bootstrap_cluster_az_unsupported(self, run_cmd):
+        """Test bootstrap_cluster omits --availability-zone when snap does not support it."""
+        microceph.bootstrap_cluster(
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+            availability_zone="az-1",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+            ]
+        )
+
+    @patch("utils.run_cmd")
+    @patch("microceph.gethostname")
+    @patch("microceph._az_flag_supported", new=lambda: False)
+    def test_join_cluster_az_unsupported(self, gethn, run_cmd):
+        """Test join_cluster omits --availability-zone when snap does not support it."""
+        gethn.return_value = "host"
+        run_cmd.return_value = ""  # not a member yet
+        microceph.join_cluster("token", "10.10.10.10", availability_zone="az-2")
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "join",
+                "token",
+                "--microceph-ip",
+                "10.10.10.10",
+            ]
+        )
+
+    @patch("utils.run_cmd_with_input")
+    @patch("microceph._az_flag_supported", new=lambda: False)
+    def test_adopt_ceph_cluster_az_unsupported(self, run_cmd):
+        """Test adopt_ceph_cluster omits --availability-zone when snap does not support it."""
+        microceph.adopt_ceph_cluster(
+            fsid="test-fsid",
+            mon_hosts=["10.0.0.1"],
+            admin_key="test-key",
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+            availability_zone="az-1",
+        )
+        run_cmd.assert_called_with(
+            cmd=[
+                "microceph",
+                "cluster",
+                "adopt",
+                "-",
+                "--fsid",
+                "test-fsid",
+                "--mon-hosts",
+                "10.0.0.1",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+            ],
+            input_data="test-key",
+        )
+
+    @patch("utils.run_cmd")
     def test_enable_nfs(self, run_cmd):
         microceph.enable_nfs("foo", "lish", "addr")
 
@@ -436,3 +647,30 @@ class TestMicroCeph(unittest.TestCase):
                 microceph.add_disk_match_cmd("eq(@type,'nvme')", **kwargs)
                 setup_dm_crypt.assert_called_once_with()
                 run_cmd.assert_called_once()
+
+
+class TestAZFlagSupported(unittest.TestCase):
+
+    def setUp(self):
+        microceph._az_flag_supported.cache_clear()
+
+    @patch("subprocess.run")
+    def test_returns_true_when_flag_in_help(self, mock_run):
+        """Returns True when --availability-zone appears in bootstrap help output."""
+        mock_run.return_value.stdout = (
+            "Flags:\n  --availability-zone string   Availability zone for this node\n"
+        )
+        mock_run.return_value.stderr = ""
+        self.assertTrue(microceph._az_flag_supported())
+
+    @patch("subprocess.run")
+    def test_returns_false_when_flag_absent(self, mock_run):
+        """Returns False when --availability-zone is absent from bootstrap help output."""
+        mock_run.return_value.stdout = "Flags:\n  --public-network string   Public network CIDR\n"
+        mock_run.return_value.stderr = ""
+        self.assertFalse(microceph._az_flag_supported())
+
+    @patch("subprocess.run", side_effect=FileNotFoundError)
+    def test_returns_false_when_binary_missing(self, _mock_run):
+        """Returns False when the microceph binary is not installed."""
+        self.assertFalse(microceph._az_flag_supported())

@@ -22,6 +22,7 @@ This charm deploys and manages microceph.
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 from socket import gethostname
@@ -569,6 +570,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             logger.warning("Juju spaces incompatible with quincy revision snaps")
             return {}
 
+        availability_zone = os.environ.get("JUJU_AVAILABILITY_ZONE", "")
+
         try:
             # Public Network
             public_net = self._get_space_subnet(space="public")
@@ -583,6 +586,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                     "public_net": public_net,
                     "cluster_net": cluster_net,
                     "micro_ip": micro_ip,
+                    "availability_zone": availability_zone,
                 }
             )
         except ops.model.ModelError as e:
@@ -592,6 +596,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 "public_net": format(public_net),
                 "cluster_net": format(cluster_net),
                 "micro_ip": format(micro_ip),
+                "availability_zone": availability_zone,
             }
 
     def adopt_cluster(self, fsid, mon_hosts, admin_key):
@@ -605,6 +610,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 micro_ip=network_params.get("micro_ip", ""),
                 public_net=network_params.get("public_net", ""),
                 cluster_net=network_params.get("cluster_net", ""),
+                availability_zone=network_params.get("availability_zone", ""),
             )
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True
