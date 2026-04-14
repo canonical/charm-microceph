@@ -1,4 +1,4 @@
-"""Shared helper functions for integration tests."""
+"""Shared helper functions for integration and end-to-end tests."""
 
 import contextlib
 import functools
@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping
+from typing import Any, Callable, Iterable, Iterator, Mapping, TypeVar
 from urllib import request
 
 import jubilant
@@ -20,8 +20,14 @@ from tenacity import retry, stop_after_delay, wait_fixed
 CEPHTOOLS_URL = "https://github.com/canonical/cephtools/releases/download/latest/cephtools"
 CEPHTOOLS_PATH = Path("/usr/local/bin/cephtools")
 DEFAULT_TIMEOUT = 1200
+FAIL_FAST_APP_STATUSES = {"blocked", "error"}
+FAIL_FAST_WORKLOAD_STATUSES = {"blocked", "error"}
+FAIL_FAST_AGENT_STATUSES = {"error"}
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
+_POLL_PENDING = object()
 
 
 @functools.lru_cache(maxsize=1)
@@ -150,6 +156,326 @@ def first_unit_name(status: jubilant.Status, app: str) -> str:
     if not units:
         raise AssertionError(f"{app} has no units")
     return next(iter(units))
+
+
+def fetch_microceph_status(juju: jubilant.Juju, unit_name: str) -> str:
+    """Return the output of ``microceph status`` for *unit_name*."""
+    return juju.ssh(unit_name, "sudo", "microceph", "status")
+
+
+def microceph_services_snapshot(output: str) -> list[set[str]]:
+    """Parse the service sets reported by ``microceph status`` output."""
+    services: list[set[str]] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("services:"):
+            _, entries = stripped.split(":", 1)
+            names = [svc.strip().lower() for svc in entries.split(",") if svc.strip()]
+            services.append(set(names))
+    return services
+
+
+def ceph_status_has_rgw(status: dict[str, Any]) -> bool:
+    """Return whether ``ceph status`` reports at least one RGW daemon."""
+    try:
+        services = status["servicemap"]["services"]["rgw"]
+    except (KeyError, TypeError):
+        return False
+
+    daemons = services.get("daemons")
+    if isinstance(daemons, dict):
+        return bool(daemons)
+    if isinstance(daemons, list):
+        return bool(daemons)
+    return False
+
+
+def new_unit_names(before_units: Iterable[str], after_units: Iterable[str]) -> list[str]:
+    """Return sorted unit names that appear only in *after_units*."""
+    return sorted(set(after_units) - set(before_units))
+
+
+def _status_current(obj: Any, attr: str) -> str | None:
+    """Return ``obj.<attr>.current`` if it exists."""
+    return getattr(getattr(obj, attr, None), "current", None)
+
+
+def _status_message(obj: Any, attr: str) -> str:
+    """Return ``obj.<attr>.message`` if it exists."""
+    return str(getattr(getattr(obj, attr, None), "message", "") or "")
+
+
+def _status_reason(subject: str, current: str, message: str) -> str:
+    """Format a fail-fast status reason."""
+    if message:
+        return f"{subject} is {current}: {message}"
+    return f"{subject} is {current}"
+
+
+def status_failure_reasons(
+    status: jubilant.Status,
+    app: str,
+    unit_name: str | None = None,
+) -> list[str]:
+    """Return explicit app/unit failure reasons that should abort long waits."""
+    reasons: list[str] = []
+    app_status = status.apps.get(app)
+    if not app_status:
+        return reasons
+
+    app_current = _status_current(app_status, "app_status")
+    if app_current in FAIL_FAST_APP_STATUSES:
+        reasons.append(
+            _status_reason(f"app {app}", app_current, _status_message(app_status, "app_status"))
+        )
+
+    if unit_name is None:
+        return reasons
+
+    unit = app_status.units.get(unit_name)
+    if not unit:
+        return reasons
+
+    workload_current = _status_current(unit, "workload_status")
+    if workload_current in FAIL_FAST_WORKLOAD_STATUSES:
+        reasons.append(
+            _status_reason(
+                f"unit {unit_name} workload",
+                workload_current,
+                _status_message(unit, "workload_status"),
+            )
+        )
+
+    agent_current = _status_current(unit, "juju_status")
+    if agent_current in FAIL_FAST_AGENT_STATUSES:
+        reasons.append(
+            _status_reason(
+                f"unit {unit_name} agent",
+                agent_current,
+                _status_message(unit, "juju_status"),
+            )
+        )
+
+    return reasons
+
+
+def _raise_on_failure_status(
+    status: jubilant.Status,
+    app: str,
+    *,
+    context: str,
+    unit_name: str | None = None,
+) -> None:
+    """Abort a wait helper when Juju already reports an explicit failure state."""
+    reasons = status_failure_reasons(status, app, unit_name)
+    if reasons:
+        raise AssertionError(f"{context}; detected failing status: {'; '.join(reasons)}")
+
+
+def _poll_status(
+    juju: jubilant.Juju,
+    *,
+    probe: Callable[[jubilant.Status], T | object],
+    timeout_message: Callable[[jubilant.Status], str],
+    timeout: int,
+    interval: int,
+    app: str | None = None,
+    unit_name: str | None = None,
+    context: str | None = None,
+    fail_fast_before_probe: bool = False,
+) -> T:
+    """Poll Juju status until *probe* returns a non-pending result."""
+    deadline = time.time() + timeout
+    last_status = juju.status()
+    while time.time() < deadline:
+        if fail_fast_before_probe and app and context:
+            _raise_on_failure_status(last_status, app, unit_name=unit_name, context=context)
+
+        result = probe(last_status)
+        if result is not _POLL_PENDING:
+            return result
+
+        if not fail_fast_before_probe and app and context:
+            _raise_on_failure_status(last_status, app, unit_name=unit_name, context=context)
+
+        time.sleep(interval)
+        last_status = juju.status()
+
+    raise AssertionError(timeout_message(last_status))
+
+
+def wait_for_app_units(
+    juju: jubilant.Juju,
+    app: str,
+    *,
+    expected_units: int,
+    timeout: int = DEFAULT_TIMEOUT,
+    interval: int = 10,
+) -> jubilant.Status:
+    """Wait until *app* reports at least *expected_units* units."""
+
+    def _probe(status: jubilant.Status) -> jubilant.Status | object:
+        app_status = status.apps.get(app)
+        if app_status and len(app_status.units) >= expected_units:
+            return status
+        return _POLL_PENDING
+
+    def _timeout_message(status: jubilant.Status) -> str:
+        units = sorted(status.apps.get(app).units) if app in status.apps else []
+        return f"Timed out waiting for {app} to reach {expected_units} units; last units: {units}"
+
+    return _poll_status(
+        juju,
+        probe=_probe,
+        timeout_message=_timeout_message,
+        timeout=timeout,
+        interval=interval,
+        app=app,
+        context=f"Aborted waiting for {app} to reach {expected_units} units",
+        fail_fast_before_probe=True,
+    )
+
+
+def wait_for_unit_active_idle(
+    juju: jubilant.Juju,
+    app: str,
+    unit_name: str,
+    *,
+    timeout: int = DEFAULT_TIMEOUT,
+    interval: int = 10,
+) -> jubilant.Status:
+    """Wait until *unit_name* in *app* becomes ``active/idle``."""
+
+    def _probe(status: jubilant.Status) -> jubilant.Status | object:
+        app_status = status.apps.get(app)
+        unit = app_status.units.get(unit_name) if app_status else None
+        workload = unit.workload_status.current if unit else None
+        agent = unit.juju_status.current if unit else None
+        if workload == "active" and agent == "idle":
+            return status
+        return _POLL_PENDING
+
+    return _poll_status(
+        juju,
+        probe=_probe,
+        timeout_message=lambda status: (
+            f"Timed out waiting for {unit_name} to become active/idle; last status: {status}"
+        ),
+        timeout=timeout,
+        interval=interval,
+        app=app,
+        unit_name=unit_name,
+        context=f"Aborted waiting for {unit_name} to become active/idle",
+    )
+
+
+def wait_for_microceph_status_rgw(
+    juju: jubilant.Juju,
+    unit_name: str,
+    *,
+    expected_nodes: int,
+    timeout: int = DEFAULT_TIMEOUT,
+    interval: int = 15,
+) -> str:
+    """Wait until ``microceph status`` lists RGW for at least *expected_nodes*."""
+    last_output = ""
+    app = unit_name.split("/", 1)[0]
+
+    def _probe(_status: jubilant.Status) -> str | object:
+        nonlocal last_output
+        output = fetch_microceph_status(juju, unit_name)
+        services = microceph_services_snapshot(output)
+        rgw_count = sum(1 for svc in services if "rgw" in svc)
+        if rgw_count >= expected_nodes:
+            return output
+        last_output = output
+        return _POLL_PENDING
+
+    return _poll_status(
+        juju,
+        probe=_probe,
+        timeout_message=lambda _status: (
+            "RGW not listed for enough nodes in microceph status; last output:\n" + last_output
+        ),
+        timeout=timeout,
+        interval=interval,
+        app=app,
+        unit_name=unit_name,
+        context=f"Aborted waiting for RGW to appear in microceph status on {unit_name}",
+    )
+
+
+def wait_for_ceph_status_rgw(
+    juju: jubilant.Juju,
+    app: str,
+    *,
+    timeout: int = DEFAULT_TIMEOUT,
+    interval: int = 15,
+) -> dict[str, Any]:
+    """Wait until ``ceph status`` reports at least one RGW daemon for *app*."""
+    last_ceph_status: dict[str, Any] = {}
+
+    def _probe(_status: jubilant.Status) -> dict[str, Any] | object:
+        nonlocal last_ceph_status
+        ceph_status = fetch_ceph_status(juju, app)
+        if ceph_status_has_rgw(ceph_status):
+            return ceph_status
+        last_ceph_status = ceph_status
+        return _POLL_PENDING
+
+    return _poll_status(
+        juju,
+        probe=_probe,
+        timeout_message=lambda _status: (
+            f"Ceph status never reported RGW; last status: {last_ceph_status}"
+        ),
+        timeout=timeout,
+        interval=interval,
+        app=app,
+        context=f"Aborted waiting for ceph status to report RGW for {app}",
+    )
+
+
+def assert_rgw_healthcheck(
+    juju: jubilant.Juju,
+    unit_name: str,
+    *,
+    timeout: int = DEFAULT_TIMEOUT,
+    interval: int = 10,
+) -> None:
+    """Assert that the unit-local RGW healthcheck is reachable on *unit_name*."""
+    last_error = ""
+    app = unit_name.split("/", 1)[0]
+
+    def _probe(_status: jubilant.Status) -> bool | object:
+        nonlocal last_error
+        try:
+            juju.ssh(
+                unit_name,
+                "sudo",
+                "curl",
+                "-fsS",
+                "--max-time",
+                "15",
+                "http://127.0.0.1:80/swift/healthcheck",
+            )
+            return True
+        except jubilant.CLIError as exc:  # type: ignore[attr-defined]
+            last_error = exc.stderr or exc.stdout or str(exc)
+            return _POLL_PENDING
+
+    _poll_status(
+        juju,
+        probe=_probe,
+        timeout_message=lambda _status: (
+            f"RGW health check failed on {unit_name}; last error: {last_error}"
+        ),
+        timeout=timeout,
+        interval=interval,
+        app=app,
+        unit_name=unit_name,
+        context=f"Aborted waiting for RGW health check on {unit_name}",
+    )
 
 
 def ensure_loop_osd(
@@ -335,26 +661,32 @@ def wait_for_ceph_health_ok(
     Optionally, callers can allow specific warning checks via
     ``allowed_warn_checks``.
     """
-    deadline = time.time() + timeout
-    last_status: dict[str, Any] = {}
-    while time.time() < deadline:
-        last_status = fetch_ceph_status(juju, app)
-        if ceph_health_matches(last_status, allowed_warn_checks=allowed_warn_checks):
-            return last_status
-        time.sleep(15)
+    last_ceph_status: dict[str, Any] = {}
+
+    def _probe(_status: jubilant.Status) -> dict[str, Any] | object:
+        nonlocal last_ceph_status
+        last_ceph_status = fetch_ceph_status(juju, app)
+        if ceph_health_matches(last_ceph_status, allowed_warn_checks=allowed_warn_checks):
+            return last_ceph_status
+        return _POLL_PENDING
 
     allowed_msg = (
         ""
         if not allowed_warn_checks
         else f" (allowing HEALTH_WARN checks: {sorted(allowed_warn_checks)})"
     )
-    reason = ceph_health_mismatch_reason(
-        last_status,
-        allowed_warn_checks=allowed_warn_checks,
-    )
-    raise AssertionError(
-        "Ceph health did not become acceptable"
-        f"{allowed_msg}; last evaluation: {reason}; last status: {last_status}"
+
+    return _poll_status(
+        juju,
+        probe=_probe,
+        timeout_message=lambda _status: (
+            "Ceph health did not become acceptable"
+            f"{allowed_msg}; last evaluation: "
+            f"{ceph_health_mismatch_reason(last_ceph_status, allowed_warn_checks=allowed_warn_checks)}; "
+            f"last status: {last_ceph_status}"
+        ),
+        timeout=timeout,
+        interval=15,
     )
 
 

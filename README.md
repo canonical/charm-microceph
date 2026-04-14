@@ -58,3 +58,15 @@ juju config microceph device-add-flags="wipe:osd,encrypt:osd"
 
 A reusable Terraform + Terragrunt module for deploying the `microceph` charm can be found in `terraform/microceph/`. See the module README for usage instructions.
 
+## Sunbeam end-to-end test
+
+The repository also carries an attached-model Sunbeam test flow for the self-hosted CI runner and local reproduction. Sunbeam bootstraps the model and deploys the `microceph` application; the pytest suite attaches to that existing model, refreshes the app to the local charm, and exercises the post-refresh workflow:
+
+```bash
+./tests/scripts/bootstrap_sunbeam.sh
+cp ~/artifacts/microceph.charm .
+tox -e sunbeam -- --sunbeam-model sunbeam-controller:admin/openstack-machines
+```
+
+For a one-command local wrapper, use `./tests/scripts/run_sunbeam_e2e.sh` after placing the charm artifact at `./microceph.charm`.
+

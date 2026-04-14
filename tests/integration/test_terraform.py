@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -92,96 +91,6 @@ def _run_terragrunt(
     return subprocess.run(command, check=check, cwd=TERRAFORM_MODULE_DIR, env=env)
 
 
-def _microceph_services_snapshot(
-    juju: jubilant.Juju, unit_name: str
-) -> tuple[list[set[str]], str]:
-    output = juju.ssh(unit_name, "sudo", "microceph", "status")
-    services: list[set[str]] = []
-    for line in output.splitlines():
-        stripped = line.strip()
-        if stripped.lower().startswith("services:"):
-            _, entries = stripped.split(":", 1)
-            names = [svc.strip().lower() for svc in entries.split(",") if svc.strip()]
-            services.append(set(names))
-    return services, output
-
-
-def _is_rgw_enabled(status: dict[str, Any]) -> bool:
-    try:
-        services = status["servicemap"]["services"]["rgw"]
-    except (KeyError, TypeError):
-        return False
-
-    daemons = services.get("daemons")
-    if isinstance(daemons, dict):
-        return bool(daemons)
-    if isinstance(daemons, list):
-        return bool(daemons)
-    return False
-
-
-def _wait_for_microceph_status_rgw(
-    juju: jubilant.Juju, unit_name: str, *, expected_nodes: int, timeout: int = DEFAULT_TIMEOUT
-) -> str:
-    """Wait until we have enough rgw service entries.
-
-    We poll `microceph status` on some unit repeatedly until the total count of RGW
-    services is at least *expected_nodes*.
-
-    Fail if we don't reach this cond in time.
-    """
-    deadline = time.time() + timeout
-    last_output = ""
-    while time.time() < deadline:
-        services, output = _microceph_services_snapshot(juju, unit_name)
-        rgw_count = sum(1 for svc in services if "rgw" in svc)
-        if rgw_count >= expected_nodes:
-            return output
-        last_output = output
-        time.sleep(15)
-    raise AssertionError(
-        "RGW not listed for enough nodes in microceph status; last output:\n" + last_output
-    )
-
-
-def _wait_for_ceph_status_rgw(
-    juju: jubilant.Juju, timeout: int = DEFAULT_TIMEOUT
-) -> dict[str, Any]:
-    deadline = time.time() + timeout
-    last_status: dict[str, Any] = {}
-    while time.time() < deadline:
-        status = helpers.fetch_ceph_status(juju, APP_NAME)
-        if _is_rgw_enabled(status):
-            return status
-        last_status = status
-        time.sleep(15)
-    raise AssertionError(f"Ceph status never reported RGW; last status: {last_status}")
-
-
-def _assert_rgw_healthcheck(
-    juju: jubilant.Juju, unit_name: str, timeout: int = DEFAULT_TIMEOUT
-) -> None:
-    deadline = time.time() + timeout
-    last_error = ""
-    while time.time() < deadline:
-        try:
-            juju.ssh(
-                unit_name,
-                "sudo",
-                "curl",
-                "-fsS",
-                "--max-time",
-                "15",
-                "http://127.0.0.1:80/swift/healthcheck",
-            )
-            return
-        except jubilant.CLIError as exc:  # type: ignore[attr-defined]
-            last_error = exc.stderr or exc.stdout or str(exc)
-        time.sleep(10)
-
-    raise AssertionError(f"RGW health check failed on {unit_name}; last error: {last_error}")
-
-
 class TerraformController:
     """Wrapper around terragrunt apply/destroy for the tests."""
 
@@ -218,7 +127,7 @@ class TerraformController:
             raise AssertionError(f"Application {APP_NAME} not present after apply")
 
         current_units = set(app.units.keys())
-        new_units = sorted(current_units - self._known_units)
+        new_units = helpers.new_unit_names(self._known_units, current_units)
         if new_units:
             # Adding loop osds on new units
             helpers.ensure_loop_osd(self._juju, APP_NAME, LOOP_OSD_SPEC, new_units)
@@ -316,19 +225,22 @@ class TestTerraformRadosGateway:
             raise AssertionError(f"Application {APP_NAME} missing units after RGW apply")
 
         unit_name = helpers.first_unit_name(current_status, APP_NAME)
-        _wait_for_microceph_status_rgw(
+        helpers.wait_for_microceph_status_rgw(
             terraform_controller.juju,
             unit_name,
             expected_nodes=len(app.units),
         )
-        rgw_status = _wait_for_ceph_status_rgw(terraform_controller.juju)
-        assert _is_rgw_enabled(rgw_status)
+        rgw_status = helpers.wait_for_ceph_status_rgw(
+            terraform_controller.juju,
+            APP_NAME,
+        )
+        assert helpers.ceph_status_has_rgw(rgw_status)
 
     @pytest.mark.abort_on_fail
     def test_rgw_healthcheck(self, terraform_controller: TerraformController) -> None:
         status = terraform_controller.juju.status()
         unit_name = helpers.first_unit_name(status, APP_NAME)
-        _assert_rgw_healthcheck(terraform_controller.juju, unit_name)
+        helpers.assert_rgw_healthcheck(terraform_controller.juju, unit_name)
 
     @pytest.mark.abort_on_fail
     def test_rgw_object_io(self, terraform_controller: TerraformController) -> None:

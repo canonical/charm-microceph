@@ -144,88 +144,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get actionutils
-        run: |
-          curl -sL https://raw.githubusercontent.com/canonical/microceph/main/tests/scripts/actionutils.sh -o ~/actionutils.sh
-          chmod +x ~/actionutils.sh
+      - name: Install tooling
+        run: sudo apt-get -qq install tox
 
-      - name: Clear FORWARD firewall rules
-        run: ~/actionutils.sh cleaript
+      - name: Bootstrap Sunbeam
+        run: ./tests/scripts/bootstrap_sunbeam.sh
 
-      - name: Install sunbeam
-        run: |
-          date
-          sudo snap remove --purge lxd          
-          sudo apt remove --purge docker.io containerd runc -y
-          sudo rm -rf /run/containerd
-
-          sudo nft chain ip filter FORWARD '{policy accept;}'
-          sudo snap install juju --channel 3.6/stable
-
-          sudo snap install openstack --channel 2024.1
-          sudo snap connect openstack:juju-bin juju:juju-bin
-
-          sunbeam prepare-node-script --bootstrap | bash -x
-          sg snap_daemon "sunbeam cluster bootstrap --accept-defaults --topology single --database single"
-          sg snap_daemon "sunbeam cluster list"
-          juju status -m admin/controller
-          juju status -m openstack
-          juju switch sunbeam-controller:admin/openstack-machines
-          sg snap_daemon "sunbeam configure --accept-defaults --openrc demo-openrc"
-          date
-
-      - name: Upgrade to locally built charm
-        run: |
-          set -euxo pipefail
-          MODEL=admin/openstack-machines
-
-          juju refresh microceph --path ~/artifacts/microceph.charm
-          juju add-unit microceph --to 0
-
-          # Wait for the refreshed MicroCeph unit to settle before mutating storage.
-          ready=0
-          for i in $(seq 1 30); do
-            if juju status -m "$MODEL" --format json | python3 -c 'import json, sys; status = json.load(sys.stdin); app = status.get("applications", {}).get("microceph", {}); unit = app.get("units", {}).get("microceph/0", {}); workload = unit.get("workload-status", {}).get("current"); agent = unit.get("juju-status", {}).get("current"); sys.exit(0 if workload == "active" and agent == "idle" else 1)'; then
-              echo "microceph/0 is active/idle in $MODEL"
-              ready=1
-              break
-            fi
-            echo -n "."
-            sleep 10
-          done
-          echo
-
-          if [ "$ready" -ne 1 ]; then
-            echo "microceph failed to become active/idle in $MODEL after refresh"
-            juju status -m "$MODEL" --relations --storage
-            juju debug-log -m "$MODEL" --replay --no-tail --include microceph/0 || true
-            exit 1
-          fi
-
-          sudo snap list
-          juju status -m "$MODEL" --relations --storage
-
-      - name: Add disks
-        run: |
-          set -euxo pipefail
-          MODEL=admin/openstack-machines
-
-          juju add-storage microceph/0 osd-standalone=loop,2G,3
-          sleep 20 # extra time for juju storage attachment
-          if ! ~/actionutils.sh wait_for_osds 3; then
-            juju status -m "$MODEL" --relations --storage
-            juju debug-log -m "$MODEL" --replay --no-tail --include microceph/0 || true
-            sudo microceph.ceph -s || true
-            exit 1
-          fi
-          sudo microceph.ceph -s
-
-      - name: Test RGW
+      - name: Run Sunbeam end-to-end suite
         run: |
           set -eux
-          juju config microceph enable-rgw="*"
-          ~/actionutils.sh wait_for_rgw 1
-          ~/actionutils.sh testrgw
+          cp ~/artifacts/microceph.charm .
+          tox -e sunbeam -- --sunbeam-model sunbeam-controller:admin/openstack-machines
 
       - name: Collect logs
         if: failure()

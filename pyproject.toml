@@ -34,6 +34,7 @@ markers = [
     "smoke: quick integration checks",
     "incremental: treat tests in a class as dependent and skip the rest after first failure",
     "slow: tests that take longer",
+    "sunbeam: end-to-end tests that attach to a Sunbeam-provisioned Juju model",
 ]
 
 # Formatting tools configuration

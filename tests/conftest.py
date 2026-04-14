@@ -20,6 +20,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Do not destroy the temporary Juju models created for integration tests.",
     )
+    parser.addoption(
+        "--sunbeam-model",
+        action="store",
+        default="sunbeam-controller:admin/openstack-machines",
+        help="Existing Juju model to attach the Sunbeam end-to-end suite to.",
+    )
+    parser.addoption(
+        "--sunbeam-app",
+        action="store",
+        default="microceph",
+        help="Application name to target inside the attached Sunbeam model.",
+    )
 
 
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:
