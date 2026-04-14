@@ -284,7 +284,20 @@ def _poll_status(
     context: str | None = None,
     fail_fast_before_probe: bool = False,
 ) -> T:
-    """Poll Juju status until *probe* returns a non-pending result."""
+    """Poll Juju status until *probe* returns a non-pending result.
+
+    When ``app`` and ``context`` are provided, this helper also checks for
+    explicit Juju failure states (for example ``blocked`` or ``error``) and
+    raises with ``context`` instead of waiting for the timeout.
+
+    ``fail_fast_before_probe`` controls when that failure check runs:
+
+    * ``True``: abort before running ``probe``. Use this when a Juju-reported
+      failure should immediately stop the wait.
+    * ``False``: run ``probe`` first, then abort if the probe is still pending.
+      Use this when the probe may still succeed despite stale or transient
+      Juju status.
+    """
     deadline = time.time() + timeout
     last_status = juju.status()
     while time.time() < deadline:
