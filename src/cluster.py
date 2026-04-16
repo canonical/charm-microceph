@@ -87,7 +87,8 @@ class ClusterNodes(ops.framework.Object):
             raise sunbeam_guard.BlockedExceptionError(f"join token not found for {gethostname()}")
 
         try:
-            microceph.join_cluster(token=token, **self.charm._get_bootstrap_params())
+            params = self.charm._get_bootstrap_params()
+            microceph.join_cluster(token=token, **params)
             self.charm.peers.interface.state.joined = True
             self.charm.peers.set_unit_data({"joined": json.dumps(True)})
             logger.debug("Joined cluster successfully.")

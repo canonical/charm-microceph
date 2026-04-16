@@ -296,11 +296,16 @@ def join_cluster(token: str, micro_ip: str = "", availability_zone: str = "", **
     if micro_ip:
         cmd.extend(["--microceph-ip", micro_ip])
 
-    if availability_zone:
-        if _az_flag_supported():
-            cmd.extend(["--availability-zone", availability_zone])
-        else:
-            logger.warning("Ignoring --availability-zone: installed microceph does not support it")
+    if availability_zone and _az_flag_supported():
+        try:
+            utils.run_cmd(cmd=cmd + ["--availability-zone", availability_zone])
+            return
+        except subprocess.CalledProcessError as e:
+            if "existing hosts do not have an availability zone" not in (e.stderr or ""):
+                raise
+            logger.warning(
+                "Cluster not using availability zones, retrying join without --availability-zone"
+            )
 
     utils.run_cmd(cmd=cmd)
 

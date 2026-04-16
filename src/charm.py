@@ -626,8 +626,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def bootstrap_cluster(self, event: ops.framework.EventBase) -> None:
         """Bootstrap microceph cluster."""
         try:
-            microceph.bootstrap_cluster(**self._get_bootstrap_params())
-            logger.debug(f"Successfully bootstrapped with params {self._get_bootstrap_params()}")
+            params = self._get_bootstrap_params()
+            microceph.bootstrap_cluster(**params)
+            logger.debug(f"Successfully bootstrapped with params {params}")
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
