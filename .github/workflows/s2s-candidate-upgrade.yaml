@@ -38,11 +38,8 @@ jobs:
           for i in 0 1 2; do
             juju run microceph/$i add-osd loop-spec=3G,1 --wait=3m
           done
-          juju wait-for application microceph \
-            --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' \
-            --timeout=20m
-          juju ssh microceph/0 -- sudo microceph.ceph -s
-          juju ssh microceph/0 -- sudo microceph.ceph health | grep HEALTH_OK
+          ./tests/scripts/ci_helpers.sh wait_for_ceph_health_ok
+          juju status
 
       - name: Enable RGW
         run: |
@@ -86,12 +83,8 @@ jobs:
         run: |
           set -eux
           juju refresh microceph --channel "${CANDIDATE_CHANNEL}"
-          juju wait-for application microceph \
-            --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' \
-            --timeout=40m
+          ./tests/scripts/ci_helpers.sh wait_for_ceph_health_ok microceph microceph/0 40m 20m
           juju status
-          juju ssh microceph/0 -- sudo microceph.ceph -s
-          juju ssh microceph/0 -- sudo microceph.ceph health | grep HEALTH_OK
 
       - name: Exercise RGW after upgrade
         run: |

@@ -306,6 +306,71 @@ function wait_for_microceph_bootstrap() {
     juju wait-for application microceph --query='name=="microceph" && (status=="active" || status=="idle")' --timeout=10m
 }
 
+function dump_microceph_cluster_diagnostics() {
+  local app="${1:-microceph}"
+  local unit="${2:-${app}/0}"
+
+  echo "--- juju status (${app}) ---"
+  juju status "$app" || juju status || true
+
+  echo "--- microceph status (${unit}) ---"
+  juju ssh "$unit" -- sudo microceph status || true
+
+  echo "--- ceph status (${unit}) ---"
+  juju ssh "$unit" -- sudo microceph.ceph -s || true
+
+  echo "--- ceph health detail (${unit}) ---"
+  juju ssh "$unit" -- sudo microceph.ceph health detail || true
+}
+
+function wait_for_ceph_health_ok() {
+  local app="${1:-microceph}"
+  local unit="${2:-${app}/0}"
+  local settle_timeout="${3:-20m}"
+  local health_timeout="${4:-20m}"
+  local poll_interval="${5:-15}"
+
+  echo "Waiting for ${app} units to become active/idle (timeout: ${settle_timeout})"
+  juju wait-for application "$app" \
+    --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' \
+    --timeout="$settle_timeout"
+
+  echo "Waiting for Ceph health on ${unit} to become HEALTH_OK (timeout: ${health_timeout})"
+  if timeout "$health_timeout" bash -c '
+    unit="$1"
+    poll_interval="$2"
+    last_health=""
+
+    while true; do
+      if status=$(juju ssh "$unit" -- sudo microceph.ceph status --format json 2>/dev/null); then
+        health=$(jq -r ".health.status // empty" <<< "$status" 2>/dev/null || true)
+        if [[ -z "$health" ]]; then
+          echo "Unable to parse Ceph status JSON from ${unit}, retrying..."
+        else
+          if [[ "$health" != "$last_health" ]]; then
+            echo "Current Ceph health for ${unit}: ${health}"
+            last_health="$health"
+          fi
+          if [[ "$health" == "HEALTH_OK" ]]; then
+            exit 0
+          fi
+        fi
+      else
+        echo "Unable to fetch Ceph status from ${unit}, retrying..."
+      fi
+
+      sleep "$poll_interval"
+    done
+  ' bash "$unit" "$poll_interval"; then
+    juju ssh "$unit" -- sudo microceph.ceph -s
+    return 0
+  fi
+
+  echo "Timed out waiting for Ceph health to become HEALTH_OK on ${unit}"
+  dump_microceph_cluster_diagnostics "$app" "$unit"
+  exit 1
+}
+
 function dump_vm_diagnostics() {
   local vm="${1?missing}"
 
