@@ -1,6 +1,6 @@
 # Add virtual OSDs for test clusters
 
-MicroCeph also supports creating and using files as backing devices for OSDs. This is a handy feature for testing out MicroCeph without commiting physical block devices.
+MicroCeph also supports creating and using files as backing devices for OSDs. This is a handy feature for testing out MicroCeph without committing physical block devices.
 
 OSDs are added by triggering `add-osd action` on a microceph unit.
 
