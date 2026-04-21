@@ -1,55 +1,65 @@
-The guide shows how to perform a general install of Charmed MicroCeph.
+# Install MicroCeph with Juju
 
-### What you will need
+This guide shows how to perform a general install of MicroCeph using Juju.
 
-- A snapd-compatible host to run the [Juju client](https://juju.is/docs/installing)
-- A [MAAS cluster](https://maas.io/install) (with a user account at your disposal)
-  (OR)
-  A [Manual cloud cluster](https://juju.is/docs/olm/manual-setup)
-- Disks on each node to add as OSD to ceph cluster
+## Prerequisites
 
-### Deploy MicroCeph
+- A snapd-compatible host to run the [Juju client](https://documentation.ubuntu.com/juju/3.6/howto/manage-juju/?utm_source%3Atakeover=#install-juju)
+- A machine cloud (substrate), e.g. [MAAS](https://documentation.ubuntu.com/juju/3.6/reference/cloud/list-of-supported-clouds/the-maas-cloud-and-juju/),
+  [LXD](https://documentation.ubuntu.com/juju/3.6/reference/cloud/list-of-supported-clouds/the-lxd-cloud-and-juju/)
+  or [AWS](https://documentation.ubuntu.com/juju/3.6/reference/cloud/list-of-supported-clouds/the-amazon-ec2-cloud-and-juju/) at your disposal.
+  See the [Juju documentation](https://documentation.ubuntu.com/juju/3.6/reference/cloud/list-of-supported-clouds/) for the full list of supported clouds and more information on how to set them up.
 
-The actual deployment of MicroCeph is straightforward:
+> **Important:** MicroCeph requires a machine cloud and will not work with a Kubernetes cluster.
 
-    juju deploy -n 3 microceph --channel latest/edge --to 0,1,2
+- Disks on each node to add as object storage daemons (OSDs) to the Ceph cluster
+
+## Deploy MicroCeph
+
+Deploy three units of the MicroCeph charm to three machines.
+
+```text
+juju deploy -n 3 microceph --channel latest/edge --to 0,1,2
+```
 
 The output to the `juju status` command should look similar to this:
 
-```
+```text
 Model      Controller       Cloud/Region     Version    SLA          Timestamp
 microceph  sunbeam-default  sunbeam/default  3.2-beta3  unsupported  03:40:02Z
 App        Version  Status  Scale  Charm      Channel      Rev  Exposed  Message
-microceph           active      3  microceph  latest/edge    3  no       
+microceph           active      3  microceph  latest/edge    3  no
 Unit          Workload  Agent  Machine  Public address  Ports  Message
-microceph/0*  active    idle   0        10.5.0.106             
-microceph/1   active    idle   1        10.5.1.191             
-microceph/2   active    idle   2        10.5.1.81              
+microceph/0*  active    idle   0        10.5.0.106
+microceph/1   active    idle   1        10.5.1.191
+microceph/2   active    idle   2        10.5.1.81
 Machine  State    Address     Inst id            Base          AZ  Message
 0        started  10.5.0.106  manual:10.5.0.106  ubuntu@22.04      Manually provisioned machine
 1        started  10.5.1.191  manual:10.5.1.191  ubuntu@22.04      Manually provisioned machine
 2        started  10.5.1.81   manual:10.5.1.81   ubuntu@22.04      Manually provisioned machine
 ```
 
-### Verification
+## Verify your deployment
 
-Verify the state of the Ceph cluster by displaying the output to the traditional ceph status command. Invoke this command on one of the nodes:
+Verify the state of the Ceph cluster by running the `ceph status` command on one of the nodes:
 
-    juju ssh microceph/leader sudo microceph.ceph status
-
-Sample output is:
-
+```text
+juju ssh microceph/leader sudo microceph.ceph status
 ```
+
+Sample output:
+
+```text
   cluster:
     id:     edd914f5-fdf8-4b56-bdd7-95d6c5e10d81
     health: HEALTH_WARN
             OSD count 0 < osd_pool_default_size 3
- 
+
   services:
     mon: 3 daemons, quorum microceph2,microceph3,microceph4 (age 57s)
     mgr: microceph2(active, since 74s), standbys: microceph3, microceph4
     osd: 0 osds: 0 up, 0 in
- 
+
   data:
     pools:   0 pools, 0 pgs
     objects: 0 objects, 0 B
@@ -57,4 +67,4 @@ Sample output is:
     pgs:
 ```
 
-Next step is to add disks to the microceph nodes.
+The next step is to add disks to the microceph nodes.
