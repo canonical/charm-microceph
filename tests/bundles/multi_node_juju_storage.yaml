@@ -6,6 +6,6 @@ applications:
     constraints: mem=4G cores=2 root-disk=32G virt-type=virtual-machine
     scale: 3
     options:
-      snap-channel: squid/stable
+      snap-channel: squid/edge
     storage:
       osd-standalone: loop,3,2G
