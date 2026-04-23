@@ -149,6 +149,38 @@ add_osd_loop() {
     _wait_for_osds "${NODES}"
 }
 
+join_additional_unit() {
+    # Add a new microceph unit to an existing LXD cluster node, add a loop OSD,
+    # and verify the unit joins the MicroCeph cluster with the cluster remaining healthy.
+    local node="${1:-node3}"
+
+    local osd_count_before
+    osd_count_before=$(_juju_ssh microceph/0 -- \
+        sudo microceph.ceph osd stat --format json 2>/dev/null | jq -r '.num_osds // 0')
+
+    echo "=== join_additional_unit: adding unit to ${node} (current OSDs: ${osd_count_before}) ==="
+    _juju add-unit microceph --to "${node}"
+    _juju wait-for application microceph --query='status=="active"' --timeout 30m
+
+    # New unit index: units 0..NODES-1 already exist, so the new unit is NODES.
+    local new_unit="microceph/${NODES}"
+    _juju run "${new_unit}" add-osd loop-spec="1G,1"
+    _wait_for_osds $((osd_count_before + 1))
+
+    _juju_ssh microceph/0 -- sudo microceph.ceph -s
+    _juju_ssh microceph/0 -- sudo microceph.ceph osd tree
+
+    local health
+    health=$(_juju_ssh microceph/0 -- \
+        sudo microceph.ceph health --format json 2>/dev/null | jq -r '.status // "UNKNOWN"')
+    if [ "${health}" = "HEALTH_ERR" ]; then
+        echo "FAIL: Cluster health is ${health} after adding new unit"
+        _juju_ssh microceph/0 -- sudo microceph.ceph health detail
+        return 1
+    fi
+    echo "PASSED: Additional unit joined and OSD became active (health=${health})"
+}
+
 prune_units() {
     # destroy-model removes all applications, machines, and storage and waits
     _juju destroy-model "${MODEL}" --no-prompt --destroy-storage --no-wait --force || true
@@ -267,6 +299,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "  deploy_from_revision     Deploy from Charmhub CHARM_TRACK rev CHARM_REVISION (default: squid/stable rev 227)"
         echo "  upgrade_to_charm_file    Refresh existing deployment to local CHARM_PATH"
         echo "  add_osd_loop             Add a 1G loop OSD to each unit"
+        echo "  join_additional_unit     Add a unit to a node (default: node3), add OSD, verify health"
         echo "  prune_units              Remove all units and destroy the model"
         echo "  relax_clock_skew         Set mon_clock_drift_allowed=1s (CI: UDP 123 blocked)"
         echo ""

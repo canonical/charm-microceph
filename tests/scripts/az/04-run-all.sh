@@ -84,23 +84,26 @@ echo "  CHARM_TRACK=${CHARM_TRACK}"
 echo "  CHARM_PATH (upgrade target)=${CHARM_PATH}"
 echo "  NODES=${NODES}"
 
-header "  [1/6] deploy_from_revision"
+header "  [1/7] deploy_from_revision"
 deploy_from_revision
 
-header "  [2/6] relax_clock_skew"
+header "  [2/7] relax_clock_skew"
 relax_clock_skew
 
-header "  [3/6] juju status (post-deploy)"
+header "  [3/7] juju status (post-deploy)"
 _juju status
 
-header "  [4/6] add_osd_loop"
+header "  [4/7] add_osd_loop"
 add_osd_loop
 
-header "  [5/6] upgrade_to_charm_file"
+header "  [5/7] upgrade_to_charm_file"
 upgrade_to_charm_file
 
-header "  [6/6] verify_no_az_on_upgrade"
+header "  [6/7] verify_no_az_on_upgrade"
 verify_no_az_on_upgrade
+
+header "  [7/7] join_additional_unit"
+join_additional_unit node3
 
 pass "TEST 2"
 

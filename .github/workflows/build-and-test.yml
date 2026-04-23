@@ -1315,6 +1315,12 @@ jobs:
           SNAP_CHANNEL=squid/edge upgrade_to_charm_file
           verify_no_az_on_upgrade
 
+      - name: Join additional unit on node3, add OSD, verify cluster health
+        run: |
+          set -eux
+          source tests/scripts/az/03-exercise-microceph.sh
+          join_additional_unit node3
+
       - name: Collect logs
         if: failure()
         run: |
