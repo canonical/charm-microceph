@@ -14,7 +14,6 @@
 
 """Tests for Microceph helper functions."""
 
-import subprocess
 import unittest
 from unittest.mock import call, patch
 
@@ -223,24 +222,6 @@ class TestMicroCeph(unittest.TestCase):
                 "--availability-zone",
                 "az-2",
             ]
-        )
-
-    @patch("utils.run_cmd")
-    @patch("microceph.gethostname")
-    @patch("microceph._az_flag_supported", new=lambda: True)
-    def test_join_cluster_retries_without_az_when_cluster_has_none(self, gethn, run_cmd):
-        """Test join_cluster retries without --availability-zone when cluster has no AZs."""
-        gethn.return_value = "host"
-        err = subprocess.CalledProcessError(1, "microceph")
-        err.stderr = (
-            "mixed empty availability zones and set availability zones are not supported: "
-            "existing hosts do not have an availability zone, but join was called with an "
-            "associated availability zone"
-        )
-        run_cmd.side_effect = ["", err, ""]
-        microceph.join_cluster("token", "10.10.10.10", availability_zone="az-2")
-        run_cmd.assert_called_with(
-            cmd=["microceph", "cluster", "join", "token", "--microceph-ip", "10.10.10.10"]
         )
 
     @patch("utils.run_cmd")

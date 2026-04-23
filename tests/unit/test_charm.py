@@ -1185,7 +1185,7 @@ class TestCharm(testbase.TestBaseCharm):
     @patch.dict("os.environ", {"JUJU_AVAILABILITY_ZONE": "az-1"})
     @patch.object(microceph, "join_cluster")
     def test_join_with_availability_zone(self, mock_join_cluster):
-        """Test join_node_to_cluster always passes availability_zone from the environment."""
+        """Test join_node_to_cluster passes availability_zone when cluster_uses_az is set."""
         self.harness.update_config({"snap-channel": "1.0/stable"})
         rel_id = self.add_complete_peer_relation(self.harness)
 
@@ -1193,7 +1193,10 @@ class TestCharm(testbase.TestBaseCharm):
         self.harness.update_relation_data(
             rel_id,
             self.harness.charm.app.name,
-            {f"{unit_name}.join_token": "test-token"},
+            {
+                f"{unit_name}.join_token": "test-token",
+                "cluster_uses_az": "true",
+            },
         )
 
         event = MagicMock()
