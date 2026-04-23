@@ -1018,8 +1018,9 @@ class TestCharm(testbase.TestBaseCharm):
     @patch("microceph.is_ready")
     @patch("ceph.enable_mgr_module")
     @patch("utils.subprocess")
+    @patch("ceph.ceph_config_set")
     @patch.object(ceph_cos_agent, "ceph_utils")
-    def test_cos_integration(self, ceph_utils, _sub, enable_mgr_module, is_ready):
+    def test_cos_integration(self, ceph_utils, ceph_config_set, _sub, enable_mgr_module, is_ready):
         """Test integration for COS agent."""
         is_ready.return_value = True
         self.harness.set_leader()
@@ -1027,20 +1028,45 @@ class TestCharm(testbase.TestBaseCharm):
 
         self.add_cos_agent_integration(self.harness)
         enable_mgr_module.assert_called_once_with("prometheus")
-        ceph_utils.mgr_config_set.assert_has_calls(
+        # With mgr_config_set_cb, the callback uses ceph.ceph_config_set
+        # (microceph.ceph) instead of charms_ceph ceph_utils.mgr_config_set
+        ceph_config_set.assert_has_calls(
             [
-                call("mgr/prometheus/rbd_stats_pools", "abcd"),
-                call("mgr/prometheus/exclude_perf_counters", "False"),
+                call("mgr", "mgr/prometheus/rbd_stats_pools", "abcd"),
+                call("mgr", "mgr/prometheus/exclude_perf_counters", "False"),
             ]
         )
+        # charms_ceph fallback should NOT be called
+        ceph_utils.mgr_config_set.assert_not_called()
+
+    @patch("microceph.is_ready")
+    @patch("ceph.enable_mgr_module")
+    @patch("utils.subprocess")
+    @patch("ceph.ceph_config_set")
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    def test_cos_integration_mgr_config_set_cb_no_rbd_pools(
+        self, ceph_utils, ceph_config_set, _sub, enable_mgr_module, is_ready
+    ):
+        """Test mgr_config_set_cb skips rbd_stats_pools when not configured."""
+        is_ready.return_value = True
+        self.harness.set_leader()
+        self.harness.update_config({"enable-perf-metrics": False})
+
+        self.add_cos_agent_integration(self.harness)
+        # Only exclude_perf_counters should be set (no rbd-stats-pools)
+        ceph_config_set.assert_called_once_with(
+            "mgr", "mgr/prometheus/exclude_perf_counters", "True"
+        )
+        ceph_utils.mgr_config_set.assert_not_called()
 
     @patch("microceph.is_ready")
     @patch("ceph.enable_mgr_module")
     @patch("ceph.disable_mgr_module")
     @patch("utils.subprocess")
+    @patch("ceph.ceph_config_set")
     @patch.object(ceph_cos_agent, "ceph_utils")
     def test_cos_agent_relation_departed_leader(
-        self, ceph_utils, _sub, disable_mgr_module, enable_mgr_module, is_ready
+        self, ceph_utils, ceph_config_set, _sub, disable_mgr_module, enable_mgr_module, is_ready
     ):
         """Test that prometheus module is disabled when cos-agent relation departs on leader."""
         is_ready.return_value = True
@@ -1083,6 +1109,33 @@ class TestCharm(testbase.TestBaseCharm):
 
         # Verify prometheus module is NOT disabled on non-leader
         disable_mgr_module.assert_not_called()
+
+    @patch("ceph.ceph_config_set")
+    def test_cos_agent_mgr_config_set_cb_with_pools(self, mock_ceph_config_set):
+        """Test cos_agent_mgr_config_set_cb sets both rbd pools and perf counters."""
+        from microceph import cos_agent_mgr_config_set_cb
+
+        config = {"rbd-stats-pools": "pool1,pool2", "enable-perf-metrics": True}
+        cos_agent_mgr_config_set_cb(config)
+
+        mock_ceph_config_set.assert_has_calls(
+            [
+                call("mgr", "mgr/prometheus/rbd_stats_pools", "pool1,pool2"),
+                call("mgr", "mgr/prometheus/exclude_perf_counters", "False"),
+            ]
+        )
+
+    @patch("ceph.ceph_config_set")
+    def test_cos_agent_mgr_config_set_cb_without_pools(self, mock_ceph_config_set):
+        """Test cos_agent_mgr_config_set_cb skips rbd pools when not set."""
+        from microceph import cos_agent_mgr_config_set_cb
+
+        config = {"enable-perf-metrics": False}
+        cos_agent_mgr_config_set_cb(config)
+
+        mock_ceph_config_set.assert_called_once_with(
+            "mgr", "mgr/prometheus/exclude_perf_counters", "True"
+        )
 
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch("ceph.enable_mgr_module")
