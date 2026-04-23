@@ -86,8 +86,14 @@ class ClusterNodes(ops.framework.Object):
         if not token:
             raise sunbeam_guard.BlockedExceptionError(f"join token not found for {gethostname()}")
 
+        params = self.charm._get_bootstrap_params()
+        # Only pass --availability-zone if the cluster was bootstrapped with
+        # AZ support.  Mixing AZ and non-AZ nodes is not allowed, so if the
+        # flag is absent (older cluster or bootstrap without AZ) we suppress it.
+        if not self.charm.peers.get_app_data("cluster_uses_az"):
+            params["availability_zone"] = ""
+
         try:
-            params = self.charm._get_bootstrap_params()
             microceph.join_cluster(token=token, **params)
             self.charm.peers.interface.state.joined = True
             self.charm.peers.set_unit_data({"joined": json.dumps(True)})
