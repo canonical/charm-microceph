@@ -1205,8 +1205,7 @@ class TestCharm(testbase.TestBaseCharm):
         _utils,
         _cos_agent,
     ):
-        """cluster_uses_az must not be written to app data when snap does not support
-        --availability-zone.
+        """cluster_uses_az must not be written to app data when snap does not support az.
 
         Regression: the old code checked params.get("availability_zone") (always truthy
         when JUJU_AVAILABILITY_ZONE is set) instead of the actually-applied params
