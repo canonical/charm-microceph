@@ -16,7 +16,6 @@
 
 """Handle Ceph commands."""
 
-import functools
 import json
 import logging
 import subprocess
@@ -237,7 +236,6 @@ def bootstrap_cluster(
 
     utils.run_cmd(cmd=cmd)
     return applied
-
 
 
 def adopt_ceph_cluster(

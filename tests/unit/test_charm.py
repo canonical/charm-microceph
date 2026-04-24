@@ -1160,7 +1160,11 @@ class TestCharm(testbase.TestBaseCharm):
         cclient.from_socket().cluster.list_services.return_value = []
 
         self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
         self.harness.update_config({"snap-channel": "1.0/stable"})
+
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertEqual(app_data.get("cluster_uses_az"), "true")
 
         subprocess.run.assert_any_call(
             [

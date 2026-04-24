@@ -194,7 +194,7 @@ collect_logs() {
 
 relax_clock_skew() {
     # GitHub Actions runners block outbound UDP 123 so VMs can't sync NTP.
-    # Raise mon_clock_drift_allowed to 1s to prevent HEALTH_WARN from blocking upgrades.
+    # Raise mon_clock_drift_allowed to 2s to prevent HEALTH_WARN from blocking upgrades.
     _juju exec --unit microceph/leader -- sudo microceph.ceph config set mon mon_clock_drift_allowed 2
     _juju_ssh microceph/0 -- sudo microceph.ceph health detail
 }
@@ -301,7 +301,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "  add_osd_loop             Add a 1G loop OSD to each unit"
         echo "  join_additional_unit     Add a unit to a node (default: node3), add OSD, verify health"
         echo "  prune_units              Remove all units and destroy the model"
-        echo "  relax_clock_skew         Set mon_clock_drift_allowed=1s (CI: UDP 123 blocked)"
+        echo "  relax_clock_skew         Set mon_clock_drift_allowed=2s (CI: UDP 123 blocked)"
         echo ""
         echo "Verification:"
         echo "  verify_az_crush_map      Check rack CRUSH rule and az.nodeN buckets are present"
