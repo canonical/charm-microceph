@@ -179,10 +179,6 @@ class ClusterUpgrades(ops.framework.Object):
         mc_snap = snap.SnapCache()["microceph"]
         mc_snap.ensure(snap.SnapState.Present, channel=channel)
 
-        # The snap binary has been replaced; invalidate the cached probe so that
-        # any subsequent join or adopt call re-checks the new binary for flag support.
-        microceph._az_flag_supported.cache_clear()
-
         @tenacity.retry(
             wait=tenacity.wait_fixed(8),
             stop=tenacity.stop_after_delay(900),

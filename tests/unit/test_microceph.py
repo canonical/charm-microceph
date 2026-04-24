@@ -651,9 +651,6 @@ class TestMicroCeph(unittest.TestCase):
 
 class TestAZFlagSupported(unittest.TestCase):
 
-    def setUp(self):
-        microceph._az_flag_supported.cache_clear()
-
     @patch("subprocess.run")
     def test_returns_true_when_flag_in_help(self, mock_run):
         """Returns True when --availability-zone appears in bootstrap help output."""

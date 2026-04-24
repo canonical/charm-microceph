@@ -603,7 +603,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Bootstrap Microceph cluster using external ceph cluster."""
         try:
             network_params = self._get_bootstrap_params()
-            microceph.adopt_ceph_cluster(
+            applied = microceph.adopt_ceph_cluster(
                 fsid=fsid,
                 mon_hosts=mon_hosts,
                 admin_key=admin_key,
@@ -614,7 +614,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             )
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True
-            if network_params.get("availability_zone"):
+            if applied.get("availability_zone"):
                 self.peers.set_app_data({"cluster_uses_az": "true"})
             logger.debug("microceph bootstrapped successfully via adopt-ceph")
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
@@ -629,11 +629,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Bootstrap microceph cluster."""
         try:
             params = self._get_bootstrap_params()
-            microceph.bootstrap_cluster(**params)
+            applied = microceph.bootstrap_cluster(**params)
             logger.debug(f"Successfully bootstrapped with params {params}")
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True
-            if params.get("availability_zone"):
+            if applied.get("availability_zone"):
                 self.peers.set_app_data({"cluster_uses_az": "true"})
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(e.stderr)
