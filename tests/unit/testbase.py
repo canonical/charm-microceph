@@ -63,11 +63,15 @@ class _MicroCephCharm(charm.MicroCephCharm):
             ceph_cos_agent.CephCOSAgentProvider, "__init__", patched_init
         )
         self._cos_agent_patch.start()
+        # Patch ceph.ceph_config_set to avoid calling microceph.ceph in tests
+        self._ceph_config_set_patch = patch("ceph.ceph_config_set")
+        self._ceph_config_set_patch.start()
         super().__init__(framework)
 
     def tearDown(self):
         """Stop the patches."""
         self._cos_agent_patch.stop()
+        self._ceph_config_set_patch.stop()
 
     def configure_ceph(self, event):
         return

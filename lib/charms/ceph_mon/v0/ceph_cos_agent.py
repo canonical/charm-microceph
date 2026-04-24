@@ -19,13 +19,14 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 4
+LIBPATCH = 5
 
 logger = logging.getLogger(__name__)
 
 
 class CephCOSAgentProvider(cos_agent.COSAgentProvider):
-    def __init__(self, charm, refresh_cb=None, departed_cb=None, is_ready_cb=None):
+    def __init__(self, charm, refresh_cb=None, departed_cb=None, is_ready_cb=None,
+                 mgr_config_set_cb=None):
         super().__init__(
             charm,
             metrics_rules_dir="./files/prometheus_alert_rules",
@@ -36,6 +37,7 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
         self._refresh_cb = refresh_cb
         self._departed_cb = departed_cb
         self._is_ready_cb = is_ready_cb
+        self._mgr_config_set_cb = mgr_config_set_cb
 
         events = self._charm.on[cos_agent.DEFAULT_RELATION_NAME]
         self.framework.observe(
@@ -136,6 +138,11 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
     def mgr_config_set_rbd_stats_pools(self):
         """Update ceph mgr config with the value from rbd-status-pools config
         """
+        if callable(self._mgr_config_set_cb):
+            self._mgr_config_set_cb(self._charm.model.config)
+            return
+
+        # ceph mon fallback
         rbd_stats_pools = self._charm.model.config.get('rbd-stats-pools')
         if rbd_stats_pools:
             ceph_utils.mgr_config_set(
@@ -145,5 +152,5 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
         enable_perf_metrics = self._charm.model.config.get('enable-perf-metrics', False)
         ceph_utils.mgr_config_set(
             'mgr/prometheus/exclude_perf_counters',
-            str(not enable_perf_metrics)  # flip the charm config value 
+            str(not enable_perf_metrics)  # flip the charm config value
         )

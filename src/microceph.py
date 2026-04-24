@@ -69,6 +69,23 @@ def cos_agent_refresh_cb(event):
     ceph.enable_ceph_monitoring()
 
 
+def cos_agent_mgr_config_set_cb(model_config):
+    """Callback to set mgr config using microceph.ceph.
+
+    :param model_config: the charm's model config dict.
+    """
+    rbd_stats_pools = model_config.get("rbd-stats-pools")
+    if rbd_stats_pools:
+        ceph.ceph_config_set("mgr", "mgr/prometheus/rbd_stats_pools", rbd_stats_pools)
+
+    enable_perf_metrics = model_config.get("enable-perf-metrics", False)
+    ceph.ceph_config_set(
+        "mgr",
+        "mgr/prometheus/exclude_perf_counters",
+        str(not enable_perf_metrics),
+    )
+
+
 def cos_agent_departed_cb(event):
     """Callback for cos-agent relation departed event."""
     logger.info("Entered CEPH COS AGENT DEPARTED")
