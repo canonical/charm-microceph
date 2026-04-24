@@ -1244,7 +1244,7 @@ jobs:
         run: |
           set -eux
           export CHARM_PATH=~/artifacts/microceph.charm
-          export SNAP_CHANNEL=squid/edge
+          export SNAP_CHANNEL=squid/stable
           source tests/scripts/az/03-exercise-microceph.sh
           deploy_from_charm_file
           relax_clock_skew
@@ -1312,7 +1312,7 @@ jobs:
           SNAP_CHANNEL=squid/stable deploy_from_revision
           relax_clock_skew
           add_osd_loop
-          SNAP_CHANNEL=squid/edge upgrade_to_charm_file
+          SNAP_CHANNEL=squid/stable upgrade_to_charm_file
           verify_no_az_on_upgrade
 
       - name: Join additional unit on node3, add OSD, verify cluster health

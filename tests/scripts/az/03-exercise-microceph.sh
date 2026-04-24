@@ -20,7 +20,7 @@ BASE_CHANNEL=${BASE_CHANNEL:-ubuntu@24.04}
 CHARM_PATH=${CHARM_PATH:-./microceph_amd64.charm}
 CHARM_REVISION=${CHARM_REVISION:-227}
 CHARM_TRACK=${CHARM_TRACK:-squid/stable}
-SNAP_CHANNEL=${SNAP_CHANNEL:-squid/edge}
+SNAP_CHANNEL=${SNAP_CHANNEL:-squid/stable}
 
 # Constraints applied to each microceph unit container.
 UNIT_CONSTRAINTS="virt-type=container root-disk-source=local"
