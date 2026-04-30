@@ -736,7 +736,7 @@ jobs:
         run: |
           set -eux
           date
-          target="squid/stable"
+          target="tentacle/edge"
           juju config microceph snap-channel=$target
           sleep 60
           # Initial wait
@@ -1525,10 +1525,10 @@ jobs:
       - name: Install dependencies
         run: ./tests/scripts/ci_helpers.sh install_deps
 
-      - name: Install MicroCeph squid charm from store
+      - name: Install MicroCeph tentacle charm from store
         run: |
           date
-          juju deploy -n 3 microceph --channel squid/stable
+          juju deploy -n 3 microceph --channel tentacle/edge
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           date
 
@@ -1544,7 +1544,7 @@ jobs:
           sleep 60
           juju ssh microceph/0 -- sudo ceph -s
 
-      - name: Test successful upgrade to squid/candidate
+      - name: Test successful refresh on tentacle/edge
         run: |
           set -eux
           date
@@ -1559,7 +1559,7 @@ jobs:
                 empty
               end
           ' <<< "$before_status")
-          juju refresh microceph --channel squid/candidate
+          juju refresh microceph --channel tentacle/edge
           sleep 60
           # Initial wait
           juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m || true
@@ -1583,8 +1583,8 @@ jobs:
           echo "microceph charm before refresh: channel=${before_channel:-unknown}, origin=${before_origin:-unknown}, rev=${before_rev}"
           echo "microceph charm after refresh: channel=${after_channel:-unknown}, origin=${after_origin:-unknown}, rev=${after_rev}"
           if [[ -n "$after_channel" ]]; then
-            if [[ "$after_channel" != "squid/candidate" ]]; then
-              echo "Expected charm to track squid/candidate after refresh, but got ${after_channel}"
+            if [[ "$after_channel" != "tentacle/edge" ]]; then
+              echo "Expected charm to track tentacle/edge after refresh, but got ${after_channel}"
               exit 1
             fi
           elif [[ -n "$before_origin" && -n "$after_origin" && "$before_origin" == "$after_origin" ]]; then
