@@ -38,6 +38,15 @@ MAJOR_VERSIONS = {
 }
 
 
+def _az_flag_supported() -> bool:
+    """Return True if the installed microceph supports --availability-zone."""
+    try:
+        output = utils.run_cmd(cmd=["microceph", "cluster", "bootstrap", "--help"], timeout=10)
+        return "--availability-zone" in output
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
 def is_ready() -> bool:
     """Check if microceph snap is installed and bootstrapped/joined."""
     if not snap.SnapCache()["microceph"].present:
@@ -212,20 +221,38 @@ def delete_cluster_configs(configs: list):
             logger.warning(f"Option {key} not recognized by microceph")
 
 
-def bootstrap_cluster(micro_ip: str = None, public_net: str = None, cluster_net: str = None):
+def bootstrap_cluster(
+    micro_ip: str = None,
+    public_net: str = None,
+    cluster_net: str = None,
+    availability_zone: str = "",
+) -> dict:
     """Bootstrap MicroCeph cluster."""
     cmd = ["microceph", "cluster", "bootstrap"]
+    applied = {}
 
     if public_net:
         cmd.extend(["--public-network", public_net])
+        applied["public_net"] = public_net
 
     if cluster_net:
         cmd.extend(["--cluster-network", cluster_net])
+        applied["cluster_net"] = cluster_net
 
     if micro_ip:
         cmd.extend(["--microceph-ip", micro_ip])
+        applied["microceph_ip"] = micro_ip
+
+    if availability_zone:
+        if _az_flag_supported():
+            logger.debug(f"Using availability zone {availability_zone} for microceph cluster")
+            cmd.extend(["--availability-zone", availability_zone])
+            applied["availability_zone"] = availability_zone
+        else:
+            logger.warning("Ignoring --availability-zone: installed microceph does not support it")
 
     utils.run_cmd(cmd=cmd)
+    return applied
 
 
 def adopt_ceph_cluster(
@@ -235,7 +262,8 @@ def adopt_ceph_cluster(
     micro_ip: str = "",
     public_net: str = "",
     cluster_net: str = "",
-):
+    availability_zone: str = "",
+) -> dict:
     """Bootstrap Microceph by adopting an existing Ceph cluster."""
     if not fsid or not mon_hosts or not admin_key:
         raise ValueError("fsid, mon_hosts and admin_key are required to adopt a cluster")
@@ -254,23 +282,36 @@ def adopt_ceph_cluster(
         "--mon-hosts",
         ",".join(mon_hosts),
     ]
+    applied = {"fsid": fsid, "mon_hosts": mon_hosts}
 
     if public_net:
         logger.debug(f"Using public network {public_net} for cluster")
         cmd.extend(["--public-network", public_net])
+        applied["public_net"] = public_net
 
     if cluster_net:
         logger.debug(f"Using cluster network {cluster_net} for cluster")
         cmd.extend(["--cluster-network", cluster_net])
+        applied["cluster_net"] = cluster_net
 
     if micro_ip:
         logger.debug(f"Using ip {micro_ip} for microceph cluster")
         cmd.extend(["--microceph-ip", micro_ip])
+        applied["microceph_ip"] = micro_ip
+
+    if availability_zone:
+        if _az_flag_supported():
+            logger.debug(f"Using availability zone {availability_zone} for microceph cluster")
+            cmd.extend(["--availability-zone", availability_zone])
+            applied["availability_zone"] = availability_zone
+        else:
+            logger.warning("Ignoring --availability-zone: installed microceph does not support it")
 
     utils.run_cmd_with_input(cmd=cmd, input_data=admin_key)
+    return applied
 
 
-def join_cluster(token: str, micro_ip: str = "", **kwargs):
+def join_cluster(token: str, micro_ip: str = "", availability_zone: str = "", **kwargs):
     """Join node to MicroCeph cluster."""
     hostname = gethostname()
     if is_cluster_member(hostname):
@@ -281,6 +322,12 @@ def join_cluster(token: str, micro_ip: str = "", **kwargs):
 
     if micro_ip:
         cmd.extend(["--microceph-ip", micro_ip])
+
+    if availability_zone and _az_flag_supported():
+        logger.debug(f"Using availability zone {availability_zone} for microceph cluster")
+        cmd.extend(["--availability-zone", availability_zone])
+    elif availability_zone:
+        logger.warning("Ignoring --availability-zone: installed microceph does not support it")
 
     utils.run_cmd(cmd=cmd)
 

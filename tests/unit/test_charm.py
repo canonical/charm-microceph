@@ -1189,3 +1189,118 @@ class TestCharm(testbase.TestBaseCharm):
 
             # Verify that handle_config_leader_set_ready was NOT called
             mock_set_ready.assert_not_called()
+
+    @patch.dict("os.environ", {"JUJU_AVAILABILITY_ZONE": "az-1"})
+    @patch.object(ceph_cos_agent, "CephCOSAgentProvider")
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    @patch.object(microceph, "Client")
+    @patch("utils.subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
+    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
+    @patch("microceph._az_flag_supported", new=lambda: True)
+    def test_bootstrap_with_availability_zone(
+        self,
+        _mock_file,
+        _mock_path_wb,
+        _mock_path_chmod,
+        subprocess,
+        cclient,
+        _utils,
+        _cos_agent,
+    ):
+        """Test bootstrap includes --availability-zone when JUJU_AVAILABILITY_ZONE is set."""
+        cclient.from_socket().cluster.list_services.return_value = []
+
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        self.harness.update_config({"snap-channel": "1.0/stable"})
+
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertEqual(app_data.get("cluster_uses_az"), "true")
+
+        subprocess.run.assert_any_call(
+            [
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.0.0.0/24",
+                "--cluster-network",
+                "10.0.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+                "--availability-zone",
+                "az-1",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+
+    @patch.dict("os.environ", {"JUJU_AVAILABILITY_ZONE": "az-1"})
+    @patch.object(ceph_cos_agent, "CephCOSAgentProvider")
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    @patch.object(microceph, "Client")
+    @patch("utils.subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
+    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
+    @patch("microceph._az_flag_supported", new=lambda: False)
+    def test_cluster_uses_az_not_set_when_az_flag_unsupported(
+        self,
+        _mock_file,
+        _mock_path_wb,
+        _mock_path_chmod,
+        _subprocess,
+        cclient,
+        _utils,
+        _cos_agent,
+    ):
+        """cluster_uses_az must not be written to app data when snap does not support az.
+
+        Regression: the old code checked params.get("availability_zone") (always truthy
+        when JUJU_AVAILABILITY_ZONE is set) instead of the actually-applied params
+        returned by microceph.bootstrap_cluster(), causing a false positive that made
+        joining nodes pass --availability-zone to a cluster that was never bootstrapped
+        with AZ support.
+        """
+        cclient.from_socket().cluster.list_services.return_value = []
+
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        self.harness.update_config({"snap-channel": "1.0/stable"})
+
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertNotIn("cluster_uses_az", app_data)
+
+    @patch.dict("os.environ", {"JUJU_AVAILABILITY_ZONE": "az-1"})
+    @patch.object(microceph, "join_cluster")
+    def test_join_with_availability_zone(self, mock_join_cluster):
+        """Test join_node_to_cluster passes availability_zone when cluster_uses_az is set."""
+        self.harness.update_config({"snap-channel": "1.0/stable"})
+        rel_id = self.add_complete_peer_relation(self.harness)
+
+        unit_name = self.harness.charm.unit.name
+        self.harness.update_relation_data(
+            rel_id,
+            self.harness.charm.app.name,
+            {
+                f"{unit_name}.join_token": "test-token",
+                "cluster_uses_az": "true",
+            },
+        )
+
+        event = MagicMock()
+        event.unit.name = unit_name
+
+        self.harness.charm.cluster_nodes.join_node_to_cluster(event)
+
+        mock_join_cluster.assert_called_once_with(
+            token="test-token",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+            micro_ip="10.0.0.10",
+            availability_zone="az-1",
+        )

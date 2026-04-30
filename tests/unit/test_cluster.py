@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the cluster module — add_node_to_cluster UNIQUE constraint handling."""
+"""Tests for the cluster module — ClusterNodes operations."""
 
 import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
 
 import cluster
+import microceph
 
 
 class TestAddNodeToCluster(unittest.TestCase):
@@ -156,6 +157,66 @@ class TestAddNodeToCluster(unittest.TestCase):
 
         cn.add_node_to_cluster(event)
         cn.charm.peers.set_app_data.assert_not_called()
+
+
+class TestJoinNodeToCluster(unittest.TestCase):
+    """Tests for the cluster_uses_az gate in join_node_to_cluster."""
+
+    def _make_cluster_nodes(self, app_data=None):
+        """Create a ClusterNodes instance with mocked charm."""
+        app_data = app_data or {}
+        charm_mock = MagicMock()
+        charm_mock.peers.interface.state.joined = False
+        charm_mock.peers.get_app_data.side_effect = app_data.get
+        charm_mock._get_bootstrap_params.return_value = {
+            "micro_ip": "10.0.0.10",
+            "public_net": "10.0.0.0/24",
+            "cluster_net": "10.0.0.0/24",
+            "availability_zone": "az-1",
+        }
+        with patch.object(cluster.ops.framework.Object, "__init__"):
+            cn = cluster.ClusterNodes.__new__(cluster.ClusterNodes)
+            cn.charm = charm_mock
+        return cn
+
+    def _make_event(self, unit_name="microceph/1"):
+        event = MagicMock()
+        event.unit = MagicMock()
+        event.unit.name = unit_name
+        return event
+
+    @patch.object(microceph, "join_cluster")
+    def test_join_passes_az_when_cluster_uses_az_set(self, mock_join):
+        """AZ is forwarded to join_cluster when cluster_uses_az is present in app data."""
+        app_data = {
+            "microceph/1.join_token": "test-token",
+            "cluster_uses_az": "true",
+        }
+        cn = self._make_cluster_nodes(app_data=app_data)
+        cn.join_node_to_cluster(self._make_event())
+
+        mock_join.assert_called_once_with(
+            token="test-token",
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+            availability_zone="az-1",
+        )
+
+    @patch.object(microceph, "join_cluster")
+    def test_join_suppresses_az_when_cluster_uses_az_absent(self, mock_join):
+        """AZ is cleared before calling join_cluster when cluster_uses_az is absent."""
+        app_data = {"microceph/1.join_token": "test-token"}
+        cn = self._make_cluster_nodes(app_data=app_data)
+        cn.join_node_to_cluster(self._make_event())
+
+        mock_join.assert_called_once_with(
+            token="test-token",
+            micro_ip="10.0.0.10",
+            public_net="10.0.0.0/24",
+            cluster_net="10.0.0.0/24",
+            availability_zone="",
+        )
 
 
 if __name__ == "__main__":

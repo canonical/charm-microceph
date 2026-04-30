@@ -22,6 +22,7 @@ This charm deploys and manages microceph.
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 from socket import gethostname
@@ -570,6 +571,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             logger.warning("Juju spaces incompatible with quincy revision snaps")
             return {}
 
+        availability_zone = os.environ.get("JUJU_AVAILABILITY_ZONE", "")
+
         try:
             # Public Network
             public_net = self._get_space_subnet(space="public")
@@ -584,6 +587,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                     "public_net": public_net,
                     "cluster_net": cluster_net,
                     "micro_ip": micro_ip,
+                    "availability_zone": availability_zone,
                 }
             )
         except ops.model.ModelError as e:
@@ -593,22 +597,26 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 "public_net": format(public_net),
                 "cluster_net": format(cluster_net),
                 "micro_ip": format(micro_ip),
+                "availability_zone": availability_zone,
             }
 
     def adopt_cluster(self, fsid, mon_hosts, admin_key):
         """Bootstrap Microceph cluster using external ceph cluster."""
         try:
             network_params = self._get_bootstrap_params()
-            microceph.adopt_ceph_cluster(
+            applied = microceph.adopt_ceph_cluster(
                 fsid=fsid,
                 mon_hosts=mon_hosts,
                 admin_key=admin_key,
                 micro_ip=network_params.get("micro_ip", ""),
                 public_net=network_params.get("public_net", ""),
                 cluster_net=network_params.get("cluster_net", ""),
+                availability_zone=network_params.get("availability_zone", ""),
             )
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True
+            if applied.get("availability_zone"):
+                self.peers.set_app_data({"cluster_uses_az": "true"})
             logger.debug("microceph bootstrapped successfully via adopt-ceph")
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             if "Unable to initialize cluster: Database is online" in str(e.stderr):
@@ -621,10 +629,13 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def bootstrap_cluster(self, event: ops.framework.EventBase) -> None:
         """Bootstrap microceph cluster."""
         try:
-            microceph.bootstrap_cluster(**self._get_bootstrap_params())
-            logger.debug(f"Successfully bootstrapped with params {self._get_bootstrap_params()}")
+            params = self._get_bootstrap_params()
+            applied = microceph.bootstrap_cluster(**params)
+            logger.debug(f"Successfully bootstrapped with params {params}")
             # mark bootstrap node also as joined
             self.peers.interface.state.joined = True
+            if applied.get("availability_zone"):
+                self.peers.set_app_data({"cluster_uses_az": "true"})
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(e.stderr)
             error_already_exists = "Unable to initialize cluster: Database is online"
