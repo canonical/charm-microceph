@@ -1,5 +1,6 @@
 """Pytest + jubilant fixtures for integration testing."""
 
+import json
 import os
 from pathlib import Path
 from typing import Iterator, NamedTuple
@@ -14,6 +15,7 @@ from tests.conftest import _build_charm
 REPO_ROOT = helpers.find_repo_root(Path(__file__).resolve())
 DEFAULT_CLIENT_CHANNEL = "edge"
 DEFAULT_CLIENT_NAME = "johnny"
+DEFAULT_JUJU_VM_SPACE = "jujuspace"
 
 
 class CharmDeployment(NamedTuple):
@@ -27,6 +29,52 @@ def _artifact_name_for_source(source_dir: Path) -> str:
     """Return the built charm artifact name for a client charm source checkout."""
     metadata = yaml.safe_load((source_dir / "metadata.yaml").read_text())
     return f"{metadata['name']}.charm"
+
+
+def _available_juju_space_names(juju: jubilant.Juju) -> set[str]:
+    """Return known Juju space names for the current controller/model."""
+    output = juju.cli("spaces", "--format", "json")
+    payload = json.loads(output or "[]")
+
+    if isinstance(payload, dict):
+        raw_spaces = payload.get("spaces", [])
+    elif isinstance(payload, list):
+        raw_spaces = payload
+    else:
+        raw_spaces = []
+
+    names: set[str] = set()
+    for entry in raw_spaces:
+        if isinstance(entry, dict):
+            name = entry.get("name")
+            if isinstance(name, str) and name:
+                names.add(name)
+        elif isinstance(entry, str) and entry:
+            names.add(entry)
+    return names
+
+
+def _preferred_juju_space(juju: jubilant.Juju) -> str | None:
+    """Prefer the cephtools management space when it exists.
+
+    In the cephtools-backed MAAS/LXD environment, unconstrained workload models can
+    end up provisioning instances on the auxiliary external network, where MAAS VM
+    deployment may stall during ephemeral boot. If the dedicated Juju management
+    space exists, pin VM-backed test models to it and make it the model default
+    so application endpoint bindings do not fall back to the empty "alpha" space.
+    """
+    preferred_space = os.getenv("JUJU_VM_SPACE", DEFAULT_JUJU_VM_SPACE).strip()
+    if not preferred_space:
+        return None
+
+    try:
+        available_spaces = _available_juju_space_names(juju)
+    except (jubilant.CLIError, json.JSONDecodeError):
+        return None
+
+    if preferred_space not in available_spaces:
+        return None
+    return preferred_space
 
 
 @pytest.fixture(scope="session")
@@ -81,7 +129,14 @@ def juju_vm(
     keep_models = bool(request.config.getoption("--keep-models"))
     with jubilant.temp_model(keep=keep_models) as juju:
         juju.wait_timeout = 60 * 60
-        juju.cli("set-model-constraints", *juju_vm_constraints)
+        constraints = list(juju_vm_constraints)
+        preferred_space = _preferred_juju_space(juju)
+        if preferred_space:
+            juju.cli("model-config", f"default-space={preferred_space}")
+            space_constraint = f"spaces={preferred_space}"
+            if space_constraint not in constraints:
+                constraints.append(space_constraint)
+        juju.cli("set-model-constraints", *constraints)
         yield juju
         if request.session.testsfailed:
             log = juju.debug_log(limit=1000)
