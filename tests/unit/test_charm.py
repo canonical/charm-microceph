@@ -703,6 +703,18 @@ class TestCharm(testbase.TestBaseCharm):
         result = microceph.can_upgrade_snap("latest", "latest")
         self.assertTrue(result)
 
+    @patch("microceph.get_snap_info")
+    @patch("microceph.get_snap_tracks")
+    def test_can_upgrade_from_latest_resolves_tentacle(
+        self, mock_get_snap_tracks, mock_get_snap_info
+    ):
+        mock_get_snap_tracks.return_value = {"squid", "tentacle"}
+        mock_get_snap_info.return_value = {"latest": "20"}
+
+        result = microceph.can_upgrade_snap("latest", "tentacle")
+
+        self.assertTrue(result)
+
     @patch("microceph.get_snap_tracks")
     def test_can_upgrade_snap_invalid_track(self, mock_get_snap_tracks):
         mock_get_snap_tracks.return_value = {"quincy"}
