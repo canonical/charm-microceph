@@ -29,7 +29,7 @@ jobs:
 
   terragrunt-validate:
     name: Terragrunt validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
       - lint
       - unit-test
@@ -37,7 +37,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Terraform and Terragrunt
-        run: ./tests/scripts/ci_helpers.sh install_terraform_tooling
+        run: |
+          for attempt in 1 2 3 4; do
+            if ./tests/scripts/ci_helpers.sh install_terraform_tooling; then
+              exit 0
+            fi
+            echo "Terraform tooling install failed on attempt ${attempt}; retrying..."
+            sleep "$((attempt * 30))"
+          done
+          ./tests/scripts/ci_helpers.sh install_terraform_tooling
       - name: Validate Terragrunt module
         env:
           TF_VAR_model_uuid: 00000000-0000-0000-0000-000000000000
@@ -45,21 +53,88 @@ jobs:
 
   build:
     name: Build the charm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
-        with:
-          channel: 5.21/stable
+        run: |
+          if snap list lxd 2>/dev/null; then
+            snap list lxd
+          else
+            for attempt in 1 2 3 4; do
+              if sudo snap install lxd --channel=5.21/stable; then
+                break
+              fi
+
+              if [ "$attempt" = 4 ]; then
+                exit 1
+              fi
+
+              echo "LXD snap install failed on attempt ${attempt}; retrying..."
+              sleep "$((attempt * 30))"
+            done
+          fi
+
+          while [ -n "$(snap changes lxd 2>/dev/null | awk '/^[0-9]+/ {if ($2 ~ /^(Do|Doing|Undo|Undoing)$/) print $2 }')" ]; do
+            echo "Waiting for snap changes on LXD to finish"
+            sleep 1
+          done
+          sudo snap set lxd daemon.group=adm
+          sudo lxd waitready
+          if ! sudo lxc network show lxdbr0 >/dev/null 2>&1; then
+            sudo lxd init --auto
+          fi
+          sudo lxc config set images.compression_algorithm none
+          if sudo iptables -nL DOCKER-USER; then
+            sudo iptables -I DOCKER-USER -i lxdbr0 -j ACCEPT
+            sudo iptables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+          fi
+          if sudo ip6tables -nL DOCKER-USER; then
+            sudo ip6tables -I DOCKER-USER -i lxdbr0 -j ACCEPT
+            sudo ip6tables -I DOCKER-USER -o lxdbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+          fi
       - name: Build charm(s)
         id: builder
         run: |
-          sudo snap install charmcraft --classic
-          charmcraft pack -v
+          for attempt in 1 2 3 4; do
+            if sudo snap install charmcraft --classic --channel=latest/candidate; then
+              break
+            fi
+
+            if [ "$attempt" = 4 ]; then
+              exit 1
+            fi
+
+            echo "Charmcraft snap install failed on attempt ${attempt}; retrying..."
+            sleep "$((attempt * 30))"
+          done
+          version=$(charmcraft version | awk '{print $2}')
+          python3 - "$version" <<'PY'
+          import re
+          import sys
+
+          version = sys.argv[1]
+          match = re.match(r"(\d+)\.(\d+)", version)
+          if not match or tuple(map(int, match.groups())) < (4, 1):
+              raise SystemExit(f"Charmcraft {version} is too old; need >= 4.1")
+          PY
+          for attempt in 1 2 3; do
+            if charmcraft pack -v; then
+              break
+            fi
+
+            if [ "$attempt" = 3 ]; then
+              exit 1
+            fi
+
+            echo "Charmcraft pack failed on attempt ${attempt}; cleaning and retrying..."
+            charmcraft clean --verbosity quiet || true
+            rm -f microceph_*.charm
+            sleep "$((attempt * 30))"
+          done
           ./rename.sh
       - name: Upload built charm
         uses: actions/upload-artifact@v4
@@ -97,7 +172,17 @@ jobs:
 
       - name: Install tooling
         run: |
-          sudo snap install charmcraft --classic
+          sudo snap install charmcraft --classic --channel=latest/candidate
+          version=$(charmcraft version | awk '{print $2}')
+          python3 - "$version" <<'PY'
+          import re
+          import sys
+
+          version = sys.argv[1]
+          match = re.match(r"(\d+)\.(\d+)", version)
+          if not match or tuple(map(int, match.groups())) < (4, 1):
+              raise SystemExit(f"Charmcraft {version} is too old; need >= 4.1")
+          PY
           sudo apt-get -qq install tox
 
       - name: Install and bootstrap
@@ -736,7 +821,7 @@ jobs:
         run: |
           set -eux
           date
-          target="squid/stable"
+          target="tentacle/edge"
           juju config microceph snap-channel=$target
           sleep 60
           # Initial wait
@@ -1525,10 +1610,10 @@ jobs:
       - name: Install dependencies
         run: ./tests/scripts/ci_helpers.sh install_deps
 
-      - name: Install MicroCeph squid charm from store
+      - name: Install MicroCeph tentacle charm from store
         run: |
           date
-          juju deploy -n 3 microceph --channel squid/stable
+          juju deploy -n 3 microceph --channel tentacle/edge
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           date
 
@@ -1544,7 +1629,7 @@ jobs:
           sleep 60
           juju ssh microceph/0 -- sudo ceph -s
 
-      - name: Test successful upgrade to squid/candidate
+      - name: Test successful refresh on tentacle/edge
         run: |
           set -eux
           date
@@ -1559,7 +1644,7 @@ jobs:
                 empty
               end
           ' <<< "$before_status")
-          juju refresh microceph --channel squid/candidate
+          juju refresh microceph --channel tentacle/edge
           sleep 60
           # Initial wait
           juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m || true
@@ -1583,8 +1668,8 @@ jobs:
           echo "microceph charm before refresh: channel=${before_channel:-unknown}, origin=${before_origin:-unknown}, rev=${before_rev}"
           echo "microceph charm after refresh: channel=${after_channel:-unknown}, origin=${after_origin:-unknown}, rev=${after_rev}"
           if [[ -n "$after_channel" ]]; then
-            if [[ "$after_channel" != "squid/candidate" ]]; then
-              echo "Expected charm to track squid/candidate after refresh, but got ${after_channel}"
+            if [[ "$after_channel" != "tentacle/edge" ]]; then
+              echo "Expected charm to track tentacle/edge after refresh, but got ${after_channel}"
               exit 1
             fi
           elif [[ -n "$before_origin" && -n "$after_origin" && "$before_origin" == "$after_origin" ]]; then

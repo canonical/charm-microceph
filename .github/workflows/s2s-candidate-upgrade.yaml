@@ -1,4 +1,4 @@
-name: Upgrade a s/stable charm to s/candidate
+name: Exercise a tentacle/edge charm refresh
 
 on:
   workflow_dispatch:
@@ -7,12 +7,12 @@ on:
 
 jobs:
   s2s-candidate-upgrade:
-    name: Test squid/stable to squid/candidate charm upgrade
+    name: Test tentacle/edge charm refresh
     runs-on: self-hosted-linux-amd64-noble-xlarge
     timeout-minutes: 150
     env:
-      STABLE_CHANNEL: squid/stable
-      CANDIDATE_CHANNEL: squid/candidate
+      SOURCE_CHANNEL: tentacle/edge
+      TARGET_CHANNEL: tentacle/edge
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,10 +25,10 @@ jobs:
       - name: Install dependencies
         run: ./tests/scripts/ci_helpers.sh install_deps
 
-      - name: Deploy MicroCeph charm from stable
+      - name: Deploy MicroCeph charm from tentacle edge
         run: |
           set -eux
-          juju deploy -n 3 microceph --channel "${STABLE_CHANNEL}"
+          juju deploy -n 3 microceph --channel "${SOURCE_CHANNEL}"
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           juju status
 
@@ -79,10 +79,10 @@ jobs:
           curl -s http://localhost/testbucket/pre-upgrade.txt | grep -F hello-radosgw
           EOF
 
-      - name: Upgrade charm to candidate
+      - name: Refresh charm on tentacle edge
         run: |
           set -eux
-          juju refresh microceph --channel "${CANDIDATE_CHANNEL}"
+          juju refresh microceph --channel "${TARGET_CHANNEL}"
           ./tests/scripts/ci_helpers.sh wait_for_ceph_health_ok microceph microceph/0 40m 20m
           juju status
 
