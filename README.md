@@ -21,6 +21,30 @@ Ceph cluster with [Juju](https://juju.is/).
 Please visit [charmhub](https://charmhub.io/microceph) for documentation and instructions
 on consuming charmed MicroCeph.
 
+## Availability zones
+
+The configures MicroCeph with Juju availability zones (AZs) during
+cluster bootstrap. When the model provider exposes an AZ for a unit,
+Juju sets `JUJU_AVAILABILITY_ZONE`; the charm passes that value to
+MicroCeph. MicroCeph then uses the AZ as a CRUSH failure domain so
+replicas can be distributed across zones when OSDs are added.
+
+There is no charm configuration option required for this. Place the
+MicroCeph units in the desired Juju zones when deploying or scaling
+the application to enable this functionality.
+
+AZ support is enabled only for clusters bootstrapped or adopted with a MicroCeph
+snap that supports `--availability-zone`. Clusters upgraded from a charm or snap
+that did not use AZ support are not converted retroactively, and later joining
+units will not mix AZ and non-AZ membership.
+
+You can verify the resulting topology after adding OSDs with:
+
+```bash
+juju status
+juju ssh microceph/0 -- sudo microceph.ceph osd tree
+```
+
 ## OSD device configuration
 
 The charm can automatically enroll OSDs based on a declarative match expression.
