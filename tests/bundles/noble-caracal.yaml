@@ -18,7 +18,7 @@ machines:
 applications:
   ceph-mon:
     charm: ch:ceph-mon
-    channel: tentacle/edge
+    channel: squid/stable
     num_units: 3
     base: ubuntu@24.04
     options:
@@ -31,7 +31,7 @@ applications:
   ceph-osd:
     charm: ch:ceph-osd
     num_units: 3
-    channel: tentacle/edge
+    channel: squid/stable
     base: ubuntu@24.04
     storage:
       osd-devices: "loop,5G"
