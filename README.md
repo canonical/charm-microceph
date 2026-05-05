@@ -23,10 +23,10 @@ on consuming charmed MicroCeph.
 
 ## Availability zones
 
-The configures MicroCeph with Juju availability zones (AZs) during
-cluster bootstrap. When the model provider exposes an AZ for a unit,
-Juju sets `JUJU_AVAILABILITY_ZONE`; the charm passes that value to
-MicroCeph. MicroCeph then uses the AZ as a CRUSH failure domain so
+The charm configures MicroCeph with Juju availability zones (AZs)
+during cluster bootstrap. When the model provider exposes an AZ for a
+unit, Juju sets `JUJU_AVAILABILITY_ZONE`; the charm passes that value
+to MicroCeph. MicroCeph then uses the AZ as a CRUSH failure domain so
 replicas can be distributed across zones when OSDs are added.
 
 There is no charm configuration option required for this. Place the
