@@ -81,8 +81,8 @@ function validate_terragrunt_module() {
   export TF_IN_AUTOMATION=1
 
   pushd $working_dir
-  terragrunt init --non-interactive
-  terragrunt validate --non-interactive
+  TERRAGRUNT_NON_INTERACTIVE=true terragrunt init
+  TERRAGRUNT_NON_INTERACTIVE=true terragrunt validate
 }
 
 function cleanup_docker() {
