@@ -88,9 +88,9 @@ The repository also carries an attached-model Sunbeam test flow for the self-hos
 
 ```bash
 ./tests/scripts/bootstrap_sunbeam.sh
-cp ~/artifacts/microceph.charm .
+cp ~/artifacts/microceph_ubuntu-24.04-amd64.charm .
 tox -e sunbeam -- --sunbeam-model sunbeam-controller:admin/openstack-machines
 ```
 
-For a one-command local wrapper, use `./tests/scripts/run_sunbeam_e2e.sh` after placing the charm artifact at `./microceph.charm`.
+For a one-command local wrapper, use `./tests/scripts/run_sunbeam_e2e.sh` after placing the charm artifact at `./microceph_ubuntu-24.04-amd64.charm`.
 

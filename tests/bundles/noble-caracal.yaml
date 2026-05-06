@@ -41,7 +41,7 @@ applications:
       - "5"
 
   primary:
-    charm: /home/ubuntu/artifacts/microceph.charm
+    charm: /home/ubuntu/artifacts/microceph_ubuntu-24.04-amd64.charm
     num_units: 1
     base: ubuntu@24.04
     options:
@@ -52,7 +52,7 @@ applications:
       - "6"
 
   secondary:
-    charm: /home/ubuntu/artifacts/microceph.charm
+    charm: /home/ubuntu/artifacts/microceph_ubuntu-24.04-amd64.charm
     num_units: 1
     base: ubuntu@24.04
     storage:

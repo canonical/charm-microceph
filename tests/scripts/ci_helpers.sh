@@ -91,7 +91,7 @@ function deploy_cos() {
 
 function deploy_microceph() {
   date
-  mv ~/artifacts/microceph.charm ./microceph.charm
+  mv ~/artifacts/microceph_ubuntu-24.04-amd64.charm ./microceph_ubuntu-24.04-amd64.charm
   juju switch lxd
   juju deploy ./tests/bundles/multi_node_juju_storage.yaml
   # wait for charm to bootstrap and OSD devices to enroll.

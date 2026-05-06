@@ -1,6 +1,6 @@
 applications:
   microceph:
-    charm: ./../../microceph.charm
+    charm: ./../../microceph_ubuntu-24.04-amd64.charm
     base: ubuntu@24.04
     arch: amd64
     constraints: mem=4G cores=2 root-disk=32G virt-type=virtual-machine

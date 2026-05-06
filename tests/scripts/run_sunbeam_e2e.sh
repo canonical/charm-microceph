@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Convenience wrapper for local Sunbeam bootstrap plus the attached-model test
-# suite. The local MicroCeph charm artifact is expected at ./microceph.charm.
+# suite. The local MicroCeph charm artifact is expected at ./microceph_ubuntu-24.04-amd64.charm.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SUNBEAM_MODEL="${SUNBEAM_MODEL:-sunbeam-controller:admin/openstack-machines}"

@@ -2,20 +2,19 @@
 # See https://juju.is/docs/sdk/charmcraft-config for guidance.
 
 type: charm
-base: ubuntu@24.04
 platforms:
-  amd64:
-    build-on: [amd64]
-    build-for: [amd64]
-  arm64:
-    build-on: [arm64]
-    build-for: [arm64]
-  ppc64el:
-    build-on: [ppc64el]
-    build-for: [ppc64el]
-  s390x:
-    build-on: [s390x]
-    build-for: [s390x]
+  # amd64-only build matrix. Cross-builds for arm64/ppc64el/s390x are
+  # intentionally out of scope: charmcraft's uv plugin currently installs
+  # host-arch wheels regardless of the declared `build-for`, producing a
+  # silently corrupt artifact for any charm with native deps. Re-add the
+  # other architectures once cross-build (or a per-arch native runner)
+  # is set up.
+  ubuntu-22.04-amd64:
+    build-on: [ubuntu@22.04:amd64]
+    build-for: [ubuntu@22.04:amd64]
+  ubuntu-24.04-amd64:
+    build-on: [ubuntu@24.04:amd64]
+    build-for: [ubuntu@24.04:amd64]
 
 parts:
   files:

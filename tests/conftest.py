@@ -89,6 +89,6 @@ def microceph_charm() -> Path:
     """Return the built MicroCeph charm artifact."""
     return _build_charm(
         REPO_ROOT,
-        artifact_name="microceph.charm",
+        artifact_name="microceph_ubuntu-24.04-amd64.charm",
         rebuild=False,
     )

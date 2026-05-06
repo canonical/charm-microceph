@@ -17,7 +17,7 @@ NODES=${NODES:-3}
 CONTROLLER=${CONTROLLER:-lxd-cluster}
 MODEL=${MODEL:-microceph}
 BASE_CHANNEL=${BASE_CHANNEL:-ubuntu@24.04}
-CHARM_PATH=${CHARM_PATH:-./microceph_amd64.charm}
+CHARM_PATH=${CHARM_PATH:-./microceph_ubuntu-24.04-amd64.charm}
 CHARM_REVISION=${CHARM_REVISION:-227}
 CHARM_TRACK=${CHARM_TRACK:-squid/stable}
 SNAP_CHANNEL=${SNAP_CHANNEL:-squid/stable}
@@ -295,7 +295,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "Usage: $0 <function> [args...]"
         echo ""
         echo "Deployment:"
-        echo "  deploy_from_charm_file   Deploy from local CHARM_PATH (default: ./microceph_amd64.charm)"
+        echo "  deploy_from_charm_file   Deploy from local CHARM_PATH (default: ./microceph_ubuntu-24.04-amd64.charm)"
         echo "  deploy_from_revision     Deploy from Charmhub CHARM_TRACK rev CHARM_REVISION (default: squid/stable rev 227)"
         echo "  upgrade_to_charm_file    Refresh existing deployment to local CHARM_PATH"
         echo "  add_osd_loop             Add a 1G loop OSD to each unit"
