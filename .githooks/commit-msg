@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# DCO (Developer Certificate of Origin) check for the in-progress commit.
+# Run as a `commit-msg` hook: the path to the commit message file is $1.
+# Passes if the message contains a `Signed-off-by:` trailer matching the
+# commit author. No external dependencies beyond git + bash + grep.
+set -euo pipefail
+
+msg_file="${1:-}"
+if [[ -z "$msg_file" || ! -f "$msg_file" ]]; then
+  echo "check-dco: expected commit message file as first argument" >&2
+  exit 2
+fi
+
+name="${GIT_AUTHOR_NAME:-$(git config user.name)}"
+email="${GIT_AUTHOR_EMAIL:-$(git config user.email)}"
+
+if [[ -z "$name" || -z "$email" ]]; then
+  echo "check-dco: git author name/email not set" >&2
+  exit 2
+fi
+
+# Strip comment lines (lines starting with '#') the way git does before
+# checking trailers; this matches what ends up in the final commit.
+trailer="Signed-off-by: ${name} <${email}>"
+if grep -vE '^\s*#' "$msg_file" | grep -qxF "$trailer"; then
+  exit 0
+fi
+
+cat >&2 <<EOF
+check-dco: missing or malformed Signed-off-by trailer.
+
+Expected exactly this line, on its own line, in the commit message:
+
+  ${trailer}
+
+Re-run \`git commit\` with \`-s\` (or \`--signoff\`) to add it automatically.
+EOF
+exit 1
