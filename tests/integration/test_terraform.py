@@ -26,6 +26,10 @@ LOOP_OSDS_PER_UNIT = int(LOOP_OSD_SPEC.split(",")[1])
 DEFAULT_TIMEOUT = 7200
 ALLOWED_HEALTH_WARN_CHECKS = {"MON_CLOCK_SKEW"}
 ROOT_DISK_CONSTRAINT = "root-disk=32G"
+# Fall back to the previous stable charm channel until the tentacle charm is
+# released to the store. The TF module's default still points at tentacle/edge
+# for module consumers; only this integration test overrides it.
+TEST_CHARM_CHANNEL = os.environ.get("MICROCEPH_TEST_CHARM_CHANNEL", "squid/stable")
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +82,6 @@ def _run_terragrunt(
 ) -> subprocess.CompletedProcess:
     command = [
         "terragrunt",
-        "--non-interactive",
         subcommand,
         "-input=false",
         "-no-color",
@@ -88,6 +91,7 @@ def _run_terragrunt(
     command.extend(extra_args)
     if download_dir is not None:
         command.extend(["--download-dir", str(download_dir)])
+    env = {**env, "TERRAGRUNT_NON_INTERACTIVE": "true"}
     return subprocess.run(command, check=check, cwd=TERRAFORM_MODULE_DIR, env=env)
 
 
@@ -106,7 +110,12 @@ class TerraformController:
 
     def apply(self, *, units: int, config: Mapping[str, str] | None = None) -> dict[str, Any]:
         """Apply the microceph Terragrunt plan with optional charm config overrides."""
-        extra_args = ["-var", f"units={units}"]
+        extra_args = [
+            "-var",
+            f"units={units}",
+            "-var",
+            f"channel={TEST_CHARM_CHANNEL}",
+        ]
         if config:
             extra_args.extend(["-var", f"config={_format_tf_map(config)}"])
 

@@ -66,7 +66,7 @@ With the Juju environment configured, the next step is to deploy MicroCeph. Depl
 
 ```
 $ juju deploy microceph --num-units 3
-Deployed "microceph" from charm-hub charm "microceph", revision 155 in channel squid/stable on ubuntu@24.04/stable
+Deployed "microceph" from charm-hub charm "microceph", revision 155 in channel tentacle/edge on ubuntu@24.04/stable
 ```
 
 Juju deploys the MicroCeph units in the background. This process might take a few minutes depending on network speed and available resources. Check progress by running the `juju status` command. Once the deployment is done, `juju status` will report 3 active units:
@@ -77,7 +77,7 @@ Model    Controller      Cloud/Region         Version  SLA          Timestamp
 mymodel  lxd-controller  localhost/localhost  3.6.8    unsupported  11:15:26Z
 
 App        Version  Status  Scale  Charm      Channel       Rev  Exposed  Message
-microceph           active      3  microceph  squid/stable  155  no       
+microceph           active      3  microceph  tentacle/edge 155  no
 
 Unit          Workload  Agent  Machine  Public address  Ports  Message
 microceph/0   active    idle   0        10.106.25.67           
