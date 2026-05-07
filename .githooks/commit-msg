@@ -25,7 +25,7 @@ fi
 # `set -e` doesn't trip errexit on the first grep returning 1 and skip
 # the helpful guidance below.
 trailer="Signed-off-by: ${name} <${email}>"
-stripped=$(sed '/^\s*#/d' "$msg_file")
+stripped=$(sed '/^[[:space:]]*#/d' "$msg_file")
 if printf '%s\n' "$stripped" | grep -qxF "$trailer"; then
   exit 0
 fi
