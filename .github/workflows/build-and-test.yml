@@ -58,18 +58,9 @@ jobs:
       - name: Build charm(s)
         id: builder
         run: |
-          # multi-base charmcraft.yaml requires charmcraft >= 4.1
+          # multi-base charmcraft.yaml requires charmcraft >= 4.1, which
+          # latest/candidate carries (4.2.x at the time of writing).
           sudo snap install charmcraft --classic --channel=latest/candidate
-          version=$(charmcraft version | awk '{print $2}')
-          python3 - "$version" <<'PY'
-          import re
-          import sys
-
-          version = sys.argv[1]
-          match = re.match(r"(\d+)\.(\d+)", version)
-          if not match or tuple(map(int, match.groups())) < (4, 1):
-              raise SystemExit(f"Charmcraft {version} is too old; need >= 4.1")
-          PY
           charmcraft pack -v
       - name: Upload built charm
         uses: actions/upload-artifact@v4
