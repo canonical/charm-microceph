@@ -35,6 +35,7 @@ MAJOR_VERSIONS = {
     "17": "quincy",
     "18": "reef",
     "19": "squid",
+    "20": "tentacle",
 }
 
 

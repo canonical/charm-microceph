@@ -96,7 +96,7 @@ variable "storage_directives" {
 variable "channel" {
   description = "Channel that the microceph charm is deployed from"
   type        = string
-  default     = "squid/stable"
+  default     = "tentacle/edge"
 }
 
 variable "revision" {
