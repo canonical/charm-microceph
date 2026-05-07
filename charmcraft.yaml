@@ -9,12 +9,12 @@ platforms:
   # silently corrupt artifact for any charm with native deps. Re-add the
   # other architectures once cross-build (or a per-arch native runner)
   # is set up.
-  ubuntu-22.04-amd64:
-    build-on: [ubuntu@22.04:amd64]
-    build-for: [ubuntu@22.04:amd64]
   ubuntu-24.04-amd64:
     build-on: [ubuntu@24.04:amd64]
     build-for: [ubuntu@24.04:amd64]
+  ubuntu-26.04-amd64:
+    build-on: [ubuntu@26.04:amd64]
+    build-for: [ubuntu@26.04:amd64]
 
 parts:
   files:

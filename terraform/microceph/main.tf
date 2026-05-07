@@ -16,7 +16,7 @@ locals {
   )
 
   config_defaults = {
-    "snap-channel"        = "squid/stable"
+    "snap-channel"        = "tentacle/edge"
     "default-pool-size"   = "3"
     "enable-rgw"          = ""
     "region"              = "RegionOne"
