@@ -69,19 +69,21 @@ def _build_charm(
 
     helpers.ensure_charmcraft()
     subprocess.run(["charmcraft", "-v", "pack"], check=True, cwd=charm_dir)
-    built_charms = sorted(
-        charm_dir.glob("*.charm"), key=lambda charm: charm.stat().st_mtime, reverse=True
-    )
-    if not built_charms:
-        raise FileNotFoundError(f"No charm artifacts produced in {charm_dir}")
 
-    latest_artifact = built_charms[0]
-    if latest_artifact != artifact:
-        latest_artifact.rename(artifact)
-
+    # Multi-base charmcraft.yaml emits one artifact per (base, arch); the
+    # caller specifies which one it wants by exact filename. Prefer that
+    # exact match rather than picking the newest *.charm by mtime, which
+    # could grab the wrong base when both jammy and noble are produced.
     if artifact.exists():
         return artifact.resolve()
-    raise FileNotFoundError(f"Expected charm artifact {artifact} was not produced")
+
+    built_charms = list(charm_dir.glob("*.charm"))
+    if not built_charms:
+        raise FileNotFoundError(f"No charm artifacts produced in {charm_dir}")
+    raise FileNotFoundError(
+        f"Expected charm artifact {artifact_name} not produced in {charm_dir}; "
+        f"found: {sorted(c.name for c in built_charms)}"
+    )
 
 
 @pytest.fixture(scope="session")
@@ -89,6 +91,6 @@ def microceph_charm() -> Path:
     """Return the built MicroCeph charm artifact."""
     return _build_charm(
         REPO_ROOT,
-        artifact_name="microceph.charm",
+        artifact_name="microceph_ubuntu-24.04-amd64.charm",
         rebuild=False,
     )

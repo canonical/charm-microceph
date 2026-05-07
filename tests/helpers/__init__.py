@@ -5,6 +5,7 @@ import functools
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -37,12 +38,47 @@ def install_terraform_tooling() -> None:
     subprocess.run(["sudo", str(cephtools_path), "terraform", "install-deps"], check=True)
 
 
+CHARMCRAFT_MIN_VERSION = (4, 1)
+CHARMCRAFT_CHANNEL = "latest/candidate"
+
+
 @functools.lru_cache(maxsize=1)
 def ensure_charmcraft() -> None:
-    """Install charmcraft snap if it is not already available."""
-    if shutil.which("charmcraft"):
-        return
-    subprocess.run(["sudo", "snap", "install", "charmcraft", "--classic"], check=True)
+    """Install charmcraft snap and assert version >= 4.1.
+
+    The multi-base ``charmcraft.yaml`` requires charmcraft 4.1+; older versions
+    fail with a config-parse error that doesn't make the cause obvious. Pin the
+    snap to ``latest/candidate`` (which currently carries 4.2.x) and verify the
+    installed version before letting callers run ``charmcraft pack``.
+    """
+    if not shutil.which("charmcraft"):
+        subprocess.run(
+            [
+                "sudo",
+                "snap",
+                "install",
+                "charmcraft",
+                "--classic",
+                f"--channel={CHARMCRAFT_CHANNEL}",
+            ],
+            check=True,
+        )
+
+    version_out = subprocess.run(
+        ["charmcraft", "version"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    # `charmcraft version` prints "charmcraft, version X.Y.Z" or just "X.Y.Z"
+    # depending on snap revision; pull the first dotted-number token.
+    match = re.search(r"(\d+)\.(\d+)", version_out)
+    if not match:
+        raise RuntimeError(f"could not parse charmcraft version from {version_out!r}")
+    installed = (int(match.group(1)), int(match.group(2)))
+    if installed < CHARMCRAFT_MIN_VERSION:
+        min_str = ".".join(str(p) for p in CHARMCRAFT_MIN_VERSION)
+        raise RuntimeError(
+            f"charmcraft {version_out} is too old (need >= {min_str}); "
+            f"refresh with: sudo snap refresh charmcraft --channel={CHARMCRAFT_CHANNEL}"
+        )
 
 
 def _ensure_cephtools_binary() -> Path:

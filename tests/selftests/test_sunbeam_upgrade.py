@@ -62,11 +62,11 @@ def test_refresh_and_add_unit_validates_new_unit_before_target(
     )
 
     sunbeam_upgrade.TestSunbeamUpgrade().test_refresh_and_add_unit(
-        juju, "microceph", state, Path("microceph.charm")
+        juju, "microceph", state, Path("microceph_ubuntu-24.04-amd64.charm")
     )
 
     assert juju.cli_calls == [
-        ("refresh", "microceph", "--path", "microceph.charm"),
+        ("refresh", "microceph", "--path", "microceph_ubuntu-24.04-amd64.charm"),
         ("add-unit", "microceph", "--to", "0"),
     ]
     assert state.added_unit == "microceph/1"
@@ -94,7 +94,7 @@ def test_refresh_and_add_unit_fails_when_workflow_target_missing(
             juju,
             "microceph",
             state,
-            Path("microceph.charm"),
+            Path("microceph_ubuntu-24.04-amd64.charm"),
         )
 
     assert state.added_unit == "microceph/2"

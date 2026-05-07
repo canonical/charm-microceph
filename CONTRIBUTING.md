@@ -9,6 +9,22 @@ tox --notest -e unit
 source .tox/unit/bin/activate
 ```
 
+## Sign off your commits (DCO)
+
+Every commit must carry a `Signed-off-by:` trailer matching the commit
+author, certifying the [Developer Certificate of Origin](https://developercertificate.org/).
+Use `git commit -s` (or `--signoff`) to add it automatically.
+
+This repository ships a `commit-msg` hook in `.githooks/` that rejects
+unsigned commits locally before they are pushed. After cloning, point git
+at it once:
+
+```shell
+git config core.hooksPath .githooks
+```
+
+The hook is a plain `bash` script with no extra dependencies.
+
 ## Testing
 
 This project uses `tox` for managing test environments. There are some pre-configured environments

@@ -39,9 +39,61 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Upload charm to Charmhub
-        uses: canonical/charming-actions/upload-charm@2.4.0
+
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.1
+        with:
+          channel: 5.21/stable
+
+      - name: Install charmcraft
+        run: |
+          # multi-base charmcraft.yaml requires charmcraft >= 4.1, which
+          # latest/candidate carries (4.2.x at the time of writing).
+          sudo snap install charmcraft --classic --channel=latest/candidate
+
+      - name: Pack charm (multi-base)
+        id: pack
+        shell: bash
+        run: |
+          charmcraft pack -v
+          # Comma-separated list of all per-base/per-arch artifacts produced
+          # by the multi-base charmcraft.yaml. Both upload-charm steps below
+          # consume the same set so we only pack once.
+          # nullglob so an unmatched glob expands to nothing (not the
+          # literal "microceph_*.charm"), letting the empty-array check
+          # below actually fire when no artifacts were produced.
+          shopt -s nullglob
+          charms=( microceph_*.charm )
+          if (( ${#charms[@]} == 0 )); then
+            echo "No microceph_*.charm artifacts produced by charmcraft pack" >&2
+            exit 1
+          fi
+          artifacts=$(IFS=,; echo "${charms[*]}")
+          echo "artifacts=${artifacts}" >> "${GITHUB_OUTPUT}"
+          ls -al "${charms[@]}"
+
+      # Each upload-charm call uploads the packed artifacts to Charmhub
+      # and receives its own per-(base, arch) charmhub revision number
+      # (so the two upload steps produce two distinct sets of revisions
+      # built from the same git commit). charming-actions tags every
+      # revision it creates by default; the second upload sets
+      # `github-tag: false` so its revisions don't collide with the
+      # tags already created by the first upload step.
+      - name: Release to latest/edge
+        uses: canonical/charming-actions/upload-charm@2.7.0
         with:
           credentials: "${{ secrets.CHARMHUB_TOKEN }}"
           github-token: "${{ secrets.GITHUB_TOKEN }}"
           channel: latest/edge
+          built-charm-path: "${{ steps.pack.outputs.artifacts }}"
+          charmcraft-channel: latest/candidate
+
+      - name: Release to squid/edge
+        uses: canonical/charming-actions/upload-charm@2.7.0
+        with:
+          credentials: "${{ secrets.CHARMHUB_TOKEN }}"
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          channel: squid/edge
+          built-charm-path: "${{ steps.pack.outputs.artifacts }}"
+          charmcraft-channel: latest/candidate
+          github-tag: false

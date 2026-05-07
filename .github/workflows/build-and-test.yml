@@ -58,9 +58,10 @@ jobs:
       - name: Build charm(s)
         id: builder
         run: |
-          sudo snap install charmcraft --classic
+          # multi-base charmcraft.yaml requires charmcraft >= 4.1, which
+          # latest/candidate carries (4.2.x at the time of writing).
+          sudo snap install charmcraft --classic --channel=latest/candidate
           charmcraft pack -v
-          ./rename.sh
       - name: Upload built charm
         uses: actions/upload-artifact@v4
         with:
@@ -106,7 +107,7 @@ jobs:
       - name: Run integration tests
         run: |
           set -eux
-          cp ~/artifacts/microceph.charm .
+          cp ~/artifacts/microceph_ubuntu-24.04-amd64.charm .
           tox -e integration -- --keep-models -m smoke
 
       - name: Collect logs
@@ -153,7 +154,7 @@ jobs:
       - name: Run Sunbeam end-to-end suite
         run: |
           set -eux
-          cp ~/artifacts/microceph.charm .
+          cp ~/artifacts/microceph_ubuntu-24.04-amd64.charm .
           tox -e sunbeam -- --sunbeam-model sunbeam-controller:admin/openstack-machines
 
       - name: Collect logs
@@ -203,7 +204,7 @@ jobs:
       - name: Install MicroCeph charm
         run: |
           date
-          juju deploy -n 3 ~/artifacts/microceph.charm --config default-pool-size=1
+          juju deploy -n 3 ~/artifacts/microceph_ubuntu-24.04-amd64.charm --config default-pool-size=1
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           date
 
@@ -282,7 +283,7 @@ jobs:
       - name: Install MicroCeph charm
         run: |
           date
-          juju deploy -n 4 ~/artifacts/microceph.charm
+          juju deploy -n 4 ~/artifacts/microceph_ubuntu-24.04-amd64.charm
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           date
 
@@ -544,7 +545,7 @@ jobs:
       - name: Run functional tests
         run: |
           set -eux
-          cp ~/artifacts/microceph.charm .
+          cp ~/artifacts/microceph_ubuntu-24.04-amd64.charm .
           tox -e functional -- --keep-models
 
       - name: Collect logs
@@ -592,7 +593,7 @@ jobs:
           set -eux
           date
           # constraints to deploy on virtual machine.
-          juju deploy ~/artifacts/microceph.charm --storage osd-standalone='2G,6' --constraints="virt-type=virtual-machine root-disk=24G mem=8G"
+          juju deploy ~/artifacts/microceph_ubuntu-24.04-amd64.charm --storage osd-standalone='2G,6' --constraints="virt-type=virtual-machine root-disk=24G mem=8G"
           # wait for charm to bootstrap, then give deferred storage events time to start enrolling OSDs.
           juju wait-for unit microceph/0 --timeout '30m' --query='workload-status=="active" && agent-status=="idle"'
           sleep 30
@@ -691,7 +692,7 @@ jobs:
       - name: Install MicroCeph charm
         run: |
           date
-          juju deploy -n 3 ~/artifacts/microceph.charm --config snap-channel=reef/stable
+          juju deploy -n 3 ~/artifacts/microceph_ubuntu-24.04-amd64.charm --config snap-channel=reef/stable
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
           date
 
@@ -831,7 +832,7 @@ jobs:
         run: |
           set -eux
           date
-          mv ~/artifacts/microceph.charm ./tests/scripts/assets/
+          mv ~/artifacts/microceph_ubuntu-24.04-amd64.charm ./tests/scripts/assets/
           juju deploy microceph --bind "cluster=cluster public=alpha" --storage osd-standalone=2G,1 -n 3 --to 0,1,2
           # wait for charm to bootstrap and OSD devices to enroll.
           juju status
@@ -891,7 +892,7 @@ jobs:
           set -eux
           date
           # constraints to deploy on virtual machine.
-          juju deploy ~/artifacts/microceph.charm --storage osd-standalone='2G,6' --constraints="virt-type=virtual-machine root-disk=24G mem=8G"
+          juju deploy ~/artifacts/microceph_ubuntu-24.04-amd64.charm --storage osd-standalone='2G,6' --constraints="virt-type=virtual-machine root-disk=24G mem=8G"
           # wait for charm to bootstrap and OSD devices to enroll.
           juju wait-for unit microceph/0 --timeout '30m' --query='workload-status=="active" && agent-status=="idle"'
           bash ./tests/scripts/ci_helpers.sh check_osd_count microceph/0 6
@@ -964,8 +965,8 @@ jobs:
           set -eux
           date
           # Deploy 2 microceph clusters named primary and secondary
-          juju deploy ~/artifacts/microceph.charm primary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=25G mem=8G"
-          juju deploy ~/artifacts/microceph.charm secondary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=25G mem=8G"
+          juju deploy ~/artifacts/microceph_ubuntu-24.04-amd64.charm primary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=25G mem=8G"
+          juju deploy ~/artifacts/microceph_ubuntu-24.04-amd64.charm secondary --storage osd-standalone='2G,3' --constraints="virt-type=virtual-machine root-disk=25G mem=8G"
           # wait for charm to bootstrap and OSD devices to enroll.
           juju wait-for unit primary/0 --timeout '30m' --query='workload-status=="active" && agent-status=="idle"'
           juju wait-for unit secondary/0 --timeout '15m' --query='workload-status=="active" && agent-status=="idle"'
@@ -1159,7 +1160,7 @@ jobs:
       - name: Install MicroCeph charm
         run: |
           date
-          mv ~/artifacts/microceph.charm ./microceph.charm
+          mv ~/artifacts/microceph_ubuntu-24.04-amd64.charm ./microceph_ubuntu-24.04-amd64.charm
           juju deploy ./tests/bundles/multi_node_juju_storage.yaml
           # wait for charm to bootstrap and OSD devices to enroll.
           ./tests/scripts/ci_helpers.sh wait_for_microceph_bootstrap
@@ -1243,7 +1244,7 @@ jobs:
       - name: Deploy from charm file, add OSDs, verify AZ CRUSH map
         run: |
           set -eux
-          export CHARM_PATH=~/artifacts/microceph.charm
+          export CHARM_PATH=~/artifacts/microceph_ubuntu-24.04-amd64.charm
           export SNAP_CHANNEL=squid/stable
           source tests/scripts/az/03-exercise-microceph.sh
           deploy_from_charm_file
@@ -1305,7 +1306,7 @@ jobs:
       - name: Deploy from revision, add OSDs, upgrade, verify no AZ activated
         run: |
           set -eux
-          export CHARM_PATH=~/artifacts/microceph.charm
+          export CHARM_PATH=~/artifacts/microceph_ubuntu-24.04-amd64.charm
           export CHARM_REVISION=227
           export CHARM_TRACK=squid/stable
           source tests/scripts/az/03-exercise-microceph.sh
@@ -1403,7 +1404,7 @@ jobs:
           set -eux
           juju add-model microceph
           # Use squid/candidate for snap content interface support (required for OTel collector)
-          juju deploy ~/artifacts/microceph.charm --config default-pool-size=1 --config snap-channel=squid/candidate \
+          juju deploy ~/artifacts/microceph_ubuntu-24.04-amd64.charm --config default-pool-size=1 --config snap-channel=squid/candidate \
             --storage osd-standalone='2G,6' --constraints="virt-type=virtual-machine root-disk=24G mem=16G cores=4"
           # Wait for the LXD VM to be fully provisioned before waiting for the unit
           juju wait-for machine 0 --timeout '10m' --query='status=="started"'
@@ -1598,7 +1599,7 @@ jobs:
           date
           before_rev=$(juju status --format json | jq -er '.applications.microceph["charm-rev"]')
           before_origin=$(juju status --format json | jq -er '.applications.microceph["charm-origin"]')
-          juju refresh microceph --path ~/artifacts/microceph.charm
+          juju refresh microceph --path ~/artifacts/microceph_ubuntu-24.04-amd64.charm
           sleep 60
           # Initial wait
           juju wait-for application microceph --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' --timeout=30m || true
