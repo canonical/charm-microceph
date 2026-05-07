@@ -21,8 +21,12 @@ fi
 
 # Strip comment lines (lines starting with '#') the way git does before
 # checking trailers; this matches what ends up in the final commit.
+# Use sed instead of `grep -v | grep` so an all-comments message under
+# `set -e` doesn't trip errexit on the first grep returning 1 and skip
+# the helpful guidance below.
 trailer="Signed-off-by: ${name} <${email}>"
-if grep -vE '^\s*#' "$msg_file" | grep -qxF "$trailer"; then
+stripped=$(sed '/^\s*#/d' "$msg_file")
+if printf '%s\n' "$stripped" | grep -qxF "$trailer"; then
   exit 0
 fi
 

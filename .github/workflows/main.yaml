@@ -62,18 +62,24 @@ jobs:
 
       - name: Pack charm (multi-base)
         id: pack
+        shell: bash
         run: |
           charmcraft pack -v
           # Comma-separated list of all per-base/per-arch artifacts produced
           # by the multi-base charmcraft.yaml. Both upload-charm steps below
           # consume the same set so we only pack once.
-          artifacts=$(printf '%s,' microceph_*.charm | sed 's/,$//')
-          if [[ -z "${artifacts}" ]]; then
+          # nullglob so an unmatched glob expands to nothing (not the
+          # literal "microceph_*.charm"), letting the empty-array check
+          # below actually fire when no artifacts were produced.
+          shopt -s nullglob
+          charms=( microceph_*.charm )
+          if (( ${#charms[@]} == 0 )); then
             echo "No microceph_*.charm artifacts produced by charmcraft pack" >&2
             exit 1
           fi
+          artifacts=$(IFS=,; echo "${charms[*]}")
           echo "artifacts=${artifacts}" >> "${GITHUB_OUTPUT}"
-          ls -al microceph_*.charm
+          ls -al "${charms[@]}"
 
       # Tagging is handled by charming-actions on the first upload step:
       # one GitHub tag per uploaded charmhub revision (so multi-base
