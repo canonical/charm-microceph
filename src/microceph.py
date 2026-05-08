@@ -609,8 +609,11 @@ def _is_block_device_enrollable(disk: str) -> bool:
     if not device:
         return False
 
-    # the json interpretation of [null] -> [None].
-    if device["mountpoints"] != [None]:
+    # util-linux 2.39 (jammy/noble) emits `mountpoints: [null]` for an
+    # unmounted device; util-linux 2.40+ (resolute and later) emits an
+    # empty list. Treat both as "no mounts" — only flag actual mountpoints.
+    mountpoints = device.get("mountpoints") or []
+    if any(mp is not None for mp in mountpoints):
         logger.warning(f"Disk {disk} has mounts.")
         return False
 
