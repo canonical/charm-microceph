@@ -33,15 +33,44 @@ function install_deps() {
 }
 
 function install_terraform_tooling() {
-  local ct_url=https://github.com/canonical/cephtools/releases/download/latest/cephtools
-  local ct_path=/usr/local/bin/cephtools
-  tmp="$(mktemp)"
-  if [[ ! -x $ct_path ]] ; then
-    curl -fsSL -o $tmp $ct_url
-    sudo install -m 0755 $tmp $ct_path
+  local terraform_version="${TERRAFORM_VERSION:-1.9.8}"
+  local terragrunt_version="${TERRAGRUNT_VERSION:-0.67.16}"
+  local arch
+  local tmp_dir
+
+  case "$(uname -m)" in
+    x86_64)
+      arch=amd64
+      ;;
+    aarch64 | arm64)
+      arch=arm64
+      ;;
+    *)
+      echo "Unsupported architecture: $(uname -m)"
+      return 1
+      ;;
+  esac
+
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' RETURN
+
+  if ! command -v terraform >/dev/null; then
+    curl -fsSL \
+      -o "$tmp_dir/terraform.zip" \
+      "https://releases.hashicorp.com/terraform/${terraform_version}/terraform_${terraform_version}_linux_${arch}.zip" || return 1
+    python3 -m zipfile -e "$tmp_dir/terraform.zip" "$tmp_dir" || return 1
+    sudo install -m 0755 "$tmp_dir/terraform" /usr/local/bin/terraform || return 1
   fi
-  rm -rf $tmp
-  sudo $ct_path terraform install-deps
+
+  if ! command -v terragrunt >/dev/null; then
+    curl -fsSL \
+      -o "$tmp_dir/terragrunt" \
+      "https://github.com/gruntwork-io/terragrunt/releases/download/v${terragrunt_version}/terragrunt_linux_${arch}" || return 1
+    sudo install -m 0755 "$tmp_dir/terragrunt" /usr/local/bin/terragrunt || return 1
+  fi
+
+  terraform version || return 1
+  terragrunt --version || return 1
 }
 
 
@@ -52,8 +81,8 @@ function validate_terragrunt_module() {
   export TF_IN_AUTOMATION=1
 
   pushd $working_dir
-  terragrunt init --non-interactive
-  terragrunt validate --non-interactive
+  TERRAGRUNT_NON_INTERACTIVE=true terragrunt init
+  TERRAGRUNT_NON_INTERACTIVE=true terragrunt validate
 }
 
 function cleanup_docker() {

@@ -15,7 +15,7 @@ Model  Controller  Cloud/Region         Version  SLA          Timestamp
 ceph   overlord    localhost/localhost  3.6.8    unsupported  10:13:41+08:00
 
 App        Version  Status  Scale  Charm      Channel       Rev  Exposed  Message
-microceph           active      3  microceph  squid/stable  155  no
+microceph           active      3  microceph  tentacle/edge 155  no
 
 Unit          Workload  Agent  Machine  Public address  Ports  Message
 microceph/0   active    idle   0        10.42.75.116

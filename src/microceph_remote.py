@@ -18,6 +18,7 @@
 """Handle Charm's Remote Integration Events."""
 
 import logging
+import subprocess
 from enum import Enum
 from typing import Callable
 
@@ -277,11 +278,24 @@ def import_remote_cluster(local_name, remote_name, remote_token) -> None:
 
     logger.debug(f"Importing remote cluster {remote_name} into local cluster {local_name}")
 
-    microceph.import_remote_token(
-        local_name=local_name,
-        remote_name=remote_name,
-        remote_token=remote_token,
-    )
+    try:
+        microceph.import_remote_token(
+            local_name=local_name,
+            remote_name=remote_name,
+            remote_token=remote_token,
+        )
+    except subprocess.CalledProcessError as exc:
+        # microceph remote import is not idempotent: a re-fired relation event
+        # produces "This 'remote' entry already exists" and the hook ends up in
+        # error state. Treat that specific failure as a no-op so the relation
+        # reconcile is convergent.
+        combined = (exc.stderr or "") + (exc.stdout or "")
+        if "already exists" in combined:
+            logger.info(
+                f"Remote {remote_name} already imported on {local_name}; skipping re-import"
+            )
+            return
+        raise
 
 
 def remove_remote_cluster(remote_name) -> None:

@@ -703,6 +703,18 @@ class TestCharm(testbase.TestBaseCharm):
         result = microceph.can_upgrade_snap("latest", "latest")
         self.assertTrue(result)
 
+    @patch("microceph.get_snap_info")
+    @patch("microceph.get_snap_tracks")
+    def test_can_upgrade_from_latest_resolves_tentacle(
+        self, mock_get_snap_tracks, mock_get_snap_info
+    ):
+        mock_get_snap_tracks.return_value = {"squid", "tentacle"}
+        mock_get_snap_info.return_value = {"latest": "20"}
+
+        result = microceph.can_upgrade_snap("latest", "tentacle")
+
+        self.assertTrue(result)
+
     @patch("microceph.get_snap_tracks")
     def test_can_upgrade_snap_invalid_track(self, mock_get_snap_tracks):
         mock_get_snap_tracks.return_value = {"quincy"}
@@ -733,6 +745,28 @@ class TestCharm(testbase.TestBaseCharm):
         mock_get_snap_tracks.return_value = {"zoidberg", "alphaville", "pyjama"}
         result = microceph.can_upgrade_snap("squid", "pyjama")
         self.assertTrue(result)
+
+    @patch("microceph._get_disk_info")
+    def test_is_block_device_enrollable_unmounted_legacy_lsblk(self, mock_get_disk_info):
+        # util-linux 2.39 (jammy/noble) emits [None] for an unmounted disk.
+        mock_get_disk_info.return_value = {"mountpoints": [None]}
+        self.assertTrue(microceph._is_block_device_enrollable("/dev/loop3"))
+
+    @patch("microceph._get_disk_info")
+    def test_is_block_device_enrollable_unmounted_modern_lsblk(self, mock_get_disk_info):
+        # util-linux 2.40+ (resolute) emits an empty list for an unmounted disk.
+        mock_get_disk_info.return_value = {"mountpoints": []}
+        self.assertTrue(microceph._is_block_device_enrollable("/dev/loop3"))
+
+    @patch("microceph._get_disk_info")
+    def test_is_block_device_enrollable_mounted_disk(self, mock_get_disk_info):
+        mock_get_disk_info.return_value = {"mountpoints": ["/mnt/data"]}
+        self.assertFalse(microceph._is_block_device_enrollable("/dev/sda"))
+
+    @patch("microceph._get_disk_info")
+    def test_is_block_device_enrollable_partitioned_disk(self, mock_get_disk_info):
+        mock_get_disk_info.return_value = {"mountpoints": [None], "children": [{}]}
+        self.assertFalse(microceph._is_block_device_enrollable("/dev/sda"))
 
     def test_get_rgw_endpoints_action_node_not_bootstrapped(self):
         """Test action get_rgw_endpoints when node not bootstrapped."""

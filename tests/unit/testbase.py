@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from charms.ceph_mon.v0 import ceph_cos_agent
 from ops.testing import Harness
@@ -66,12 +66,19 @@ class _MicroCephCharm(charm.MicroCephCharm):
         # Patch ceph.ceph_config_set to avoid calling microceph.ceph in tests
         self._ceph_config_set_patch = patch("ceph.ceph_config_set")
         self._ceph_config_set_patch.start()
+        self._snap_cache_patch = patch("charms.operator_libs_linux.v2.snap.SnapCache")
+        snap_cache = self._snap_cache_patch.start()
+        microceph_snap = MagicMock()
+        microceph_snap.present = True
+        microceph_snap.channel = "reef/stable"
+        snap_cache.return_value.__getitem__.return_value = microceph_snap
         super().__init__(framework)
 
     def tearDown(self):
         """Stop the patches."""
         self._cos_agent_patch.stop()
         self._ceph_config_set_patch.stop()
+        self._snap_cache_patch.stop()
 
     def configure_ceph(self, event):
         return
