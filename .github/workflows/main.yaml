@@ -57,8 +57,8 @@ jobs:
         run: |
           charmcraft pack -v
           # Comma-separated list of all per-base/per-arch artifacts produced
-          # by the multi-base charmcraft.yaml. Both upload-charm steps below
-          # consume the same set so we only pack once.
+          # by the multi-base charmcraft.yaml. The upload-charm step below
+          # consumes the same set.
           # nullglob so an unmatched glob expands to nothing (not the
           # literal "microceph_*.charm"), letting the empty-array check
           # below actually fire when no artifacts were produced.
@@ -72,28 +72,16 @@ jobs:
           echo "artifacts=${artifacts}" >> "${GITHUB_OUTPUT}"
           ls -al "${charms[@]}"
 
-      # Each upload-charm call uploads the packed artifacts to Charmhub
-      # and receives its own per-(base, arch) charmhub revision number
-      # (so the two upload steps produce two distinct sets of revisions
-      # built from the same git commit). charming-actions tags every
-      # revision it creates by default; the second upload sets
-      # `github-tag: false` so its revisions don't collide with the
-      # tags already created by the first upload step.
-      - name: Release to latest/edge
+      # `tag-prefix: tentacle` namespaces the GitHub tags created by
+      # charming-actions so tentacle revisions are distinguishable from
+      # squid revisions (which the stable/squid branch publishes with a
+      # different prefix).
+      - name: Release to tentacle/edge
         uses: canonical/charming-actions/upload-charm@2.7.0
         with:
           credentials: "${{ secrets.CHARMHUB_TOKEN }}"
           github-token: "${{ secrets.GITHUB_TOKEN }}"
-          channel: latest/edge
+          channel: tentacle/edge
           built-charm-path: "${{ steps.pack.outputs.artifacts }}"
           charmcraft-channel: latest/candidate
-
-      - name: Release to squid/edge
-        uses: canonical/charming-actions/upload-charm@2.7.0
-        with:
-          credentials: "${{ secrets.CHARMHUB_TOKEN }}"
-          github-token: "${{ secrets.GITHUB_TOKEN }}"
-          channel: squid/edge
-          built-charm-path: "${{ steps.pack.outputs.artifacts }}"
-          charmcraft-channel: latest/candidate
-          github-tag: false
+          tag-prefix: tentacle
