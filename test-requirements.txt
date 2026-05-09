@@ -5,6 +5,6 @@ pytest
 jubilant~=1.0
 ops<3.4
 pydantic>=2.12,<2.13 
-cosl==0.0.55
+cosl==0.1.1
 
 git+https://github.com/canonical/ceph-charms#egg=charms_ceph&subdirectory=charms.ceph

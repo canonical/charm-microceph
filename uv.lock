@@ -171,7 +171,7 @@ wheels = [
 
 [[package]]
 name = "cosl"
-version = "0.0.55"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lightkube" },
@@ -181,9 +181,9 @@ dependencies = [
     { name = "tenacity" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/83/96cec403e992be7d283b5538f53e3bfe39723d61092776d45c3768136ecf/cosl-0.0.55.tar.gz", hash = "sha256:d3b8ee6f78302ac111d3a15d36c42a38c298a806161d762869513d348d778316", size = 76014, upload-time = "2025-02-18T11:55:32.405Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/4f/86cae36c199bfd7a13207ae69bfa5d74374a1e8fa15a9ccf12f504ef7c83/cosl-0.1.1.tar.gz", hash = "sha256:21c3eb806c4726e5bd3f66b4d6eb2700650661feb3dfd97a7555790ae519e704", size = 87413, upload-time = "2025-05-22T12:27:16.541Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/b2/63e8c8e084129230f97dacf7878e611e6f73f004fba530139770fd681542/cosl-0.0.55-py3-none-any.whl", hash = "sha256:bf641d611f982c8f494f3cf72ac4181b24e30c69504cfbd55aa8f54964797f90", size = 61014, upload-time = "2025-02-18T11:55:30.54Z" },
+    { url = "https://files.pythonhosted.org/packages/69/d0/b5f458f723d50d25ce04ad792d40721048e551245a7fa2b9897cf1dd29ed/cosl-0.1.1-py3-none-any.whl", hash = "sha256:589aa19889c9aa144779f834b629d8f345c44ddac266093cdb3f4a1e8aae0b52", size = 67774, upload-time = "2025-05-22T12:27:14.997Z" },
 ]
 
 [[package]]
@@ -465,7 +465,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "charms-ceph", git = "https://github.com/canonical/ceph-charms?subdirectory=charms.ceph" },
-    { name = "cosl", specifier = "==0.0.55" },
+    { name = "cosl", specifier = "==0.1.1" },
     { name = "cryptography" },
     { name = "jinja2" },
     { name = "jsonschema" },
