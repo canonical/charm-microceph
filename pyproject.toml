@@ -12,7 +12,7 @@ dependencies = [
     "jinja2",
     "pydantic>=2.12,<2.13",
     "cosl==0.0.55",
-    "requests<2.32",
+    "requests<2.35",
     "ops_sunbeam@git+https://opendev.org/openstack/sunbeam-charms#subdirectory=ops-sunbeam",
     "charms.ceph@git+https://github.com/canonical/ceph-charms#subdirectory=charms.ceph",
     "requests-unixsocket",
