@@ -26,6 +26,7 @@ import os
 import subprocess
 from pathlib import Path
 from socket import gethostname
+from subprocess import CalledProcessError, TimeoutExpired
 from typing import List
 
 import netifaces
@@ -124,14 +125,45 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
         self.channel = self.model.config.get("snap-channel")
 
+    def _is_benign_cluster_remove_error(self, error: CalledProcessError | TimeoutExpired) -> bool:
+        """Return True if a cluster-remove failure is safe to ignore during teardown."""
+        stderr = error.stderr or ""
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode(errors="replace")
+        else:
+            stderr = str(stderr)
+
+        if "Cannot leave a cluster with 1 members" in stderr:
+            return True
+
+        if "not found in dqlite or database" in stderr:
+            return True
+
+        if "cluster member" in stderr.lower() and "not found" in stderr.lower():
+            return True
+
+        return False
+
     def _on_stop(self, event: ops.StopEvent):
         """Removes departing unit from the MicroCeph cluster forcefully."""
+        hostname = gethostname()
         try:
-            microceph.remove_cluster_member(gethostname(), is_force=True)
-        except subprocess.CalledProcessError as e:
+            if microceph.cluster_member_count() <= 1:
+                logger.info("Skipping cluster removal for last MicroCeph member %s", hostname)
+                return
+        except Exception as e:
+            logger.warning("Could not determine MicroCeph cluster size during stop: %s", e)
+
+        try:
+            microceph.remove_cluster_member(hostname, is_force=True)
+        except (CalledProcessError, TimeoutExpired) as e:
+            if self._is_benign_cluster_remove_error(e):
+                logger.info("Ignoring benign cluster removal error during stop: %s", e.stderr)
+                return
+
             # NOTE: Depending upon the state of the cluster, forcefully removing
             # a host may result in errors even if the request was successful.
-            if microceph.is_cluster_member(gethostname()):
+            if microceph.is_cluster_member(hostname):
                 raise e
 
     def _on_update_status(self, event: ops.framework.EventBase) -> None:

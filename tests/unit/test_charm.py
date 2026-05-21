@@ -16,7 +16,7 @@
 
 import json
 from pathlib import Path
-from subprocess import CalledProcessError
+from subprocess import CalledProcessError, TimeoutExpired
 from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch
 
 import ops_sunbeam.test_utils as test_utils
@@ -46,6 +46,77 @@ class TestCharm(testbase.TestBaseCharm):
         )
         self.addCleanup(self.harness.cleanup)
         self.harness.begin()
+
+    @patch("charm.gethostname", return_value="host-a")
+    @patch.object(microceph, "remove_cluster_member")
+    @patch.object(microceph, "cluster_member_count", return_value=1)
+    def test_stop_skips_cluster_remove_for_last_member(
+        self, cluster_member_count, remove_cluster_member, _gethostname
+    ):
+        """Stop hook should not ask MicroCeph to remove the final member."""
+        self.harness.charm._on_stop(MagicMock())
+
+        cluster_member_count.assert_called_once_with()
+        remove_cluster_member.assert_not_called()
+
+    @patch("charm.gethostname", return_value="host-a")
+    @patch.object(microceph, "is_cluster_member")
+    @patch.object(microceph, "cluster_member_count", return_value=2)
+    def test_stop_ignores_benign_cluster_remove_errors(
+        self, cluster_member_count, is_cluster_member, _gethostname
+    ):
+        """Stop hook should ignore known idempotent Microcluster remove errors."""
+        benign_errors = (
+            "Error: Cannot leave a cluster with 1 members",
+            'Error: cluster member "host-a" not found',
+            'Error: Cluster member "host-a" with address "10.0.0.10:7443" not found in dqlite or database',
+        )
+
+        for stderr in benign_errors:
+            with self.subTest(stderr=stderr):
+                error = CalledProcessError(1, ["microceph", "cluster", "remove"], stderr=stderr)
+                with patch.object(microceph, "remove_cluster_member", side_effect=error) as remove:
+                    self.harness.charm._on_stop(MagicMock())
+
+                remove.assert_called_once_with("host-a", is_force=True)
+
+        assert cluster_member_count.call_count == len(benign_errors)
+        is_cluster_member.assert_not_called()
+
+    @patch("charm.gethostname", return_value="host-a")
+    @patch.object(microceph, "is_cluster_member")
+    @patch.object(microceph, "cluster_member_count", return_value=2)
+    def test_stop_ignores_benign_timeout_expired_with_bytes_stderr(
+        self, cluster_member_count, is_cluster_member, _gethostname
+    ):
+        """Stop hook should decode TimeoutExpired stderr before matching benign errors."""
+        error = TimeoutExpired(
+            ["microceph", "cluster", "remove"],
+            900,
+            stderr=b'Error: cluster member "host-a" not found',
+        )
+        with patch.object(microceph, "remove_cluster_member", side_effect=error) as remove:
+            self.harness.charm._on_stop(MagicMock())
+
+        cluster_member_count.assert_called_once_with()
+        remove.assert_called_once_with("host-a", is_force=True)
+        is_cluster_member.assert_not_called()
+
+    @patch("charm.gethostname", return_value="host-a")
+    @patch.object(microceph, "is_cluster_member", return_value=True)
+    @patch.object(microceph, "cluster_member_count", return_value=2)
+    def test_stop_reraises_non_benign_remove_error_when_still_member(
+        self, _cluster_member_count, _is_cluster_member, _gethostname
+    ):
+        """Stop hook should still fail for unexpected errors when node remains a member."""
+        error = CalledProcessError(
+            1,
+            ["microceph", "cluster", "remove"],
+            stderr="Error: unexpected failure",
+        )
+        with patch.object(microceph, "remove_cluster_member", side_effect=error):
+            with self.assertRaises(CalledProcessError):
+                self.harness.charm._on_stop(MagicMock())
 
     @patch.object(ceph_cos_agent, "CephCOSAgentProvider")
     @patch.object(ceph_cos_agent, "ceph_utils")

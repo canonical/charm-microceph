@@ -133,12 +133,24 @@ def cos_agent_is_mgr_available_cb() -> bool:
         return False
 
 
-def remove_cluster_member(name: str, is_force: bool) -> None:
+def cluster_members() -> list[str]:
+    """Return the hostnames of MicroCeph cluster members."""
+    client = Client.from_socket()
+    members = client.cluster.list_members()
+    return [member["name"] for member in members if member.get("name")]
+
+
+def cluster_member_count() -> int:
+    """Return the number of MicroCeph cluster members."""
+    return len(cluster_members())
+
+
+def remove_cluster_member(name: str, is_force: bool, timeout: int = 900) -> None:
     """Remove a cluster member."""
     cmd = ["microceph", "cluster", "remove", name]
     if is_force:
         cmd.append("--force")
-    utils.run_cmd(cmd)
+    utils.run_cmd(cmd, timeout=timeout)
 
 
 def get_mon_public_addresses() -> list:

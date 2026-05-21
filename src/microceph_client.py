@@ -189,6 +189,11 @@ class ClusterService(BaseService):
     of using microceph cli subprocess.
     """
 
+    def list_members(self) -> List[dict]:
+        """List all cluster members."""
+        members = self._get("/1.0/cluster")
+        return members.get("metadata") or []
+
     def list_services(self) -> List[dict]:
         """List all services."""
         services = self._get("/1.0/services")

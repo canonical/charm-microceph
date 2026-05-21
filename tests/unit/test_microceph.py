@@ -26,6 +26,17 @@ from microceph_client import ClusterServiceUnavailableException
 class TestMicroCeph(unittest.TestCase):
 
     @patch("microceph.Client")
+    def test_cluster_members(self, cclient):
+        """Test fetching cluster member names from the MicroCeph API."""
+        cclient.from_socket().cluster.list_members.return_value = [
+            {"name": "host-a", "address": "10.0.0.10:7443"},
+            {"name": "host-b", "address": "10.0.0.11:7443"},
+        ]
+
+        self.assertEqual(microceph.cluster_members(), ["host-a", "host-b"])
+        self.assertEqual(microceph.cluster_member_count(), 2)
+
+    @patch("microceph.Client")
     def test_is_rgw_enabled_service_not_running(self, cclient):
         """Test is_rgw_enabled when service is not running."""
         cclient.from_socket().cluster.list_services.return_value = [
