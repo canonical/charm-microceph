@@ -73,6 +73,32 @@ echo "==> Enabling load-balancer"
 lxc exec "${VM_NAME}" -- k8s enable load-balancer
 
 # MetalLB webhook needs its pods running before config can be applied.
+# `kubectl wait --for=condition=ready pod` exits immediately with an error when
+# zero pods match the selector (upstream kubectl bug, still open in 1.32:
+# https://github.com/kubernetes/kubectl/issues/1675). `k8s enable load-balancer`
+# returns before MetalLB's Deployment has been scheduled, so we must poll until
+# at least one Deployment exists before calling `kubectl wait`.
+echo "==> Waiting for MetalLB deployments to appear"
+for i in $(seq 1 60); do
+  count=$(lxc exec "${VM_NAME}" -- k8s kubectl get deployment \
+    -l app.kubernetes.io/name=metallb \
+    -n metallb-system \
+    --no-headers 2>/dev/null | wc -l)
+  if [ "${count}" -gt 0 ]; then
+    echo "    MetalLB deployments found (${count})"
+    break
+  fi
+  echo "    Waiting for MetalLB deployments to be scheduled (attempt ${i}/60)..."
+  sleep 3
+done
+
+echo "==> Waiting for MetalLB deployments to become available"
+lxc exec "${VM_NAME}" -- k8s kubectl wait \
+  --for=condition=available deployment \
+  -l app.kubernetes.io/name=metallb \
+  -n metallb-system \
+  --timeout=180s
+
 echo "==> Waiting for MetalLB pods to be ready"
 lxc exec "${VM_NAME}" -- k8s kubectl wait \
   --for=condition=ready pod \

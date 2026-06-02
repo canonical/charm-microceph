@@ -65,11 +65,21 @@ class ClusterNodes(ops.framework.Object):
             token = out.strip()
             self.charm.peers.set_app_data({f"{event.unit.name}.join_token": token})
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            logger.warning(e.stderr)
-            # MicroCeph renamed the table from internal_token_records to
-            # core_token_records in the squid release. Handle both.
-            if "UNIQUE constraint failed" not in e.stderr or "token_records.name" not in e.stderr:
-                raise e
+            stderr = e.stderr or ""
+            logger.warning("cluster add failed for %s: %s", event.unit.name, stderr)
+            # UNIQUE constraint means token already exists (node already added); safe to ignore.
+            # MicroCeph renamed the table from internal_token_records to core_token_records in
+            # the squid release. Handle both.
+            if "UNIQUE constraint failed" in stderr and "token_records.name" in stderr:
+                return
+            # For any other transient error, log and return without crashing the hook.
+            # The next peers-relation-changed will re-emit add_node and retry.
+            logger.warning(
+                "Unexpected error from 'microceph cluster add' for %s, will retry on next"
+                " peers-relation-changed: %s",
+                event.unit.name,
+                stderr,
+            )
 
     def join_node_to_cluster(self, event: ops.framework.EventBase) -> None:
         """Join node to microceph cluster."""
