@@ -46,16 +46,6 @@ from ceph_broker import process_requests
 logger = logging.getLogger(__name__)
 
 
-class TransientClusterError(Exception):
-    """Raised by add_node_to_cluster when microceph cluster add fails transiently.
-
-    The caller (add_node handler) catches this and defers the event so the
-    framework re-delivers it on the next relation change.
-    """
-
-    pass
-
-
 class HostnameChangeError(Exception):
     """Exception raised when the hostname changes unexpectedly."""
 
@@ -372,11 +362,7 @@ class MicroClusterPeerHandler(BasePeerHandler):
             logger.debug("Ignoring Add node event as this is not leader unit")
             return
 
-        try:
-            self.callback_f(event)
-        except TransientClusterError as e:
-            logger.warning("Deferring add_node event due to transient error: %s", e)
-            event.defer()
+        self.callback_f(event)
         # The event is emitted only onto leader node or this node
         # self.interface.on.node_added.emit(**self.interface._event_args(event))
 
