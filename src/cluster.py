@@ -32,6 +32,7 @@ import microceph
 import relation_handlers
 import utils
 from ceph import CephHealth, CephStatus
+from relation_handlers import TransientClusterError
 
 logger = logging.getLogger(__name__)
 UPGRADE_HEALTH_BLOCKED_MSG_PREFIX = "Cannot upgrade, ceph health not ok"
@@ -72,13 +73,10 @@ class ClusterNodes(ops.framework.Object):
             # the squid release. Handle both.
             if "UNIQUE constraint failed" in stderr and "token_records.name" in stderr:
                 return
-            # For any other transient error, log and return without crashing the hook.
-            # The next peers-relation-changed will re-emit add_node and retry.
-            logger.warning(
-                "Unexpected error from 'microceph cluster add' for %s, will retry on next"
-                " peers-relation-changed: %s",
-                event.unit.name,
-                stderr,
+            # For any other transient error, signal the caller to defer the event so the
+            # framework re-delivers it on the next relation change.
+            raise TransientClusterError(
+                f"transient error from 'microceph cluster add' for {event.unit.name}: {stderr}"
             )
 
     def join_node_to_cluster(self, event: ops.framework.EventBase) -> None:

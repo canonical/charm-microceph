@@ -79,18 +79,27 @@ lxc exec "${VM_NAME}" -- k8s enable load-balancer
 # returns before MetalLB's Deployment has been scheduled, so we must poll until
 # at least one Deployment exists before calling `kubectl wait`.
 echo "==> Waiting for MetalLB deployments to appear"
+metallb_found=false
 for i in $(seq 1 60); do
-  count=$(lxc exec "${VM_NAME}" -- k8s kubectl get deployment \
+  count=0
+  lxc exec "${VM_NAME}" -- k8s kubectl get deployment \
     -l app.kubernetes.io/name=metallb \
     -n metallb-system \
-    --no-headers 2>/dev/null | wc -l)
+    --no-headers 2>/dev/null \
+    > /tmp/metallb_deploys.txt || true
+  count=$(wc -l < /tmp/metallb_deploys.txt)
   if [ "${count}" -gt 0 ]; then
     echo "    MetalLB deployments found (${count})"
+    metallb_found=true
     break
   fi
   echo "    Waiting for MetalLB deployments to be scheduled (attempt ${i}/60)..."
   sleep 3
 done
+if [ "${metallb_found}" != "true" ]; then
+  echo "ERROR: MetalLB deployments did not appear after 180s" >&2
+  exit 1
+fi
 
 echo "==> Waiting for MetalLB deployments to become available"
 lxc exec "${VM_NAME}" -- k8s kubectl wait \
