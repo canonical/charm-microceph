@@ -30,6 +30,7 @@ from ops.model import ActiveStatus, MaintenanceStatus
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 import microceph
+import utils
 from device_flags import DeviceAddFlags, parse_device_add_flags
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,14 @@ class StorageHandler(Object):
 
         logger.debug(f"OSD ID for: {event.storage.full_id} is {osd_num}")
         if osd_num is None:
+            return
+
+        # Whole-application teardown: when the entire application is being removed
+        # the cluster is being destroyed, so removing OSDs from it is pointless and
+        # will hang once the cluster drops below quorum (the disk operations are
+        # dqlite-backed). Skip and let Juju deprovision the storage.
+        if utils.is_departing(self.charm.app, context="storage detach"):
+            logger.info("Application is being removed; skipping OSD removal for osd.%s", osd_num)
             return
 
         with sunbeam_guard.guard(self._storage_guard, self.name):

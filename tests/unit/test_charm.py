@@ -60,6 +60,82 @@ class TestCharm(testbase.TestBaseCharm):
         remove_cluster_member.assert_not_called()
 
     @patch("charm.gethostname", return_value="host-a")
+    @patch.object(microceph, "remove_cluster_member")
+    @patch.object(microceph, "cluster_member_count")
+    def test_stop_skips_cluster_remove_on_whole_app_teardown(
+        self, cluster_member_count, remove_cluster_member, _gethostname
+    ):
+        """Full teardown skips cluster removal entirely and exits immediately.
+
+        Draining members during a whole-application removal is not safe: Juju
+        destroys each machine as soon as `stop` returns, leaving dead voters, and
+        coordinating an ordered removal needs the quorum teardown is destroying.
+        """
+        # planned_units() == 0 is how the charm detects whole-app teardown.
+        self.harness.set_planned_units(0)
+
+        # Fire the stop hook handler directly (event payload is irrelevant here).
+        self.harness.charm._on_stop(MagicMock())
+
+        # The is_departing() guard returns before the cluster is touched at all:
+        # neither the size probe nor the member removal runs.
+        remove_cluster_member.assert_not_called()
+        cluster_member_count.assert_not_called()
+
+    def test_configure_charm_inert_when_application_removed(self):
+        """A departing unit must not reconcile (it would hang/err on the dead cluster)."""
+        # Simulate whole-app teardown.
+        self.harness.set_planned_units(0)
+
+        # configure_charm() overrides the base class only to add the guard; patch the
+        # super() implementation so we can assert whether real reconcile would run.
+        with patch("ops_sunbeam.charm.OSBaseOperatorCharm.configure_charm") as super_cfg:
+            self.harness.charm.configure_charm(MagicMock())
+
+        # Guard fired: the base-class reconcile was never delegated to.
+        super_cfg.assert_not_called()
+
+    def test_configure_charm_reconciles_when_not_removed(self):
+        """When the app is not being removed, reconcile proceeds as normal."""
+        # Not a teardown (one unit remains), so the guard must let reconcile through.
+        self.harness.set_planned_units(1)
+
+        with patch("ops_sunbeam.charm.OSBaseOperatorCharm.configure_charm") as super_cfg:
+            self.harness.charm.configure_charm(MagicMock())
+
+        # Guard passed: reconcile is delegated to the base class exactly once.
+        super_cfg.assert_called_once()
+
+    def test_update_status_inert_when_application_removed(self):
+        """update-status must not reconcile a departing app (its cluster lost quorum)."""
+        # Simulate whole-app teardown.
+        self.harness.set_planned_units(0)
+
+        # _clear_resolved_upgrade_blocked_status is the first thing _on_update_status
+        # does after the guard, so patching it lets us detect whether we got past the
+        # guard at all.
+        with patch.object(
+            self.harness.charm, "_clear_resolved_upgrade_blocked_status"
+        ) as clear_status:
+            self.harness.charm._on_update_status(MagicMock())
+
+        # Guard fired: the handler returned before reaching any real work.
+        clear_status.assert_not_called()
+
+    def test_update_status_runs_when_not_removed(self):
+        """When the app is not being removed, update-status proceeds past the guard."""
+        # Not a teardown, so update-status must run normally.
+        self.harness.set_planned_units(1)
+
+        with patch.object(
+            self.harness.charm, "_clear_resolved_upgrade_blocked_status"
+        ) as clear_status:
+            self.harness.charm._on_update_status(MagicMock())
+
+        # Guard passed: the handler proceeded into its body.
+        clear_status.assert_called_once()
+
+    @patch("charm.gethostname", return_value="host-a")
     @patch.object(microceph, "is_cluster_member")
     @patch.object(microceph, "cluster_member_count", return_value=2)
     def test_stop_ignores_benign_cluster_remove_errors(
@@ -117,6 +193,24 @@ class TestCharm(testbase.TestBaseCharm):
         with patch.object(microceph, "remove_cluster_member", side_effect=error):
             with self.assertRaises(CalledProcessError):
                 self.harness.charm._on_stop(MagicMock())
+
+    @patch("charm.gethostname", return_value="host-a")
+    @patch.object(microceph, "is_cluster_member", return_value=False)
+    @patch.object(microceph, "remove_cluster_member")
+    @patch.object(microceph, "cluster_member_count", return_value=2)
+    def test_stop_removes_self_on_partial_scale_down(
+        self, _cluster_member_count, remove_cluster_member, _is_cluster_member, _gethostname
+    ):
+        """When the app is not being torn down, a departing unit removes itself."""
+        # planned_units() == 2 -> partial scale-down, NOT whole-app teardown, so the
+        # is_departing() guard does not fire. cluster_member_count() is mocked to 2
+        # (above quorum-of-one), and is_cluster_member -> False so no error is raised.
+        self.harness.set_planned_units(2)
+
+        self.harness.charm._on_stop(MagicMock())
+
+        # The departing unit forcibly removes itself from the surviving cluster.
+        remove_cluster_member.assert_called_once_with("host-a", is_force=True)
 
     @patch.object(ceph_cos_agent, "CephCOSAgentProvider")
     @patch.object(ceph_cos_agent, "ceph_utils")

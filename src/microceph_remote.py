@@ -32,6 +32,7 @@ from ops.framework import (
 from ops_sunbeam.relation_handlers import RelationHandler
 
 import microceph
+import utils
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,10 @@ class MicroCephRemote(Object):
                 self.on.microceph_remote_reconcile.emit(event.relation)
 
     def _on_peer_updated(self, event):
+        if utils.is_departing(self.charm.app):
+            logger.debug("Application is being removed; skipping remote update")
+            return
+
         if not self.model.unit.is_leader():
             logger.debug("Not the leader, ignoring remote update event")
             return

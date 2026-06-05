@@ -118,6 +118,9 @@ class CephNfsProvides(Object):
 
     def _on_ceph_peers(self, event):
         """Handle ceph peers relation events."""
+        if utils.is_departing(self.charm.app):
+            logger.debug("Application is being removed; skipping ceph-nfs reconcile")
+            return
         if not self.model.unit.is_leader():
             return
 

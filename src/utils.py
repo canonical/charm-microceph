@@ -73,6 +73,22 @@ def snap_has_connection(snap_name: str, plug_or_slot: str) -> bool:
     raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
 
 
+def is_departing(app, context: str = "") -> bool:
+    """Return True when the application is being removed.
+
+    ``planned_units()`` is the application's goal unit count, which Juju drives
+    to 0 on ``remove-application`` (and scale-to-zero). On any failure to read
+    it we fail safe to False so the unit keeps reconciling normally. ``context``
+    is an optional caller hint included in the warning log line.
+    """
+    try:
+        return app.planned_units() == 0
+    except Exception as e:
+        suffix = f" during {context}" if context else ""
+        logger.warning("Could not determine planned units%s: %s", suffix, e)
+        return False
+
+
 def get_mon_addresses():
     """Get the Ceph mon addresses."""
     client = Client.from_socket()
