@@ -19,14 +19,14 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 5
+LIBPATCH = 6
 
 logger = logging.getLogger(__name__)
 
 
 class CephCOSAgentProvider(cos_agent.COSAgentProvider):
     def __init__(self, charm, refresh_cb=None, departed_cb=None, is_ready_cb=None,
-                 mgr_config_set_cb=None):
+                 mgr_config_set_cb=None, is_mgr_available_cb=None):
         super().__init__(
             charm,
             metrics_rules_dir="./files/prometheus_alert_rules",
@@ -38,6 +38,9 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
         self._departed_cb = departed_cb
         self._is_ready_cb = is_ready_cb
         self._mgr_config_set_cb = mgr_config_set_cb
+        # Optional () -> bool: does ceph-mgr run on this host? False suppresses
+        # the mgr scrape job; unset always advertises it (historic behavior).
+        self._is_mgr_available_cb = is_mgr_available_cb
 
         events = self._charm.on[cos_agent.DEFAULT_RELATION_NAME]
         self.framework.observe(
@@ -89,7 +92,36 @@ class CephCOSAgentProvider(cos_agent.COSAgentProvider):
                 ceph_utils.mgr_disable_module("prometheus")
         logger.debug("module_disabled")
 
+    @property
+    def _scrape_jobs(self):
+        """Like the base property but keeps an empty list instead of
+        substituting ``DEFAULT_SCRAPE_CONFIG`` (``localhost:80``): a unit with
+        no local exporter must advertise no scrape job, not a bogus target.
+        """
+        scrape_configs = self._custom_scrape_configs()
+
+        # Convert "metrics_endpoints" to standard scrape_configs, and add them in
+        for endpoint in self._metrics_endpoints:
+            scrape_configs.append(
+                {
+                    "metrics_path": endpoint["path"],
+                    "static_configs": [{"targets": [f"localhost:{endpoint['port']}"]}],
+                }
+            )
+
+        # Augment job name to include the app name and a unique id (index).
+        for idx, scrape_config in enumerate(scrape_configs):
+            scrape_config["job_name"] = "_".join(
+                [self._charm.app.name, str(idx), scrape_config.get("job_name", "default")]
+            )
+
+        return scrape_configs
+
     def _custom_scrape_configs(self):
+        """Return the mgr scrape config, or nothing on a non-mgr host."""
+        if self._is_mgr_available_cb is not None and not self._is_mgr_available_cb():
+            return []
+
         fqdn = socket.getfqdn()
         fqdn_parts = fqdn.split('.')
         domain = '.'.join(fqdn_parts[1:]) if len(fqdn_parts) > 1 else fqdn

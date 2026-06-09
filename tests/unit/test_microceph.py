@@ -17,7 +17,10 @@
 import unittest
 from unittest.mock import call, patch
 
+from requests.exceptions import HTTPError
+
 import microceph
+from microceph_client import ClusterServiceUnavailableException
 
 
 class TestMicroCeph(unittest.TestCase):
@@ -64,6 +67,64 @@ class TestMicroCeph(unittest.TestCase):
             {"service": "rgw", "location": "fake-host-2"},
         ]
         self.assertFalse(microceph.is_rgw_enabled("fake-host"))
+
+    @patch("microceph.Client")
+    def test_is_mgr_enabled_service_not_running(self, cclient):
+        """Test is_mgr_enabled when mgr is not on the host."""
+        cclient.from_socket().cluster.list_services.return_value = [
+            {"service": "rgw", "location": "fake-host"},
+            {"service": "osd", "location": "fake-host"},
+        ]
+        self.assertFalse(microceph.is_mgr_enabled("fake-host"))
+
+    @patch("microceph.Client")
+    def test_is_mgr_enabled_service_running(self, cclient):
+        """Test is_mgr_enabled when mgr runs on the host."""
+        cclient.from_socket().cluster.list_services.return_value = [
+            {"service": "mds", "location": "fake-host"},
+            {"service": "mgr", "location": "fake-host"},
+            {"service": "mon", "location": "fake-host"},
+        ]
+        self.assertTrue(microceph.is_mgr_enabled("fake-host"))
+
+    @patch("microceph.Client")
+    def test_is_mgr_enabled_service_running_and_host_mismatch(self, cclient):
+        """Test is_mgr_enabled with host mismatch."""
+        cclient.from_socket().cluster.list_services.return_value = [
+            {"service": "mgr", "location": "other-host"},
+            {"service": "rgw", "location": "fake-host"},
+        ]
+        self.assertFalse(microceph.is_mgr_enabled("fake-host"))
+
+    @patch("microceph.gethostname", return_value="fake-host")
+    @patch("microceph.is_mgr_enabled", return_value=True)
+    def test_cos_agent_is_mgr_available_cb_mgr_host(self, _is_mgr, _hostname):
+        """On an mgr host, the cb reports mgr available."""
+        self.assertTrue(microceph.cos_agent_is_mgr_available_cb())
+
+    @patch("microceph.gethostname", return_value="fake-host")
+    @patch("microceph.is_mgr_enabled", return_value=False)
+    def test_cos_agent_is_mgr_available_cb_non_mgr_host(self, _is_mgr, _hostname):
+        """On a non-mgr host, the cb reports mgr not available."""
+        self.assertFalse(microceph.cos_agent_is_mgr_available_cb())
+
+    @patch("microceph.gethostname", return_value="fake-host")
+    @patch(
+        "microceph.is_mgr_enabled",
+        side_effect=ClusterServiceUnavailableException("boom"),
+    )
+    def test_cos_agent_is_mgr_available_cb_fails_closed_on_error(self, _is_mgr, _hostname):
+        """If mgr detection fails (after retries), report mgr not available."""
+        self.assertFalse(microceph.cos_agent_is_mgr_available_cb())
+
+    @patch("microceph.gethostname", return_value="fake-host")
+    @patch(
+        "microceph.is_mgr_enabled",
+        side_effect=HTTPError("unmapped HTTP error"),
+    )
+    def test_cos_agent_is_mgr_available_cb_fails_closed_on_http_error(self, _is_mgr, _hostname):
+        """The client re-raises bare HTTPError for unmapped errors; still fail closed."""
+        self.assertFalse(microceph.cos_agent_is_mgr_available_cb())
 
     @patch("microceph.Client")
     def test_update_cluster_configs(self, cclient):

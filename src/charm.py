@@ -93,6 +93,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             departed_cb=microceph.cos_agent_departed_cb,
             is_ready_cb=self.ready_for_service,
             mgr_config_set_cb=microceph.cos_agent_mgr_config_set_cb,
+            is_mgr_available_cb=microceph.cos_agent_is_mgr_available_cb,
         )
 
         # Initialise handlers for events.
