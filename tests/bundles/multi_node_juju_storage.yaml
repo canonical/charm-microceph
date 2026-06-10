@@ -6,6 +6,6 @@ applications:
     constraints: mem=4G cores=2 root-disk=32G virt-type=virtual-machine
     scale: 3
     options:
-      snap-channel: tentacle/edge
+      snap-channel: tentacle/stable
     storage:
       osd-standalone: loop,3,2G
