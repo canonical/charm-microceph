@@ -13,4 +13,4 @@ git+https://github.com/canonical/ceph-charms#egg=charms_ceph&subdirectory=charms
 
 # Used for communication with snapd socket
 requests-unixsocket # Apache 2
-urllib3<2 # https://github.com/psf/requests/issues/6432
+urllib3<3 # https://github.com/psf/requests/issues/6432

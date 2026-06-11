@@ -16,7 +16,7 @@ dependencies = [
     "ops_sunbeam@git+https://opendev.org/openstack/sunbeam-charms#subdirectory=ops-sunbeam",
     "charms.ceph@git+https://github.com/canonical/ceph-charms#subdirectory=charms.ceph",
     "requests-unixsocket",
-    "urllib3<2",
+    "urllib3<3",
 ]
 
 # Testing tools configuration
