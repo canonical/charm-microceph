@@ -219,6 +219,10 @@ class MicroCephRemoteHandler(RelationHandler):
 
     def _on_departed(self, event):
         """Handle integration cleanup."""
+        if utils.is_departing(self.charm.app):
+            logger.debug("Application is being removed; skipping remote departed cleanup")
+            return
+
         logger.debug("Handling remote departed event")
         remote_relation_data = event.relation.data.get(event.relation.app)
         remote_site_name = remote_relation_data.get(RemoteRelationDataKeys.site_name.value, None)

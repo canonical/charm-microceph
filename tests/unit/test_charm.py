@@ -212,6 +212,42 @@ class TestCharm(testbase.TestBaseCharm):
         # The departing unit forcibly removes itself from the surviving cluster.
         remove_cluster_member.assert_called_once_with("host-a", is_force=True)
 
+    def test_traefik_ready_inert_when_application_removed(self):
+        """handle_traefik_ready must not run for a departing app (it can call the cluster)."""
+        # Simulate whole-app teardown.
+        self.harness.set_planned_units(0)
+
+        # is_leader() is the first thing handle_traefik_ready does after the guard, so a
+        # non-call proves the guard short-circuited before any traefik/cluster work.
+        with patch.object(self.harness.charm.unit, "is_leader") as is_leader:
+            self.harness.charm.handle_traefik_ready(MagicMock())
+
+        is_leader.assert_not_called()
+
+    def test_traefik_ready_runs_when_not_removed(self):
+        """When the app is not being removed, handle_traefik_ready proceeds past the guard."""
+        # Not a teardown, so the guard must let the handler through.
+        self.harness.set_planned_units(1)
+
+        # Return False from is_leader so the handler exits right after the guard without
+        # needing a real traefik relation; the call itself proves the guard passed.
+        with patch.object(self.harness.charm.unit, "is_leader", return_value=False) as is_leader:
+            self.harness.charm.handle_traefik_ready(MagicMock())
+
+        is_leader.assert_called_once()
+
+    def test_remote_departed_inert_when_application_removed(self):
+        """Remote departed cleanup must not run for a departing app (it calls the cluster)."""
+        # Simulate whole-app teardown.
+        self.harness.set_planned_units(0)
+
+        # remove_remote_cluster() is the cluster call the departed handler would make;
+        # the guard must short-circuit before reaching it.
+        with patch("microceph_remote.remove_remote_cluster") as remove_remote_cluster:
+            self.harness.charm.remote_provider._on_departed(MagicMock())
+
+        remove_remote_cluster.assert_not_called()
+
     @patch.object(ceph_cos_agent, "CephCOSAgentProvider")
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch.object(microceph, "Client")

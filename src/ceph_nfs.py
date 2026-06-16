@@ -348,6 +348,10 @@ class CephNfsProviderHandler(RelationHandler):
         ceph.create_fs_volume(volume_name)
 
     def _on_ceph_nfs_departed(self, event: EventBase) -> None:
+        if utils.is_departing(self.charm.app):
+            logger.debug("Application is being removed; skipping ceph-nfs departed cleanup")
+            return
+
         if not self.model.unit.is_leader():
             return
 

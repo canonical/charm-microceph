@@ -795,6 +795,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def handle_traefik_ready(self, event: ops.framework.EventBase):
         """Handle Traefik route ready callback."""
+        if utils.is_departing(self.app):
+            logger.debug("Application is being removed; skipping traefik route update")
+            return
+
         if not self.unit.is_leader():
             logger.debug("Not a leader unit, not updating traefik route config")
             return
