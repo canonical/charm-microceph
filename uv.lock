@@ -114,7 +114,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/5a/f5/2ed2c938671e1305f
 [[package]]
 name = "charms-ceph"
 version = "0.0.1.dev1"
-source = { git = "https://github.com/canonical/ceph-charms?subdirectory=charms.ceph#a6ea066f989eefe1d77bc932e24cf988698db9a5" }
+source = { git = "https://github.com/canonical/ceph-charms?subdirectory=charms.ceph&rev=f427e7e4a1b7b3d0d2d0f3df3a4537a4b39980e2#f427e7e4a1b7b3d0d2d0f3df3a4537a4b39980e2" }
 dependencies = [
     { name = "charmhelpers" },
     { name = "pyudev" },
@@ -505,14 +505,14 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "charms-ceph", git = "https://github.com/canonical/ceph-charms?subdirectory=charms.ceph" },
+    { name = "charms-ceph", git = "https://github.com/canonical/ceph-charms?subdirectory=charms.ceph&rev=f427e7e4a1b7b3d0d2d0f3df3a4537a4b39980e2" },
     { name = "cosl", specifier = "==0.0.55" },
     { name = "cryptography" },
     { name = "jinja2" },
     { name = "jsonschema" },
     { name = "netifaces" },
     { name = "ops", specifier = "<3.4" },
-    { name = "ops-sunbeam", git = "https://opendev.org/openstack/sunbeam-charms?subdirectory=ops-sunbeam" },
+    { name = "ops-sunbeam", git = "https://opendev.org/openstack/sunbeam-charms?subdirectory=ops-sunbeam&rev=69ec637504645053adee8c89f8e83f24c065745d" },
     { name = "pydantic", specifier = ">=2.12,<2.13" },
     { name = "pyroute2" },
     { name = "requests", specifier = "<2.32" },
@@ -566,7 +566,7 @@ wheels = [
 [[package]]
 name = "ops-sunbeam"
 version = "0.0.1.dev1"
-source = { git = "https://opendev.org/openstack/sunbeam-charms?subdirectory=ops-sunbeam#1f744182d7f11cbc3fa4262b06da08910e9d72f3" }
+source = { git = "https://opendev.org/openstack/sunbeam-charms?subdirectory=ops-sunbeam&rev=69ec637504645053adee8c89f8e83f24c065745d#69ec637504645053adee8c89f8e83f24c065745d" }
 dependencies = [
     { name = "lightkube" },
     { name = "lightkube-models" },

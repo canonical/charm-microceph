@@ -77,6 +77,9 @@ class IdentityServiceClientCharm(CharmBase):
 
 import json
 import logging
+from typing import (
+    Any,
+)
 
 from ops import ModelError
 from ops.framework import (
@@ -101,7 +104,7 @@ LIBAPI = 1
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 5
+LIBPATCH = 7
 
 
 logger = logging.getLogger(__name__)
@@ -147,12 +150,14 @@ class IdentityServiceRequires(Object):
         relation_name: str,
         service_endpoints: list[dict],
         region: str,
+        extra_roles: list[str] | None = None,
     ):
         super().__init__(charm, relation_name)
         self.charm = charm
         self.relation_name = relation_name
         self.service_endpoints = service_endpoints
         self.region = region
+        self.extra_roles = extra_roles or []
         self.framework.observe(
             self.charm.on[relation_name].relation_joined,
             self._on_identity_service_relation_joined,
@@ -174,7 +179,9 @@ class IdentityServiceRequires(Object):
         """IdentityService relation joined."""
         logging.debug("IdentityService on_joined")
         self.on.connected.emit()
-        self.register_services(self.service_endpoints, self.region)
+        self.register_services(
+            self.service_endpoints, self.region, self.extra_roles
+        )
 
     def _on_identity_service_relation_changed(self, event):
         """IdentityService relation changed."""
@@ -358,8 +365,20 @@ class IdentityServiceRequires(Object):
         """Return the admin_role."""
         return self.get_remote_app_data("admin-role")
 
+    @property
+    def region_name(self) -> str:
+        """Return the identity region name.
+
+        In multi-region environments, this may be different than
+        the region of the requester.
+        """
+        return self.get_remote_app_data("region")
+
     def register_services(
-        self, service_endpoints: list[dict], region: str
+        self,
+        service_endpoints: list[dict],
+        region: str,
+        extra_roles: list[str] | None = None,
     ) -> None:
         """Request access to the IdentityService server."""
         if self.model.unit.is_leader():
@@ -369,6 +388,10 @@ class IdentityServiceRequires(Object):
                 service_endpoints, sort_keys=True
             )
             app_data["region"] = region
+            if extra_roles:
+                app_data["extra-roles"] = json.dumps(extra_roles)
+            else:
+                app_data.pop("extra-roles", None)
 
 
 class HasIdentityServiceClientsEvent(EventBase):
@@ -388,6 +411,7 @@ class ReadyIdentityServiceClientsEvent(EventBase):
         service_endpoints,
         region,
         client_app_name,
+        extra_roles,
     ):
         super().__init__(handle)
         self.relation_id = relation_id
@@ -395,6 +419,7 @@ class ReadyIdentityServiceClientsEvent(EventBase):
         self.service_endpoints = service_endpoints
         self.region = region
         self.client_app_name = client_app_name
+        self.extra_roles = extra_roles
 
     def snapshot(self):
         return {
@@ -403,6 +428,7 @@ class ReadyIdentityServiceClientsEvent(EventBase):
             "service_endpoints": self.service_endpoints,
             "client_app_name": self.client_app_name,
             "region": self.region,
+            "extra_roles": self.extra_roles,
         }
 
     def restore(self, snapshot):
@@ -412,6 +438,7 @@ class ReadyIdentityServiceClientsEvent(EventBase):
         self.service_endpoints = snapshot["service_endpoints"]
         self.region = snapshot["region"]
         self.client_app_name = snapshot["client_app_name"]
+        self.extra_roles = snapshot.get("extra_roles", [])
 
 
 class IdentityServiceClientEvents(ObjectEvents):
@@ -467,18 +494,34 @@ class IdentityServiceProvides(Object):
             service_eps = json.loads(
                 event.relation.data[event.relation.app]["service-endpoints"]
             )
+            extra_roles = self._load_extra_roles(
+                event.relation.data[event.relation.app].get("extra-roles")
+            )
             self.on.ready_identity_service_clients.emit(
                 event.relation.id,
                 event.relation.name,
                 service_eps,
                 event.relation.data[event.relation.app]["region"],
                 event.relation.app.name,
+                extra_roles,
             )
 
     def _on_identity_service_relation_broken(self, event):
         """Handle IdentityService broken."""
         logging.debug("IdentityServiceProvides on_departed")
         # TODO clear data on the relation
+
+    @staticmethod
+    def _load_extra_roles(raw_extra_roles: str | None) -> list[str]:
+        """Load extra roles from requirer relation data."""
+        if not raw_extra_roles:
+            return []
+        extra_roles: Any = json.loads(raw_extra_roles)
+        if not isinstance(extra_roles, list) or not all(
+            isinstance(role, str) and role for role in extra_roles
+        ):
+            raise ValueError("extra-roles must be a JSON list of strings")
+        return extra_roles
 
     def set_identity_service_credentials(
         self,
@@ -505,6 +548,7 @@ class IdentityServiceProvides(Object):
         public_auth_url: str,
         service_credentials: str,
         admin_role: str,
+        region: str,
     ):
         logging.debug("Setting identity_service connection information.")
         _identity_service_rel = None
@@ -541,3 +585,4 @@ class IdentityServiceProvides(Object):
         app_data["public-auth-url"] = public_auth_url
         app_data["service-credentials"] = service_credentials
         app_data["admin-role"] = admin_role
+        app_data["region"] = region
