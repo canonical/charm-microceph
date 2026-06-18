@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install dependencies
         run: python3 -m pip install tox
       - name: Run linters
@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install dependencies
         run: python -m pip install tox
       - name: Run tests
@@ -35,7 +35,7 @@ jobs:
       - unit-test
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install Terraform and Terragrunt
         run: ./tests/scripts/ci_helpers.sh install_terraform_tooling
       - name: Validate Terragrunt module
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
       - name: Setup LXD
@@ -87,7 +87,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -141,7 +141,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -188,7 +188,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -267,7 +267,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -530,7 +530,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -575,7 +575,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -676,7 +676,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -805,7 +805,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -874,7 +874,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -947,7 +947,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -1041,7 +1041,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -1144,7 +1144,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -1224,7 +1224,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -1286,7 +1286,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -1368,7 +1368,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -1513,7 +1513,7 @@ jobs:
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
