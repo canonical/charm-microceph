@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install dependencies
         run: python3 -m pip install tox
       - name: Run linters
@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install dependencies
         run: python -m pip install tox
       - name: Run tests
@@ -35,7 +35,7 @@ jobs:
       - unit-test
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install Terraform and Terragrunt
         run: ./tests/scripts/ci_helpers.sh install_terraform_tooling
       - name: Validate Terragrunt module
@@ -48,11 +48,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           channel: 5.21/stable
       - name: Build charm(s)
@@ -63,10 +63,11 @@ jobs:
           sudo snap install charmcraft --classic --channel=latest/candidate
           charmcraft pack -v
       - name: Upload built charm
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: charms
           path: "*.charm"
+          if-no-files-found: error
 
   integration-test:
     needs:
@@ -81,18 +82,18 @@ jobs:
       CLIENT_NAME: johnny
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           channel: 5.21/stable
 
@@ -116,7 +117,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_integration_test_logs
           path: logs
@@ -135,13 +136,13 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -163,7 +164,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_functional_test_logs
           path: logs
@@ -182,18 +183,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd to LTS release.
           channel: 5.21/stable
@@ -242,7 +243,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_cluster_test_logs
           path: logs
@@ -261,18 +262,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd to LTS release.
           channel: 5.21/stable
@@ -505,7 +506,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_cluster_maintenance_test_logs
           path: logs
@@ -524,18 +525,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           channel: 5.21/stable
 
@@ -554,7 +555,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_wipe_test_logs
           path: logs
@@ -569,18 +570,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd to LTS release.
           channel: 5.21/stable
@@ -651,7 +652,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_single_test_logs
           path: logs
@@ -670,18 +671,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd to LTS release.
           channel: 5.21/stable
@@ -780,7 +781,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_upgrade_test_logs
           path: logs
@@ -799,18 +800,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd since there were some recurring issues in recent releases.
           channel: 5.21/stable
@@ -849,7 +850,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_network_spaces_test_logs
           path: logs
@@ -868,18 +869,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd to LTS release.
           channel: 5.21/stable
@@ -922,7 +923,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_mds_test_logs
           path: logs
@@ -941,18 +942,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd to LTS release.
           channel: 5.21/stable
@@ -1018,7 +1019,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_mds_test_logs
           path: logs
@@ -1035,18 +1036,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd to LTS release.
           channel: 5.21/stable
@@ -1119,7 +1120,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_mds_test_logs
           path: logs
@@ -1138,18 +1139,18 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd to LTS release.
           channel: 5.21/stable
@@ -1198,7 +1199,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_storage_cluster_test_logs
           path: logs
@@ -1218,13 +1219,13 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -1260,7 +1261,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_az_fresh_deploy_test_logs
           path: logs
@@ -1280,13 +1281,13 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -1330,7 +1331,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_az_upgrade_test_logs
           path: logs
@@ -1362,18 +1363,18 @@ jobs:
             artifact_suffix: otel
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           channel: 5.21/stable
 
@@ -1487,7 +1488,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_${{ matrix.artifact_suffix }}_integration_logs
           path: logs
@@ -1507,18 +1508,18 @@ jobs:
     steps:
 
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+        uses: canonical/setup-lxd@v1
         with:
           # pin lxd to LTS release.
           channel: 5.21/stable
@@ -1625,7 +1626,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_upgrade_test_logs
           path: logs

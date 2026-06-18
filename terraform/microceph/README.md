@@ -65,13 +65,13 @@ terragrunt apply -var='storage_directivs={"osd-standalone"="loop,4G,1"}'
 | Name | Version |
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.5 |
-| <a name="requirement_juju"></a> [juju](#requirement\_juju) | ~> 1.0.0 |
+| <a name="requirement_juju"></a> [juju](#requirement\_juju) | ~> 1.5.0 |
 
 ## Providers
 
 | Name | Version |
 |------|---------|
-| <a name="provider_juju"></a> [juju](#provider\_juju) | 1.0.0 |
+| <a name="provider_juju"></a> [juju](#provider\_juju) | 1.5.0 |
 
 ## Modules
 
