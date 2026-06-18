@@ -290,15 +290,15 @@ class CephNfsProviderHandler(RelationHandler):
 
         for candidate in candidates:
             try:
-                public_addr = self._get_public_address(candidate)
-                if not public_addr:
+                bind_addr = self._get_nfs_bind_address(candidate)
+                if not bind_addr:
                     logger.warning(
-                        "Could not find the public address of '%s' in the peer relation data.",
+                        "Could not find the NFS bind address of '%s' in the peer relation data.",
                         candidate,
                     )
                     continue
 
-                microceph.enable_nfs(candidate, cluster_id, public_addr)
+                microceph.enable_nfs(candidate, cluster_id, bind_addr)
 
                 nodes_in_cluster += 1
                 if nodes_in_cluster == 3:
@@ -324,16 +324,34 @@ class CephNfsProviderHandler(RelationHandler):
         logger.info("NFS cluster '%s' is enabled on 3 / 3 nodes.", cluster_id)
         return True
 
-    def _get_public_address(self, hostname: str) -> str:
+    def _get_peer_value(self, hostname: str, key: str) -> str:
+        """Read a value from the peer databag of the unit running on `hostname`."""
         rel = self.model.get_relation("peers")
+        if rel is None:
+            return ""
+
         for unit in itertools.chain(rel.units, [self.model.unit]):
             rel_data = rel.data[unit]
+            # Each unit stores its own hostname keyed by its unit name.
             unit_hostname = rel_data.get(unit.name)
 
             if hostname == unit_hostname:
-                return rel_data.get("public-address")
+                return rel_data.get(key) or ""
 
         return ""
+
+    def _get_nfs_bind_address(self, hostname: str) -> str:
+        """Resolve the NFS bind address for a host.
+
+        Uses the host's advertised ``nfs-address`` (from the ceph-nfs endpoint
+        binding) when present, else falls back to ``public-address`` (the option
+        is off, or a peer on an older charm revision has not advertised one).
+        """
+        nfs_addr = self._get_peer_value(hostname, "nfs-address")
+        if nfs_addr:
+            return nfs_addr
+
+        return self._get_peer_value(hostname, "public-address")
 
     def _ensure_fs_volume(self, volume_name: str) -> None:
         """Create the FS Volume if it doesn't exist."""

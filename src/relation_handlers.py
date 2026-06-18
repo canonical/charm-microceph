@@ -45,6 +45,9 @@ from ceph_broker import process_requests
 
 logger = logging.getLogger(__name__)
 
+# Endpoint whose network space the NFS (Ganesha) service binds to.
+NFS_BINDING = "ceph-nfs"
+
 
 class HostnameChangeError(Exception):
     """Exception raised when the hostname changes unexpectedly."""
@@ -75,7 +78,39 @@ def collect_peer_data(model: ops.model.Model) -> dict:
         if current_data.get("public-address") != str(public_address):
             to_update["public-address"] = str(public_address)
 
+    # Publish the NFS bind address when dedicated binding is enabled; otherwise
+    # (option disabled or binding unresolved) drop any previously published
+    # value so the NFS provider falls back to the public address.
+    nfs_address = _get_nfs_space_address(model)
+    if nfs_address:
+        if current_data.get("nfs-address") != nfs_address:
+            to_update["nfs-address"] = nfs_address
+    elif current_data.get("nfs-address"):
+        to_update["nfs-address"] = ""
+
     return to_update
+
+
+def _get_nfs_space_address(model: ops.model.Model) -> Optional[str]:
+    """Resolve this unit's bind address for the NFS network space.
+
+    Returns the ``ceph-nfs`` endpoint binding's address when
+    ``nfs-use-dedicated-binding`` is enabled, else None so NFS stays on the
+    public address. Also returns None when the binding cannot be resolved.
+    """
+    if not model.config.get("nfs-use-dedicated-binding"):
+        return None
+
+    try:
+        bind_address = model.get_binding(binding_key=NFS_BINDING).network.bind_address
+    except ops.model.ModelError as ex:
+        logger.warning("Could not resolve '%s' binding: %s", NFS_BINDING, ex)
+        return None
+
+    if not bind_address:
+        return None
+
+    return str(bind_address)
 
 
 class MicroClusterNewNodeEvent(RelationEvent):
