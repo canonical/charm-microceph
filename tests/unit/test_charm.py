@@ -163,6 +163,46 @@ class TestCharm(testbase.TestBaseCharm):
         # Assert RGW update configs is not called
         cclient.from_socket().cluster.update_config.assert_not_called()
 
+    @patch.object(ceph_cos_agent, "CephCOSAgentProvider")
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    @patch.object(microceph, "Client")
+    @patch("utils.subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
+    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
+    def test_config_changed_republishes_nfs_address(
+        self,
+        mock_file,
+        mock_path_wb,
+        mock_path_chmod,
+        subprocess,
+        cclient,
+        _utils,
+        _cos_agent,
+    ):
+        """Enabling nfs-use-dedicated-binding republishes nfs-address.
+
+        Peer data is published when the peers relation is created, but the
+        config-changed hook must (re)publish it when an operator enables the
+        option after deploy, even though the peers relation already exists
+        (config-changed, not relation-created).
+        """
+        cclient.from_socket().cluster.list_services.return_value = []
+
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        unit_name = self.harness.charm.unit.name
+
+        # Default (option disabled): NFS stays on public, no nfs-address.
+        data = self.harness.get_relation_data(rel_id, unit_name)
+        self.assertNotIn("nfs-address", data)
+
+        # Enabling the option fires config-changed, which must publish the
+        # binding-derived nfs-address even though the peers relation exists.
+        self.harness.update_config({"nfs-use-dedicated-binding": True})
+        data = self.harness.get_relation_data(rel_id, unit_name)
+        self.assertEqual(data.get("nfs-address"), "10.0.0.10")
+
     @patch.object(ceph_cos_agent, "ceph_utils")
     @patch.object(microceph, "Client")
     @patch("utils.subprocess")

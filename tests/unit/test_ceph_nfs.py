@@ -120,8 +120,10 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
             {"service": "mon", "location": host},
         ]
 
+        # Advertise both addresses plus the unit-name -> hostname mapping.
         unit_data = {
             "public-address": f"pub-addr-{number}",
+            "nfs-address": f"nfs-addr-{number}",
             unit_name: f"foo{number}",
         }
         self.add_unit(self.harness, rel_id, unit_name, unit_data)
@@ -213,7 +215,7 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
         rel_id = self.add_complete_peer_relation(self.harness, unit_data)
         self._add_peer_unit(rel_id, 1)
 
-        self.enable_nfs.assert_called_once_with("foo1", "manila-cephfs", "pub-addr-1")
+        self.enable_nfs.assert_called_once_with("foo1", "manila-cephfs", "nfs-addr-1")
         self.create_fs_volume.assert_called_once_with("manila-cephfs-vol")
         caps = {"mon": ["allow r"], "mgr": ["allow rw"]}
         self.get_named_key.assert_called_once_with("client.manila-cephfs", caps)
@@ -237,9 +239,9 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
 
         self.enable_nfs.assert_has_calls(
             [
-                call("foo1", "manila-cephfs", "pub-addr-1"),
-                call("foo2", "manila-cephfs", "pub-addr-2"),
-                call("foo3", "manila-cephfs", "pub-addr-3"),
+                call("foo1", "manila-cephfs", "nfs-addr-1"),
+                call("foo2", "manila-cephfs", "nfs-addr-2"),
+                call("foo3", "manila-cephfs", "nfs-addr-3"),
             ]
         )
         self.create_fs_volume.assert_not_called()
@@ -256,7 +258,7 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
         # Add a new relation, should use the 4th node.
         another_nfs_rel_id = self.add_ceph_nfs_relation(self.harness, "another-app")
 
-        self.enable_nfs.assert_called_with("foo4", "another-app", "pub-addr-4")
+        self.enable_nfs.assert_called_with("foo4", "another-app", "nfs-addr-4")
         self.create_fs_volume.assert_called_once_with("another-app-vol")
         rel_data = self.harness.get_relation_data(another_nfs_rel_id, self.harness.model.app)
         expected_data = {
@@ -279,6 +281,71 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
         self.enable_nfs.assert_not_called()
         self.create_fs_volume.assert_not_called()
         self.assertIsInstance(ceph_nfs_status.status, BlockedStatus)
+
+    def test_ensure_nfs_cluster_uses_nfs_address(self):
+        # NFS binds to the host's advertised nfs-address (from the ceph-nfs
+        # endpoint binding) in preference to the public address.
+        self.harness.set_leader()
+
+        self.list_services.return_value = [
+            {"service": "mon", "location": "foo1"},
+            {"service": "mgr", "location": "foo1"},
+            {"service": "osd", "location": "foo1"},
+            {"service": "mds", "location": "foo1"},
+        ]
+
+        unit_data = {
+            "public-address": "pub-addr-1",
+            "nfs-address": "nfs-addr-1",
+            "microceph/1": "foo1",
+        }
+        rel_id = self.add_complete_peer_relation(self.harness, unit_data)
+        self._add_peer_unit(rel_id, 1)
+
+        self.add_ceph_nfs_relation(self.harness)
+
+        self.enable_nfs.assert_called_once_with("foo1", "manila-cephfs", "nfs-addr-1")
+
+    def test_ensure_nfs_cluster_falls_back_to_public_when_no_nfs_address(self):
+        # Host has not advertised an nfs-address yet: fall back to public.
+        self.harness.set_leader()
+
+        self.list_services.return_value = [
+            {"service": "mon", "location": "foo1"},
+            {"service": "mgr", "location": "foo1"},
+            {"service": "osd", "location": "foo1"},
+            {"service": "mds", "location": "foo1"},
+        ]
+
+        unit_data = {
+            "public-address": "pub-addr-1",
+            "microceph/1": "foo1",
+        }
+        rel_id = self.add_complete_peer_relation(self.harness, unit_data)
+        # add_unit directly (not _add_peer_unit) to omit nfs-address.
+        self.add_unit(
+            self.harness,
+            rel_id,
+            "microceph/1",
+            {"public-address": "pub-addr-1", "microceph/1": "foo1"},
+        )
+
+        self.add_ceph_nfs_relation(self.harness)
+
+        self.enable_nfs.assert_called_once_with("foo1", "manila-cephfs", "pub-addr-1")
+
+    def test_get_nfs_bind_address_falls_back_when_nfs_address_empty(self):
+        # _get_nfs_bind_address must fall back to public when _get_peer_value
+        # yields "" for nfs-address. _get_peer_value returns "" for an absent
+        # key; a stored "" can't occur (Juju/harness delete ""-valued keys), so
+        # this exercises that contract at the method level.
+        handler = self.harness.charm.ceph_nfs
+
+        def fake_peer_value(hostname, key):
+            return {"nfs-address": "", "public-address": "pub-addr-1"}[key]
+
+        with patch.object(handler, "_get_peer_value", side_effect=fake_peer_value):
+            self.assertEqual(handler._get_nfs_bind_address("foo1"), "pub-addr-1")
 
     def test_relation_data_clear(self):
         self.harness.set_leader()
@@ -367,7 +434,7 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
         # Add the ceph-nfs relation. It should use the available node.
         nfs_rel_id = self.add_ceph_nfs_relation(self.harness)
 
-        self.enable_nfs.assert_called_once_with("foo1", "manila-cephfs", "pub-addr-1")
+        self.enable_nfs.assert_called_once_with("foo1", "manila-cephfs", "nfs-addr-1")
         self.create_fs_volume.assert_called_once_with("manila-cephfs-vol")
         rel_data = self.harness.get_relation_data(nfs_rel_id, self.harness.model.app)
         expected_data = {
@@ -407,9 +474,9 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
 
         self.enable_nfs.assert_has_calls(
             [
-                call("foo1", "manila-cephfs", "pub-addr-1"),
-                call("foo2", "manila-cephfs", "pub-addr-2"),
-                call("foo3", "manila-cephfs", "pub-addr-3"),
+                call("foo1", "manila-cephfs", "nfs-addr-1"),
+                call("foo2", "manila-cephfs", "nfs-addr-2"),
+                call("foo3", "manila-cephfs", "nfs-addr-3"),
             ],
             any_order=True,
         )
@@ -442,9 +509,9 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
         self.remove_named_key.assert_called_once_with("client.manila-cephfs")
         self.enable_nfs.assert_has_calls(
             [
-                call("foo1", "another-app", "pub-addr-1"),
-                call("foo2", "another-app", "pub-addr-2"),
-                call("foo3", "another-app", "pub-addr-3"),
+                call("foo1", "another-app", "nfs-addr-1"),
+                call("foo2", "another-app", "nfs-addr-2"),
+                call("foo3", "another-app", "nfs-addr-3"),
             ],
             any_order=True,
         )
