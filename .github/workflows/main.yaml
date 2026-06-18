@@ -30,6 +30,8 @@ jobs:
 
   release-to-charmhub:
     name: Release to CharmHub
+    permissions:
+      contents: write          # allow charming-actions to create the git tag
     needs:
       - lint
       - unit-test
