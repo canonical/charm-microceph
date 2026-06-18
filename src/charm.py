@@ -147,6 +147,13 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _on_stop(self, event: ops.StopEvent):
         """Removes departing unit from the MicroCeph cluster forcefully."""
         hostname = gethostname()
+
+        # Whole-application teardown: when the entire application is removed quorum
+        # can be lost if nodes race - skip cleanup
+        if utils.is_departing(self.app, context="stop"):
+            logger.info("Application is being removed; skipping cluster removal for %s", hostname)
+            return
+
         try:
             if microceph.cluster_member_count() <= 1:
                 logger.info("Skipping cluster removal for last MicroCeph member %s", hostname)
@@ -154,6 +161,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         except Exception as e:
             logger.warning("Could not determine MicroCeph cluster size during stop: %s", e)
 
+        self._remove_self(hostname)
+
+    def _remove_self(self, hostname: str) -> None:
+        """Forcefully remove this host from the cluster, tolerating benign errors."""
         try:
             microceph.remove_cluster_member(hostname, is_force=True)
         except (CalledProcessError, TimeoutExpired) as e:
@@ -168,6 +179,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def _on_update_status(self, event: ops.framework.EventBase) -> None:
         """Update status event handler."""
+        if utils.is_departing(self.app):
+            logger.info("Application is being removed; skipping update-status")
+            return
+
         snap_chan = self.model.config.get("snap-channel")
         # Cleanup can run on all units, including units that are no longer leader.
         self._clear_resolved_upgrade_blocked_status(snap_chan)
@@ -226,6 +241,18 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def _on_peer_relation_departed(self, event: ops.framework.EventBase) -> None:
         self.handle_traefik_ready(event)
+
+    def configure_charm(self, event: ops.framework.EventBase) -> None:
+        """Reconcile the charm, unless the application is being torn down.
+
+        A departing unit must not reconcile: the cluster loses quorum during
+        teardown, so the cluster calls made here would error or hang. Gating the
+        main reconcile entry point keeps a departing unit inert.
+        """
+        if utils.is_departing(self.app):
+            logger.info("Application is being removed; skipping reconcile")
+            return
+        super().configure_charm(event)
 
     def configure_unit(self, event: ops.framework.EventBase) -> None:
         """Run configuration on this unit."""
@@ -768,6 +795,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def handle_traefik_ready(self, event: ops.framework.EventBase):
         """Handle Traefik route ready callback."""
+        if utils.is_departing(self.app):
+            logger.debug("Application is being removed; skipping traefik route update")
+            return
+
         if not self.unit.is_leader():
             logger.debug("Not a leader unit, not updating traefik route config")
             return

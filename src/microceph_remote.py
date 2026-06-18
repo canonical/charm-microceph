@@ -31,6 +31,7 @@ from ops.framework import (
 from ops_sunbeam.relation_handlers import RelationHandler
 
 import microceph
+import utils
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,10 @@ class MicroCephRemote(Object):
                 self.on.microceph_remote_reconcile.emit(event.relation)
 
     def _on_peer_updated(self, event):
+        if utils.is_departing(self.charm.app):
+            logger.debug("Application is being removed; skipping remote update")
+            return
+
         if not self.model.unit.is_leader():
             logger.debug("Not the leader, ignoring remote update event")
             return
@@ -213,6 +218,10 @@ class MicroCephRemoteHandler(RelationHandler):
 
     def _on_departed(self, event):
         """Handle integration cleanup."""
+        if utils.is_departing(self.charm.app):
+            logger.debug("Application is being removed; skipping remote departed cleanup")
+            return
+
         logger.debug("Handling remote departed event")
         remote_relation_data = event.relation.data.get(event.relation.app)
         remote_site_name = remote_relation_data.get(RemoteRelationDataKeys.site_name.value, None)

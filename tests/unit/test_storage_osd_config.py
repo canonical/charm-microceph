@@ -98,6 +98,25 @@ class TestConfigDrivenStorage(testbase.TestBaseCharm):
         self.assertIsInstance(self._workload_status(), ActiveStatus)
         self.assertEqual(self._workload_status().message, "charm is ready")
 
+    def test_storage_detaching_skips_osd_removal_on_whole_app_teardown(self):
+        """Storage detaching should skip OSD removal when the whole app is removed."""
+        # planned_units() == 0 is how the handler detects whole-app teardown.
+        self.harness.set_planned_units(0)
+        # full_id identifies the detaching storage; _get_osd_id below maps it to an OSD.
+        event = MagicMock()
+        event.storage.full_id = "osd-standalone/0"
+
+        # _get_osd_id -> 5 ensures we get past the "no OSD for this storage" early return,
+        # so the only thing that can stop remove_osd is the teardown guard itself.
+        with (
+            patch.object(self.storage, "_get_osd_id", return_value=5),
+            patch.object(self.storage, "remove_osd") as remove_osd,
+        ):
+            self.storage._on_storage_detaching(event)
+
+        # Guard fired: it short-circuits before touching the (quorum-less) cluster.
+        remove_osd.assert_not_called()
+
     def test_attached_storage_does_not_clobber_blocked_workload_status(self):
         """Storage attach should not clear unrelated workload failures."""
         self._setup_ready_charm()

@@ -621,6 +621,9 @@ class CephClientProvides(Object):
     def _on_ceph_peers(self, _event):
         """Handle ceph peers relation events."""
         # Mon addrs might have changed, update the relation data
+        if utils.is_departing(self.charm.app):
+            logger.debug("Application is being removed; skipping mon address update")
+            return
         if not self.model.unit.is_leader():
             return
         mon_key = "ceph-mon-public-addresses"

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import unittest
-from unittest.mock import call, patch
+from unittest.mock import MagicMock, call, patch
 
 import ops_sunbeam.test_utils as test_utils
 from ops.model import ActiveStatus, BlockedStatus
@@ -452,6 +452,23 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
         caps = {"mon": ["allow r"], "mgr": ["allow rw"]}
         self.get_named_key.assert_called_once_with("client.another-app", caps)
         self.assertIsInstance(ceph_nfs_status.status, ActiveStatus)
+
+    def test_ceph_nfs_departed_inert_on_whole_app_teardown(self):
+        """ceph-nfs departed cleanup must not run while the whole app is being removed.
+
+        The cleanup lists services and disables NFS on the cluster, both of which
+        would hang once teardown drops the cluster below quorum.
+        """
+        self.harness.set_leader()
+        # planned_units() == 0 is how the handler detects whole-app teardown.
+        self.harness.set_planned_units(0)
+
+        # Fire the departed handler directly (event payload is irrelevant here).
+        self.harness.charm.ceph_nfs._on_ceph_nfs_departed(MagicMock())
+
+        # Guard fired before touching the (quorum-less) cluster.
+        self.disable_nfs.assert_not_called()
+        self.remove_named_key.assert_not_called()
 
 
 if __name__ == "__main__":
