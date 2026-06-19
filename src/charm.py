@@ -272,6 +272,12 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
             self.configure_charm(event)
 
+            # Refresh peer data on config-changed so binding-derived addresses
+            # (e.g. nfs-address) are published or cleared as config changes,
+            # without waiting for a peers relation event.
+            if self.model.get_relation("peers"):
+                self.peers.set_unit_data(collect_peer_data(self.model))
+
     def _handle_receive_ca_cert(self, event: ops.framework.EventBase) -> None:
         contexts = self.contexts()
         cacert_path = Path(CACERT_FILE)

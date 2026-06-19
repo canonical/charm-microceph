@@ -55,6 +55,18 @@ options:
     default: ""
     description: |
       The local site name. This should be unique amongst the connected remote microceph clusters.
+  nfs-use-dedicated-binding:
+    type: boolean
+    default: false
+    description: |
+      Controls which network the NFS (Ganesha) service binds to when serving
+      shares (e.g. to Manila clients).
+
+      When false (the default), NFS binds to the Ceph public network.
+
+      When true, NFS binds to the network space the ceph-nfs relation endpoint
+      is bound to (set with "juju bind microceph ceph-nfs=<space>"); left
+      unbound, that endpoint resolves to the model's default space.
   wait-to-adopt:
     type: boolean
     default: False
