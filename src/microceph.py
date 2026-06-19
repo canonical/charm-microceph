@@ -27,7 +27,11 @@ from charms.operator_libs_linux.v2 import snap
 
 import ceph
 import utils
-from microceph_client import Client, UnrecognizedClusterConfigOption
+from microceph_client import (
+    Client,
+    RemoteException,
+    UnrecognizedClusterConfigOption,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +111,28 @@ def cos_agent_departed_cb(event):
     ceph.disable_ceph_monitoring()
 
 
+def cos_agent_is_mgr_available_cb() -> bool:
+    """Whether ceph-mgr (the :9283 endpoint) runs on this host.
+
+    Gates the mgr scrape config so non-mgr units don't advertise a dead
+    target. Fails closed: an unreadable service list suppresses the target
+    rather than advertising one we can't confirm is up.
+
+    The cluster client only maps a handful of known errors to RemoteException
+    and re-raises the underlying requests error (e.g. HTTPError) for anything
+    else, so we also fail closed on any requests-layer failure.
+    """
+    try:
+        return is_mgr_enabled(gethostname())
+    except (RemoteException, requests.exceptions.RequestException) as e:
+        logger.warning(
+            "Could not determine local mgr presence for scrape config, "
+            "suppressing mgr scrape target: %s",
+            e,
+        )
+        return False
+
+
 def remove_cluster_member(name: str, is_force: bool) -> None:
     """Remove a cluster member."""
     cmd = ["microceph", "cluster", "remove", name]
@@ -160,6 +186,27 @@ def is_rgw_enabled(hostname: str) -> bool:
     services = client.cluster.list_services() or []
     for service in services:
         if service["service"] == "rgw" and service["location"] == hostname:
+            return True
+
+    return False
+
+
+@tenacity.retry(
+    retry=tenacity.retry_if_exception_type(RemoteException),
+    wait=tenacity.wait_fixed(2),
+    stop=tenacity.stop_after_attempt(3),
+    reraise=True,
+)
+def is_mgr_enabled(hostname: str) -> bool:
+    """Check if the ceph-mgr service runs on host.
+
+    Retries on transient cluster-unavailability; raises
+    ClusterServiceUnavailableException if it stays unavailable.
+    """
+    client = Client.from_socket()
+    services = client.cluster.list_services() or []
+    for service in services:
+        if service["service"] == "mgr" and service["location"] == hostname:
             return True
 
     return False

@@ -14,6 +14,7 @@
 
 """Tests for Microceph charm."""
 
+import json
 from pathlib import Path
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch
@@ -1038,6 +1039,70 @@ class TestCharm(testbase.TestBaseCharm):
         )
         # charms_ceph fallback should NOT be called
         ceph_utils.mgr_config_set.assert_not_called()
+
+    def _cos_agent_scrape_jobs(self, rel_id):
+        """Read this unit's metrics_scrape_jobs from the cos-agent databag."""
+        unit_data = self.harness.get_relation_data(rel_id, self.harness.charm.unit.name)
+        raw = unit_data.get("config")
+        if not raw:
+            return []
+        return json.loads(raw).get("metrics_scrape_jobs", [])
+
+    @patch("microceph.is_ready")
+    @patch("ceph.enable_mgr_module")
+    @patch("utils.subprocess")
+    @patch("ceph.ceph_config_set")
+    @patch("microceph.is_mgr_enabled", return_value=True)
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    def test_cos_agent_scrape_target_present_on_mgr_unit(
+        self, ceph_utils, _is_mgr, ceph_config_set, _sub, enable_mgr_module, is_ready
+    ):
+        """An mgr-hosting unit advertises the :9283 scrape target."""
+        is_ready.return_value = True
+        self.harness.set_leader()
+
+        rel_id = self.harness.add_relation("cos-agent", "grafana-agent")
+        # Adding a related unit fires relation-joined, which triggers the
+        # provider to write this unit's scrape jobs into its databag.
+        self.harness.add_relation_unit(rel_id, "grafana-agent/0")
+
+        jobs = self._cos_agent_scrape_jobs(rel_id)
+        all_targets = [
+            t
+            for job in jobs
+            for sc in job.get("static_configs", [])
+            for t in sc.get("targets", [])
+        ]
+        self.assertIn("localhost:9283", all_targets)
+
+    @patch("microceph.is_ready")
+    @patch("ceph.enable_mgr_module")
+    @patch("utils.subprocess")
+    @patch("ceph.ceph_config_set")
+    @patch("microceph.is_mgr_enabled", return_value=False)
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    def test_cos_agent_no_scrape_target_on_non_mgr_unit(
+        self, ceph_utils, _is_mgr, ceph_config_set, _sub, enable_mgr_module, is_ready
+    ):
+        """A non-mgr unit advertises no metrics scrape job (no :9283, no :80 default)."""
+        is_ready.return_value = True
+        self.harness.set_leader()
+
+        rel_id = self.harness.add_relation("cos-agent", "grafana-agent")
+        # Adding a related unit fires relation-joined, which triggers the
+        # provider to write this unit's scrape jobs into its databag.
+        self.harness.add_relation_unit(rel_id, "grafana-agent/0")
+
+        jobs = self._cos_agent_scrape_jobs(rel_id)
+        all_targets = [
+            t
+            for job in jobs
+            for sc in job.get("static_configs", [])
+            for t in sc.get("targets", [])
+        ]
+        self.assertEqual(jobs, [])
+        self.assertNotIn("localhost:9283", all_targets)
+        self.assertNotIn("localhost:80", all_targets)
 
     @patch("microceph.is_ready")
     @patch("ceph.enable_mgr_module")
