@@ -64,9 +64,16 @@ options:
 
       When false (the default), NFS binds to the Ceph public network.
 
-      When true, NFS binds to the network space the ceph-nfs relation endpoint
-      is bound to (set with "juju bind microceph ceph-nfs=<space>"); left
-      unbound, that endpoint resolves to the model's default space.
+      When true, NFS binds to the network space the "nfs" extra-binding is
+      bound to (set with "juju bind microceph nfs=<space>"); left unbound, that
+      binding resolves to the model's default space.
+
+      Warning: enabling this option without binding the "nfs" extra-binding to a
+      space resolves to the model's default space, which in a typical deployment
+      is the management network -- not the public network. This can expose NFS
+      on an unintended, more restricted network. Always run
+      "juju bind microceph nfs=<space>" before enabling this option, and verify
+      the published nfs-address before pointing clients (e.g. Manila) at it.
   wait-to-adopt:
     type: boolean
     default: False

@@ -283,8 +283,8 @@ class TestCephNfsClientProvides(testbase.TestBaseCharm):
         self.assertIsInstance(ceph_nfs_status.status, BlockedStatus)
 
     def test_ensure_nfs_cluster_uses_nfs_address(self):
-        # NFS binds to the host's advertised nfs-address (from the ceph-nfs
-        # endpoint binding) in preference to the public address.
+        # NFS binds to the host's advertised nfs-address (from the nfs
+        # extra-binding) in preference to the public address.
         self.harness.set_leader()
 
         self.list_services.return_value = [

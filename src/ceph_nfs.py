@@ -346,9 +346,10 @@ class CephNfsProviderHandler(RelationHandler):
     def _get_nfs_bind_address(self, hostname: str) -> str:
         """Resolve the NFS bind address for a host.
 
-        Uses the host's advertised ``nfs-address`` (from the ceph-nfs endpoint
-        binding) when present, else falls back to ``public-address`` (the option
-        is off, or a peer on an older charm revision has not advertised one).
+        Uses the host's advertised ``nfs-address`` (from the ``nfs``
+        extra-binding) when present, else falls back to ``public-address`` (the
+        option is off, or a peer on an older charm revision has not advertised
+        one).
         """
         nfs_addr = self._get_peer_value(hostname, "nfs-address")
         if nfs_addr:

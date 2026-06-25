@@ -24,6 +24,10 @@ extra-bindings:
   cluster:
   # MicroCeph daemon binds to this space.
   admin:
+  # NFS (Ganesha) data plane binds to this space when serving shares to
+  # external clients (e.g. Manila). Opt in with the nfs-use-dedicated-binding
+  # config option; left unbound this resolves to the model's default space.
+  nfs:
 
 provides:
   ceph:

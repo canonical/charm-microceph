@@ -15,7 +15,7 @@
 """Integration tests for the MicroCeph charm's NFS network binding.
 
 These exercise the *real* Juju network bindings rather than mocked addresses.
-On a single-network model the ceph-nfs binding resolves to the same address as
+On a single-network model the nfs binding resolves to the same address as
 the public binding.
 """
 
@@ -91,7 +91,7 @@ def test_nfs_binding_round_trip(juju: jubilant.Juju, deployed_microceph: str) ->
     assert data.get("public-address"), "expected a public-address to be published by default"
     assert "nfs-address" not in data, f"nfs-address must not be published by default: {data}"
 
-    # Opt in: NFS follows the ceph-nfs endpoint binding.
+    # Opt in: NFS follows the nfs extra-binding.
     juju.config(APP_NAME, {"nfs-use-dedicated-binding": "true"})
     data = _wait_for_peers_data(
         juju,
@@ -103,7 +103,7 @@ def test_nfs_binding_round_trip(juju: jubilant.Juju, deployed_microceph: str) ->
     nfs_address = data["nfs-address"]
     # The published value must be a real IP resolved from the actual binding.
     ipaddress.ip_address(nfs_address)
-    # On a single-network LXD model the ceph-nfs binding resolves to the same
+    # On a single-network LXD model the nfs binding resolves to the same
     # address as the public binding; both must be real addresses.
     assert nfs_address == data.get("public-address"), (
         "nfs-address should match the resolved public binding address on a "
