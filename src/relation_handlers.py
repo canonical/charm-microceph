@@ -45,8 +45,10 @@ from ceph_broker import process_requests
 
 logger = logging.getLogger(__name__)
 
-# Endpoint whose network space the NFS (Ganesha) service binds to.
-NFS_BINDING = "ceph-nfs"
+# Extra-binding whose network space the NFS (Ganesha) data plane binds to.
+# Distinct from the ceph-nfs relation endpoint, which is the manila control
+# plane and must not be used to decide where NFS is exposed.
+NFS_BINDING = "nfs"
 
 
 class HostnameChangeError(Exception):
@@ -94,7 +96,7 @@ def collect_peer_data(model: ops.model.Model) -> dict:
 def _get_nfs_space_address(model: ops.model.Model) -> Optional[str]:
     """Resolve this unit's bind address for the NFS network space.
 
-    Returns the ``ceph-nfs`` endpoint binding's address when
+    Returns the ``nfs`` extra-binding's address when
     ``nfs-use-dedicated-binding`` is enabled, else None so NFS stays on the
     public address. Also returns None when the binding cannot be resolved.
     """

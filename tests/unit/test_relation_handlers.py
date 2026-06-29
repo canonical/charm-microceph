@@ -94,9 +94,9 @@ class TestRelationHelpers(testbase.TestBaseCharm):
         self.assertEqual(change_data["nfs-address"], "")
 
     def test_collect_peer_data_publishes_nfs_address(self):
-        # With nfs-use-dedicated-binding enabled, NFS binds to the ceph-nfs
-        # endpoint's space and that address is published as nfs-address. The
-        # harness resolves every binding to 10.0.0.10.
+        # With nfs-use-dedicated-binding enabled, NFS binds to the nfs
+        # extra-binding's space and that address is published as nfs-address.
+        # The harness resolves every binding to 10.0.0.10.
         self.harness.set_leader()
         self.harness.disable_hooks()
         self.harness.update_config({"nfs-use-dedicated-binding": True})
@@ -109,9 +109,9 @@ class TestRelationHelpers(testbase.TestBaseCharm):
 
         self.assertEqual(change_data["nfs-address"], "10.0.0.10")
 
-    def test_collect_peer_data_resolves_from_ceph_nfs_binding(self):
-        # When enabled, nfs-address is sourced from the ceph-nfs endpoint
-        # binding: the address on that binding is what gets published.
+    def test_collect_peer_data_resolves_from_nfs_binding(self):
+        # When enabled, nfs-address is sourced from the nfs extra-binding:
+        # the address on that binding is what gets published.
         self.harness.set_leader()
         self.harness.disable_hooks()
         self.harness.update_config({"nfs-use-dedicated-binding": True})
@@ -121,7 +121,8 @@ class TestRelationHelpers(testbase.TestBaseCharm):
         self.gethostname.return_value = "test-hostname"
 
         def fake_get_binding(binding_key):
-            # ceph-nfs resolves to a distinct address; others keep the default.
+            # The dedicated "nfs" binding resolves to a distinct address; every
+            # other binding keeps the default.
             binding = MagicMock()
             binding.network.bind_address = (
                 "10.20.0.10" if binding_key == relation_handlers.NFS_BINDING else "10.0.0.10"
@@ -138,7 +139,7 @@ class TestRelationHelpers(testbase.TestBaseCharm):
         self.assertEqual(change_data["public-address"], "10.0.0.10")
 
     def test_collect_peer_data_skips_nfs_address_on_binding_error(self):
-        # Enabled but the ceph-nfs binding cannot be resolved and none was
+        # Enabled but the nfs binding cannot be resolved and none was
         # published before: nothing is published, so NFS uses the public address.
         self.harness.set_leader()
         self.harness.disable_hooks()
@@ -162,7 +163,7 @@ class TestRelationHelpers(testbase.TestBaseCharm):
         self.assertEqual(change_data["public-address"], "10.0.0.10")
 
     def test_collect_peer_data_clears_stale_nfs_address_on_binding_error(self):
-        # Enabled but the ceph-nfs binding cannot be resolved: a previously
+        # Enabled but the nfs binding cannot be resolved: a previously
         # published nfs-address is cleared, so NFS falls back to the public
         # address (an unresolvable binding is treated like the option being off).
         self.harness.set_leader()
