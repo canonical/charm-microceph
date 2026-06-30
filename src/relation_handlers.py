@@ -659,6 +659,10 @@ class CephClientProvides(Object):
         """
         relations = self.framework.model.relations.get(self.relation_name, [])
         if not relations:
+            logger.debug(
+                "_publish_mon_data: no %s relations; nothing to publish",
+                self.relation_name,
+            )
             return
         addrs = self._mon_addresses_to_publish()
         if not addrs:
@@ -672,6 +676,16 @@ class CephClientProvides(Object):
                 addrs,
             )
         is_leader = self.model.unit.is_leader()
+        logger.debug(
+            "_publish_mon_data: publishing on %d %s relation(s): unit=%s "
+            "own_addr=%s is_leader=%s mon_addresses=%s",
+            len(relations),
+            self.relation_name,
+            self.this_unit.name,
+            self_addr or "(not a mon)",
+            is_leader,
+            addrs,
+        )
         for relation in relations:
             unit_data = relation.data[self.this_unit]
             if self_addr:

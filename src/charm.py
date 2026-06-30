@@ -555,6 +555,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         # get_mon_addresses() cross-checks the live monmap so the published list
         # never advertises a dead mon.
         public_addrs = utils.get_mon_addresses()
+        logger.debug(
+            "get_ceph_info_from_configs(%s): mon addresses = %s",
+            service_name,
+            public_addrs,
+        )
         return {
             "auth": "cephx",
             "ceph-public-address": self._lookup_system_interfaces(public_addrs),

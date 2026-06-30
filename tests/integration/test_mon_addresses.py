@@ -38,12 +38,11 @@ logger = logging.getLogger(__name__)
 
 METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
 APP_NAME = METADATA["name"]
-CEPHCLIENT_APP = "cephclient"
+# Default concrete client charm (johnny); resolved by the cephclient_deployment
+# fixture, which honours CLIENT_CHARM / CLIENT_SOURCE overrides.
+CEPHCLIENT_APP = "johnny"
 NUM_UNITS = 3
 LOOP_OSD_SPEC = "1G,3"
-TESTER_CHARM = (
-    Path(__file__).parent / "testers/cephclient/cephclient-requirer-mock.charm"
-).resolve()
 
 # How long to wait for every mon unit to advertise its address after integrate.
 PUBLISH_TIMEOUT = 360
@@ -51,7 +50,7 @@ PUBLISH_INTERVAL = 15
 
 
 @pytest.fixture(scope="module")
-def integrated_cluster(juju_vm, microceph_charm):
+def integrated_cluster(juju_vm, microceph_charm, cephclient_deployment):
     """Deploy 3 microceph units + the ceph client tester and integrate them."""
     juju = juju_vm
     logger.info("Deploying %s (-n%d) on VMs", APP_NAME, NUM_UNITS)
@@ -61,8 +60,16 @@ def integrated_cluster(juju_vm, microceph_charm):
 
     helpers.ensure_loop_osd(juju, APP_NAME, LOOP_OSD_SPEC)
 
-    logger.info("Deploying ceph client tester %s", TESTER_CHARM)
-    juju.deploy(str(TESTER_CHARM), CEPHCLIENT_APP)
+    logger.info(
+        "Deploying ceph client tester %s as %s",
+        cephclient_deployment.charm,
+        CEPHCLIENT_APP,
+    )
+    juju.deploy(
+        cephclient_deployment.charm,
+        CEPHCLIENT_APP,
+        channel=cephclient_deployment.channel,
+    )
     with helpers.fast_forward(juju):
         helpers.wait_for_apps(juju, APP_NAME, CEPHCLIENT_APP, timeout=2400)
 

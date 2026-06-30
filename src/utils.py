@@ -126,10 +126,22 @@ def get_mon_addresses():
     if addrs and live:
         filtered = [a for a in addrs if _normalize_ip(a) in live]
         if filtered:
+            logger.debug(
+                "get_mon_addresses: cross-check kept %s of %s reported mons (live monmap: %s)",
+                filtered,
+                addrs,
+                sorted(live),
+            )
             return filtered
         logger.warning(
             "Live monmap cross-check removed all reported mon addresses; "
             "using the unfiltered list %s",
+            addrs,
+        )
+    elif addrs:
+        logger.debug(
+            "get_mon_addresses: live monmap unavailable (%s); publishing unfiltered list %s",
+            live or "empty",
             addrs,
         )
     return addrs

@@ -314,12 +314,14 @@ def get_live_mon_ips() -> set:
                 ip = _addr_to_ip(entry.get("addr", ""))
                 if ip:
                     ips.add(ip)
-    except (CalledProcessError, OSError, ValueError, AttributeError, TypeError):
+    except (CalledProcessError, OSError, ValueError, AttributeError, TypeError) as e:
         # Command failed, microceph.ceph missing, non-JSON output, or an
         # unexpected JSON shape (e.g. a bare ``null`` or list rather than the
         # expected object). Honour the "empty set on any error" contract so
         # callers fall back to the unfiltered list.
+        logger.debug("get_live_mon_ips: 'ceph mon dump' failed (%s); cross-check skipped", e)
         return set()
+    logger.debug("get_live_mon_ips: live monmap reports mon IPs %s", ips or "(none)")
     return ips
 
 
