@@ -1,5 +1,5 @@
 cryptography
-ops<3.4
+ops<3.9
 pyroute2
 netifaces
 jsonschema
