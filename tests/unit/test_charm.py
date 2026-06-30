@@ -1048,7 +1048,7 @@ class TestCharm(testbase.TestBaseCharm):
         action_event.set_results.assert_called_with(expected_endpoints)
         action_event.fail.assert_not_called()
 
-    @patch("charm.microceph_client.Client")
+    @patch("maintenance.microceph_client.Client")
     def test_enter_maintenance_action_success(self, cclient):
         cclient.from_socket().cluster.enter_maintenance_mode.return_value = {
             "metadata": [
@@ -1095,7 +1095,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
         action_event.fail.assert_not_called()
 
-    @patch("charm.microceph_client.Client")
+    @patch("maintenance.microceph_client.Client")
     def test_enter_maintenance_action_failure(self, cclient):
         mock_enter = cclient.from_socket().cluster.enter_maintenance_mode
         mock_enter.side_effect = MaintenanceOperationFailedException(
@@ -1146,7 +1146,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
         action_event.fail.assert_called()
 
-    @patch("charm.microceph_client.Client")
+    @patch("maintenance.microceph_client.Client")
     def test_enter_maintenance_action_error(self, cclient):
         cclient.from_socket().cluster.enter_maintenance_mode.side_effect = Exception("some errors")
         action_event = MagicMock()
@@ -1165,7 +1165,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
         action_event.fail.assert_called()
 
-    @patch("charm.microceph_client.Client")
+    @patch("maintenance.microceph_client.Client")
     def test_enter_maintenance_action_mutually_exclusive(self, cclient):
         action_event = MagicMock()
         action_event.params = {"check-only": True, "ignore-check": True}
@@ -1180,7 +1180,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
         action_event.fail.assert_called()
 
-    @patch("charm.microceph_client.Client")
+    @patch("maintenance.microceph_client.Client")
     def test_exit_maintenance_action_success(self, cclient):
         cclient.from_socket().cluster.exit_maintenance_mode.return_value = {
             "metadata": [
@@ -1220,7 +1220,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
         action_event.fail.assert_not_called()
 
-    @patch("charm.microceph_client.Client")
+    @patch("maintenance.microceph_client.Client")
     def test_exit_maintenance_action_failure(self, cclient):
         mock_exit = cclient.from_socket().cluster.exit_maintenance_mode
         mock_exit.side_effect = MaintenanceOperationFailedException(
@@ -1264,7 +1264,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
         action_event.fail.assert_called()
 
-    @patch("charm.microceph_client.Client")
+    @patch("maintenance.microceph_client.Client")
     def test_exit_maintenance_action_error(self, cclient):
         cclient.from_socket().cluster.exit_maintenance_mode.side_effect = Exception("some errors")
         action_event = MagicMock()
@@ -1276,7 +1276,7 @@ class TestCharm(testbase.TestBaseCharm):
         )
         action_event.fail.assert_called()
 
-    @patch("charm.microceph_client.Client")
+    @patch("maintenance.microceph_client.Client")
     def test_exit_maintenance_action_mutually_exclusive(self, cclient):
         action_event = MagicMock()
         action_event.params = {"check-only": True, "ignore-check": True}

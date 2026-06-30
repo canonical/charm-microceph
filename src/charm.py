@@ -34,7 +34,6 @@ import ops.framework
 import ops_sunbeam.charm as sunbeam_charm
 import ops_sunbeam.guard as sunbeam_guard
 import ops_sunbeam.relation_handlers as sunbeam_rhandlers
-import requests
 from charms.ceph_mon.v0 import ceph_cos_agent
 from charms.operator_libs_linux.v2 import snap
 from ops.main import main
@@ -44,7 +43,6 @@ import ceph
 import cluster
 import maintenance
 import microceph
-import microceph_client
 import utils
 from ceph_nfs import CephNfsProviderHandler
 from ceph_rgw import CEPH_RGW_READY_RELATION, CephRgwProviderHandler
@@ -559,13 +557,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def get_ceph_info_from_configs(self, service_name, caps=None) -> dict:
         """Update ceph info from configuration."""
-        # public address should be updated once config public-network is supported
-        client = microceph_client.Client.from_socket()
-        try:
-            public_addrs = client.cluster.get_mon_addresses()
-        except requests.HTTPError:
-            logger.debug("Mon api call failed, fall back to legacy method")
-            public_addrs = microceph.get_mon_public_addresses()
+        # public address should be updated once config public-network is supported.
+        # get_mon_addresses() cross-checks the live monmap so the published list
+        # never advertises a dead mon.
+        public_addrs = utils.get_mon_addresses()
         return {
             "auth": "cephx",
             "ceph-public-address": self._lookup_system_interfaces(public_addrs),

@@ -16,6 +16,7 @@
 
 """Utils module."""
 
+import ipaddress
 import logging
 import subprocess
 
@@ -25,6 +26,14 @@ import microceph
 from microceph_client import Client
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_ip(addr: str) -> str:
+    """Return the canonical form of a bare IP, or the input unchanged."""
+    try:
+        return str(ipaddress.ip_address(addr))
+    except ValueError:
+        return addr
 
 
 def run_cmd(cmd: list, timeout: int = 180) -> str:
@@ -90,13 +99,40 @@ def is_departing(app, context: str = "") -> bool:
 
 
 def get_mon_addresses():
-    """Get the Ceph mon addresses."""
+    """Get the Ceph mon addresses, cross-checked against the live monmap.
+
+    The microceph service API is not refreshed when a mon leaves the cluster
+    out-of-band, so it can report dead mons. Filter the reported addresses to
+    those present in the live monmap (``ceph mon dump``). Fall back to the
+    unfiltered list if the monmap is unavailable or the intersection is empty,
+    so a format mismatch can never regress to an empty list.
+    """
+    # Local import: ceph imports utils, so a module-level import would cycle.
+    import ceph
+
     client = Client.from_socket()
     try:
-        return client.cluster.get_mon_addresses()
+        addrs = client.cluster.get_mon_addresses()
     except requests.HTTPError:
+        # The /1.0/services/mon endpoint is newer than some microceph snap
+        # channels the charm can deploy; on an older snap it returns 404 (a bare
+        # HTTPError - "daemon/db not yet initialized" and a missing socket are
+        # raised as ClusterServiceUnavailableException, not caught here). Parse
+        # ceph.conf instead, which carries the mon host list on every version.
         logger.debug("Mon api call failed, fall back to legacy method")
-        return microceph.get_mon_public_addresses()
+        addrs = microceph.get_mon_public_addresses()
+
+    live = ceph.get_live_mon_ips()
+    if addrs and live:
+        filtered = [a for a in addrs if _normalize_ip(a) in live]
+        if filtered:
+            return filtered
+        logger.warning(
+            "Live monmap cross-check removed all reported mon addresses; "
+            "using the unfiltered list %s",
+            addrs,
+        )
+    return addrs
 
 
 def get_fsid():

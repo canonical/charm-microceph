@@ -30,6 +30,7 @@ https://github.com/juju/charm-helpers/blob/master/charmhelpers/contrib/storage/l
 import collections
 import enum
 import functools
+import ipaddress
 import json
 import logging
 import math
@@ -37,6 +38,7 @@ import socket
 import subprocess
 from subprocess import CalledProcessError, check_call, check_output
 from typing import Dict, List, Tuple, TypeAlias
+from urllib.parse import urlsplit
 
 from tenacity import retry, stop_after_attempt, wait_fixed
 
@@ -265,6 +267,60 @@ def is_leader():
         return True
     else:
         return False
+
+
+def _addr_to_ip(addr: str) -> str:
+    """Return the canonical bare IP from a Ceph messenger address.
+
+    Handles bare IPs and ``host:port`` / ``[host]:port`` forms (with an
+    optional ``/nonce`` suffix) for both IPv4 and IPv6. Returns "" if no valid
+    IP can be parsed.
+    """
+    if not addr:
+        return ""
+    candidate = addr.split("/", 1)[0]  # drop any trailing "/nonce"
+    # A bare IP parses directly; this also covers bare IPv6, which the URL
+    # authority parser below would mishandle.
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        pass
+    # Otherwise treat it as a URL authority so urlsplit peels the host off the
+    # port and strips any IPv6 brackets; then validate/normalise it.
+    try:
+        host = urlsplit("//" + candidate).hostname or ""
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        return ""
+
+
+def get_live_mon_ips() -> set:
+    """Return mon public IPs from the live monmap (``ceph mon dump``).
+
+    Used to cross-check the addresses reported by the microceph service API,
+    which is not refreshed when a mon leaves the cluster out-of-band and can
+    therefore advertise dead mons. Returns an empty set on any error so callers
+    can safely fall back to the unfiltered list.
+    """
+    cmd = ["microceph.ceph", "mon", "dump", "--format", "json"]
+    ips = set()
+    try:
+        result = json.loads(str(check_output(cmd).decode("UTF-8")))
+        for mon in result.get("mons", []):
+            ip = _addr_to_ip(mon.get("public_addr", ""))
+            if ip:
+                ips.add(ip)
+            for entry in mon.get("public_addrs", {}).get("addrvec", []):
+                ip = _addr_to_ip(entry.get("addr", ""))
+                if ip:
+                    ips.add(ip)
+    except (CalledProcessError, OSError, ValueError, AttributeError, TypeError):
+        # Command failed, microceph.ceph missing, non-JSON output, or an
+        # unexpected JSON shape (e.g. a bare ``null`` or list rather than the
+        # expected object). Honour the "empty set on any error" contract so
+        # callers fall back to the unfiltered list.
+        return set()
+    return ips
 
 
 def monitor_key_get(service, key):

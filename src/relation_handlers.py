@@ -502,8 +502,13 @@ class CephClientProvides(Object):
         self.framework.observe(
             charm.on[self.relation_name].relation_changed, self._on_relation_changed
         )
-        # React to ceph peers relation departed
+        # React to ceph peers relation changes so the published mon list tracks
+        # mons being added or removed.
+        self.framework.observe(charm.on["peers"].relation_changed, self._on_ceph_peers)
         self.framework.observe(charm.on["peers"].relation_departed, self._on_ceph_peers)
+        # Periodically reconcile so a fresh deploy self-heals even if the first
+        # ceph relation event arrived before the service was ready.
+        self.framework.observe(charm.on.update_status, self._on_update_status)
 
     def _on_relation_changed(self, event):
         """Prepare relation for data from requiring side."""
@@ -514,6 +519,10 @@ class CephClientProvides(Object):
             logger.info("Not processing request as service is not yet ready")
             event.defer()
             return
+
+        # Publish mon addresses independently of OSD availability and of Ceph
+        # mon leadership: a client must learn every mon as soon as it relates.
+        self._publish_mon_data()
 
         if get_osd_count() == 0:
             logger.info("Storage not available, deferring event.")
@@ -653,19 +662,72 @@ class CephClientProvides(Object):
         for k, v in data.items():
             relation.data[self.this_unit][k] = str(v)
 
-    def _on_ceph_peers(self, _event):
-        """Handle ceph peers relation events."""
-        # Mon addrs might have changed, update the relation data
+    def _mon_addresses_to_publish(self):
+        """Return cross-checked mon addresses to publish, or None to skip.
+
+        Guards here so every caller (relation-changed, peers, update-status) is
+        protected from running before the microceph API is up or during teardown.
+        """
         if utils.is_departing(self.charm.app):
             logger.debug("Application is being removed; skipping mon address update")
-            return
-        if not self.model.unit.is_leader():
-            return
-        mon_key = "ceph-mon-public-addresses"
-        addrs = utils.get_mon_addresses()
+            return None
+        if not self.charm.ready_for_service():
+            logger.debug("Service not ready; skipping mon address update")
+            return None
+        try:
+            return utils.get_mon_addresses() or None
+        except Exception as e:
+            logger.warning("Could not fetch mon addresses: %s", e)
+            return None
 
-        for relation in self.framework.model.relations.get(self.relation_name, []):
-            relation.data[self.model.app][mon_key] = json.dumps(addrs)
+    def _publish_mon_data(self) -> None:
+        """Publish mon addresses to all relations of this provider.
+
+        Independent of Ceph mon leadership, so the full list is always
+        advertised even when the Juju leader and the Ceph mon leader are
+        different units (the cause of clients seeing a single mon host):
+
+        * every unit writes its own ``ceph-public-address`` to its unit databag
+          so the client fallback also lists all mons;
+        * the Juju leader writes the full ``ceph-mon-public-addresses`` list to
+          the application databag (the address list clients prefer).
+        """
+        relations = self.framework.model.relations.get(self.relation_name, [])
+        if not relations:
+            return
+        addrs = self._mon_addresses_to_publish()
+        if not addrs:
+            return
+
+        self_addr = self.charm._lookup_system_interfaces(addrs)
+        if not self_addr:
+            logger.debug(
+                "This unit's address is not in the current mon list %s; "
+                "clearing any ceph-public-address it previously advertised",
+                addrs,
+            )
+        is_leader = self.model.unit.is_leader()
+        for relation in relations:
+            unit_data = relation.data[self.this_unit]
+            if self_addr:
+                unit_data["ceph-public-address"] = self_addr
+            elif unit_data.get("ceph-public-address"):
+                # This unit is no longer a mon (e.g. its mon left the monmap);
+                # stop advertising the now-dead address. ops deletes on "".
+                unit_data["ceph-public-address"] = ""
+            if is_leader:
+                relation.data[self.model.app]["ceph-mon-public-addresses"] = json.dumps(addrs)
+
+    def _on_ceph_peers(self, _event):
+        """Handle ceph peers relation events.
+
+        Mon membership may have changed; refresh the published mon data.
+        """
+        self._publish_mon_data()
+
+    def _on_update_status(self, _event):
+        """Reconcile published mon data on update-status (self-healing)."""
+        self._publish_mon_data()
 
 
 class CephClientProviderHandler(RelationHandler):
