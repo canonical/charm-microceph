@@ -11,7 +11,7 @@ dependencies = [
     "tenacity",
     "jinja2",
     "pydantic>=2.12,<2.13",
-    "cosl==0.0.55",
+    "cosl==1.9.2",
     "requests<2.32",
     "ops_sunbeam@git+https://opendev.org/openstack/sunbeam-charms@69ec637504645053adee8c89f8e83f24c065745d#subdirectory=ops-sunbeam",
     "charms.ceph@git+https://github.com/canonical/ceph-charms@f427e7e4a1b7b3d0d2d0f3df3a4537a4b39980e2#subdirectory=charms.ceph",
