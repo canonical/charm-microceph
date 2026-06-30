@@ -80,3 +80,98 @@ class TestCeph(unittest.TestCase):
 
         run_cmd.assert_called_once_with(["microceph.ceph", "fs", "volume", "ls"])
         self.assertEqual(fs_volumes, [volume])
+
+    @patch("ceph.check_output")
+    def test_get_live_mon_ips(self, check_output):
+        """get_live_mon_ips parses bare IPs out of the live monmap."""
+        dump = {
+            "mons": [
+                {
+                    "name": "node1",
+                    "public_addr": "10.0.0.1:6789/0",
+                    "public_addrs": {
+                        "addrvec": [
+                            {"type": "v2", "addr": "10.0.0.1:3300", "nonce": 0},
+                            {"type": "v1", "addr": "10.0.0.1:6789", "nonce": 0},
+                        ]
+                    },
+                },
+                {
+                    "name": "node2",
+                    "public_addr": "10.0.0.2:6789/0",
+                    "public_addrs": {
+                        "addrvec": [{"type": "v2", "addr": "10.0.0.2:3300", "nonce": 0}]
+                    },
+                },
+            ],
+            "quorum": [0, 1],
+        }
+        check_output.return_value = json.dumps(dump).encode("UTF-8")
+
+        self.assertEqual(ceph.get_live_mon_ips(), {"10.0.0.1", "10.0.0.2"})
+        check_output.assert_called_once_with(["microceph.ceph", "mon", "dump", "--format", "json"])
+
+    @patch("ceph.check_output")
+    def test_get_live_mon_ips_handles_failure(self, check_output):
+        """A failed mon dump yields an empty set so callers fall back safely."""
+        from subprocess import CalledProcessError
+
+        check_output.side_effect = CalledProcessError(1, "cmd")
+        self.assertEqual(ceph.get_live_mon_ips(), set())
+
+    @patch("ceph.check_output")
+    def test_get_live_mon_ips_ipv6(self, check_output):
+        """Bracketed IPv6 messenger addresses are reduced to the bare IP."""
+        dump = {
+            "mons": [
+                {
+                    "name": "node1",
+                    "public_addr": "[fd00::1]:6789/0",
+                    "public_addrs": {
+                        "addrvec": [
+                            {"type": "v2", "addr": "[fd00::1]:3300", "nonce": 0},
+                            {"type": "v1", "addr": "[fd00::1]:6789", "nonce": 0},
+                        ]
+                    },
+                },
+                {
+                    "name": "node2",
+                    "public_addr": "[fd00::2]:6789/0",
+                    "public_addrs": {
+                        "addrvec": [{"type": "v2", "addr": "[fd00::2]:3300", "nonce": 0}]
+                    },
+                },
+            ],
+        }
+        check_output.return_value = json.dumps(dump).encode("UTF-8")
+
+        self.assertEqual(ceph.get_live_mon_ips(), {"fd00::1", "fd00::2"})
+
+    @patch("ceph.check_output")
+    def test_get_live_mon_ips_non_json(self, check_output):
+        """A non-JSON mon dump (e.g. a warning prefix) yields an empty set."""
+        check_output.return_value = b"WARNING: noise\nnot json"
+        self.assertEqual(ceph.get_live_mon_ips(), set())
+
+    @patch("ceph.check_output")
+    def test_get_live_mon_ips_non_dict_json(self, check_output):
+        """Valid but non-object JSON (e.g. `null`) yields an empty set, not a crash."""
+        check_output.return_value = b"null"
+        self.assertEqual(ceph.get_live_mon_ips(), set())
+
+    def test_addr_to_ip(self):
+        """_addr_to_ip parses all messenger forms and canonicalises the result."""
+        cases = {
+            "10.0.0.1:6789/0": "10.0.0.1",
+            "10.0.0.1:3300": "10.0.0.1",
+            "10.0.0.1": "10.0.0.1",
+            "[fd00::1]:6789/0": "fd00::1",
+            "[fd00::1]:3300": "fd00::1",
+            "fd00::1": "fd00::1",
+            "fd00:0:0:0:0:0:0:1": "fd00::1",  # non-canonical IPv6 -> canonical
+            "": "",
+            "garbage": "",
+            "[bad::v6": "",
+        }
+        for addr, expected in cases.items():
+            self.assertEqual(ceph._addr_to_ip(addr), expected, addr)

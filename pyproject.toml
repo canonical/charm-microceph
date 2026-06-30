@@ -32,6 +32,7 @@ log_cli_level = "INFO"
 markers = [
     "abort_on_fail: stop the test session immediately when the marked test fails",
     "smoke: quick integration checks",
+    "regression: heavier multi-unit regression reproductions (run on demand, not in CI)",
     "incremental: treat tests in a class as dependent and skip the rest after first failure",
     "slow: tests that take longer",
     "sunbeam: end-to-end tests that attach to a Sunbeam-provisioned Juju model",
