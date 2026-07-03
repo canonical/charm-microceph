@@ -1,0 +1,26 @@
+name: Scheduled branch tests
+
+# GitHub only fires schedule: on the default branch, so stable branches
+# get their periodic Build/Test run dispatched from here instead. These
+# workflow_dispatch runs count toward the CI health dashboard's
+# per-branch flaky rate, same as build-and-test.yml's own
+# schedule: run on main.
+on:
+  schedule:
+    - cron: "0 2 * * *" # Nightly full run on stable branches for flaky rate data
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ref: [stable/squid]
+    steps:
+      - name: Dispatch build-and-test.yml on ${{ matrix.ref }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run build-and-test.yml --ref "${{ matrix.ref }}" --repo "${{ github.repository }}"

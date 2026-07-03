@@ -2,6 +2,13 @@ name: Build/Test
 
 on:
   workflow_call:
+  # Periodic full-suite run for the CI health dashboard:
+  # the dashboard only counts push/schedule/workflow_dispatch
+  # events, and this suite otherwise only runs via workflow_call from
+  # pr.yaml on pull_request, which the dashboard excludes by design.
+  schedule:
+    - cron: "0 2 * * *" # Nightly full run on main for flaky rate data
+  workflow_dispatch:
 
 jobs:
   lint:
