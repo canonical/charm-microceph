@@ -2,6 +2,11 @@ name: Build/Test
 
 on:
   workflow_call:
+  # Accepts workflow_dispatch runs fired by main's
+  # scheduled-branch-tests.yaml (schedule: triggers only fire on the
+  # default branch, so periodic runs on this branch are dispatched
+  # instead). Feeds the CI health dashboard's flaky-rate metric
+  workflow_dispatch:
 
 jobs:
   lint:
