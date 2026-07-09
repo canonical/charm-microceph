@@ -74,6 +74,12 @@ options:
       on an unintended, more restricted network. Always run
       "juju bind microceph nfs=<space>" before enabling this option, and verify
       the published nfs-address before pointing clients (e.g. Manila) at it.
+      
+      Note: this option is applied when a host is added to an NFS cluster, not
+      retroactively. Changing it does not rebind NFS services that are already
+      running -- those keep the address they were created with. To rebind an
+      existing service, remove and re-add the ceph-nfs relation, which recreates
+      the cluster on the current address.
   wait-to-adopt:
     type: boolean
     default: False
