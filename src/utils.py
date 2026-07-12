@@ -153,3 +153,36 @@ def get_fsid():
         for line in f:
             if line.startswith("fsid") and "=" in line:
                 return line.split("=")[1].strip()
+
+
+def split_space_or_comma(s: str) -> list[str]:
+    """Split on spaces and/or commas, ignoring empty tokens."""
+    return [item for item in s.replace(",", " ").split() if item]
+
+
+def parse_networks(value: str) -> list[str]:
+    """Parse a space- or comma-delimited list of subnets into canonical form.
+
+    Each entry is canonicalised and duplicates are dropped, but the operator's
+    entry order is preserved: microceph picks the FIRST listed subnet that has
+    a local address (FindIpOnSubnet), so on a multi-homed host the order is
+    a priority the operator chose. Callers comparing parsed values for change
+    detection must therefore compare them order-insensitively themselves.
+
+    :param value: subnets as given by the operator, e.g. "10.0.0.0/24 10.0.1.0/24"
+    :raises ValueError: naming the offending entry, if any entry is not a subnet
+        with a prefix length and no host bits set.
+    """
+    networks = []
+    for token in split_space_or_comma(value):
+        # ip_network() accepts a bare address as a host route (/32, /128), which
+        # is never what an operator means by a Ceph network. Require the prefix.
+        if "/" not in token:
+            raise ValueError(f"'{token}' has no prefix length, expected e.g. 192.168.0.0/24")
+        try:
+            networks.append(ipaddress.ip_network(token))
+        except ValueError as e:
+            raise ValueError(f"'{token}' is not a valid subnet: {e}")
+    # dict.fromkeys: dedup (respelled entries collapse once canonicalised)
+    # while keeping first-seen order.
+    return [str(net) for net in dict.fromkeys(networks)]
