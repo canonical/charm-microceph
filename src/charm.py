@@ -47,7 +47,7 @@ import utils
 from ceph_nfs import CephNfsProviderHandler
 from ceph_rgw import CEPH_RGW_READY_RELATION, CephRgwProviderHandler
 from microceph_adopt_ceph import AdoptCephRequiresHandler
-from microceph_client import ClusterServiceUnavailableException
+from microceph_client import ClusterServiceUnavailableException, UnrecognizedClusterConfigOption
 from microceph_remote import MicroCephRemoteHandler
 from radosgw import RadosGWHandler
 from relation_handlers import (
@@ -66,6 +66,8 @@ from storage import StorageHandler
 logger = logging.getLogger(__name__)
 CACERT_FILE = "/usr/local/share/ca-certificates/receive-keystone-ca-bundle.crt"
 MAX_PG_PER_OSD = 400
+PUBLIC_NETWORK_CONFIG = "ceph-public-network"
+CLUSTER_NETWORK_CONFIG = "ceph-cluster-network"
 
 
 class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
@@ -246,11 +248,78 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         A departing unit must not reconcile: the cluster loses quorum during
         teardown, so the cluster calls made here would error or hang. Gating the
         main reconcile entry point keeps a departing unit inert.
+
+        Config checks run here rather than in _on_config_changed so every
+        reconcile path re-enforces them: relation handlers call configure_charm
+        directly, and finishing a reconcile sets the unit active, which would
+        otherwise silently clear the blocked status of a unit whose config is
+        still in violation.
         """
         if utils.is_departing(self.app):
             logger.info("Application is being removed; skipping reconcile")
             return
+        try:
+            self.check_configs()
+        except sunbeam_guard.BlockedExceptionError as e:
+            logger.warning("Charm is blocked: %s", e.msg)
+            self.status.set(e.to_status())
+            return
         super().configure_charm(event)
+
+    def check_configs(self) -> None:
+        """Validate config options and enforce the immutable ones.
+
+        Runs on every unit, so a violation blocks the whole application rather
+        than only the leader.
+
+        :raises BlockedExceptionError: on a malformed subnet, or on a change to
+            an option that cannot be applied after bootstrap.
+        """
+        self._check_immutable_config(
+            "namespace-projects", self.model.config.get("namespace-projects"), "deployment"
+        )
+        # Validate both network options on every unit, so a malformed subnet
+        # blocks before any cluster operation is attempted.
+        self._get_network_config(CLUSTER_NETWORK_CONFIG)
+        public_net = self._get_network_config(PUBLIC_NETWORK_CONFIG)
+        # microceph cannot set public_network on a bootstrapped cluster, so a
+        # post-bootstrap change can only be reported, never applied. The
+        # OPTION VALUE consumed at bootstrap ("" when the space-subnet
+        # fallback was used) is recorded by the bootstrap and adopt paths;
+        # any later change to the option blocks — including setting it to
+        # the subnet in effect, which the charm cannot verify against a
+        # running cluster.
+        # Compare as a set: subnet order is a microceph address-selection
+        # priority, but reordering an unchanged set is not a network change.
+        self._check_immutable_config(
+            PUBLIC_NETWORK_CONFIG,
+            public_net,
+            "bootstrap",
+            normalize=lambda value: set(utils.split_space_or_comma(value)),
+        )
+
+    def _check_immutable_config(self, key: str, current, applied_at: str, normalize=None) -> None:
+        """Block if an immutable config option differs from its recorded value.
+
+        :param current: the option's current value, canonicalised the same way
+            as the recorded one.
+        :param applied_at: when the recorded value was fixed, for the message.
+        :param normalize: optional transform applied to both sides before
+            comparing, for values with more than one equivalent spelling.
+        :raises BlockedExceptionError: if a value was recorded and differs.
+        """
+        recorded = self.leader_get(key)
+        if recorded is None:
+            return
+        applied = json.loads(recorded)
+        if normalize is None:
+            changed = applied != current
+        else:
+            changed = normalize(applied) != normalize(current)
+        if changed:
+            raise sunbeam_guard.BlockedExceptionError(
+                f"Config {key} cannot be changed after {applied_at}, revert to {applied!r}"
+            )
 
     def configure_unit(self, event: ops.framework.EventBase) -> None:
         """Run configuration on this unit."""
@@ -262,14 +331,12 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             if not self.is_valid_placement_directive(self.model.config.get("enable-rgw")):
                 raise sunbeam_guard.BlockedExceptionError("Improper value for config enable-rgw")
 
-            namespace_projects = self.leader_get("namespace-projects")
-            if namespace_projects and json.loads(namespace_projects) != self.model.config.get(
-                "namespace-projects"
-            ):
-                raise sunbeam_guard.BlockedExceptionError(
-                    "Config namespace-projects cannot be changed after deployment"
-                )
-
+            # check_configs also runs inside configure_charm, so every
+            # reconcile path re-enforces it. Calling it here first lets a
+            # violation bail out of this guard before the peer-data publish
+            # below, so a later failure there cannot replace the specific
+            # blocked message with a generic one.
+            self.check_configs()
             self.configure_charm(event)
 
             # Refresh peer data on config-changed so binding-derived addresses
@@ -597,9 +664,23 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
             logger.debug("Bootstrapping MicroCeph cluster")
             self.bootstrap_cluster(event)
+            # Record in the same hook that bootstrapped, so the baseline is
+            # the option value bootstrap consumed ("" when it fell back to
+            # the space subnet), not whatever the option reads as by the
+            # time a later hook happens to run.
+            self._record_applied_public_network()
 
         # Handle post bootstrap
+        self._handle_post_bootstrap_config(event)
+
+    def _handle_post_bootstrap_config(self, event: ops.framework.EventBase) -> None:
+        """Run the post-bootstrap config handlers shared by all bootstrap paths.
+
+        Both configure_app_leader and handle_ceph_adopt must run these; keeping
+        one list stops the two paths drifting apart.
+        """
         self.handle_config_leader_set_ready()
+        self.handle_config_leader_cluster_network(event)
         self.handle_config_leader_ceph_pool_pgs(event)
         self.handle_config_rgw_service(event)
         self.handle_config_leader_charm_upgrade()
@@ -641,23 +722,58 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         if space_nets:
             return space_nets[0].subnet
 
+    def _get_network_config(self, option: str) -> str:
+        """Fetch and validate a network config option, as a comma-delimited string.
+
+        :param option: ceph-public-network or ceph-cluster-network
+        :raises BlockedExceptionError: if any subnet in the option is malformed.
+            A bad entry blocks rather than being skipped, so a typo can never
+            silently bootstrap the cluster onto a subset of the intended networks.
+        """
+        value = self.model.config.get(option) or ""
+        if not value:
+            return ""
+
+        try:
+            networks = utils.parse_networks(value)
+        except ValueError as e:
+            raise sunbeam_guard.BlockedExceptionError(f"Invalid config {option}: {e}")
+
+        return ",".join(networks)
+
     def _get_bootstrap_params(self) -> dict:
         """Fetch bootstrap parameters."""
         micro_ip = cluster_net = public_net = ""
         snap_channel = snap.SnapCache()["microceph"].channel
 
         if "quincy" in snap_channel:
-            # some quincy snap revisions do not support network configuration
+            # some quincy snap revisions do not support network configuration.
+            # Judge the options by their parsed value, like everywhere else,
+            # so whitespace-only input still counts as unset.
+            if self._get_network_config(PUBLIC_NETWORK_CONFIG) or self._get_network_config(
+                CLUSTER_NETWORK_CONFIG
+            ):
+                # Block rather than silently bootstrap without the requested
+                # networks: the recorded baseline would claim they were applied.
+                raise sunbeam_guard.BlockedExceptionError(
+                    f"{PUBLIC_NETWORK_CONFIG} and {CLUSTER_NETWORK_CONFIG} are not "
+                    "supported on quincy snap channels, unset them"
+                )
             logger.warning("Juju spaces incompatible with quincy revision snaps")
             return {}
 
         availability_zone = os.environ.get("JUJU_AVAILABILITY_ZONE", "")
 
+        # Read config outside the try block: the `finally: return` below would
+        # swallow the BlockedExceptionError raised on a malformed subnet.
+        public_net_cfg = self._get_network_config(PUBLIC_NETWORK_CONFIG)
+        cluster_net_cfg = self._get_network_config(CLUSTER_NETWORK_CONFIG)
+
         try:
-            # Public Network
-            public_net = self._get_space_subnet(space="public")
+            # Public Network: operator config wins, else the leader's space subnet.
+            public_net = public_net_cfg or self._get_space_subnet(space="public") or ""
             # Cluster Network
-            cluster_net = self._get_space_subnet(space="cluster")
+            cluster_net = cluster_net_cfg or self._get_space_subnet(space="cluster") or ""
             # MicroCeph IP
             micro_ip = self.model.get_binding(binding_key="admin").network.bind_address
 
@@ -697,10 +813,16 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             self.peers.interface.state.joined = True
             if applied.get("availability_zone"):
                 self.peers.set_app_data({"cluster_uses_az": "true"})
+            # Same-hook baseline recording, as in the bootstrap path.
+            self._record_applied_public_network()
             logger.debug("microceph bootstrapped successfully via adopt-ceph")
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             if "Unable to initialize cluster: Database is online" in str(e.stderr):
                 logger.info("microceph is already bootstrapped, ignore failure.")
+                # A retry of the hook that adopted but died before recording:
+                # record now, or handle_config_leader_set_ready's upgrade
+                # fallback would stamp "" and block the unchanged option.
+                self._record_applied_public_network()
                 return
 
             logger.exception("microceph adopt failed:")
@@ -847,15 +969,16 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
         # Mark unit as bootstrapped (required for bootstrapped() check)
         self._state.unit_bootstrapped = True
-        self.handle_config_leader_set_ready()
-        self.handle_config_leader_ceph_pool_pgs(event)
-        self.handle_config_rgw_service(event)
-        self.handle_config_leader_charm_upgrade()
-        self.handle_config_leader_new_node(event)
-        self.cos_agent._on_refresh(event)
-        # Clear any blocked status and set to active (similar to configure_charm)
-        self.bootstrap_status.set(ActiveStatus())
-        self.status.set(ActiveStatus("charm is ready"))
+        # The post-bootstrap handlers report retryable conditions by raising
+        # waiting/blocked; configure_charm runs them under the base class's
+        # guard, so run them under one here too, or a raise would error the
+        # hook (and the active statuses below must not paper over it).
+        with sunbeam_guard.guard(self, "Adopting existing Ceph cluster"):
+            self._handle_post_bootstrap_config(event)
+            self.cos_agent._on_refresh(event)
+            # Clear any blocked status and set to active (similar to configure_charm)
+            self.bootstrap_status.set(ActiveStatus())
+            self.status.set(ActiveStatus("charm is ready"))
 
     def handle_rh_cb_noop(self, event) -> None:
         """Callback for interface ceph."""
@@ -871,6 +994,102 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             self.leader_set(
                 {"namespace-projects": json.dumps(self.model.config.get("namespace-projects"))}
             )
+        if self.leader_get(PUBLIC_NETWORK_CONFIG) is None:
+            # The bootstrap and adopt paths record the value they consumed, so
+            # reaching here means the cluster was bootstrapped by a charm
+            # revision that predates the option and nothing was ever applied.
+            # Record "" (not the current config): a value set only after such
+            # an upgrade must block rather than masquerade as applied, since
+            # microceph cannot change public_network on a running cluster.
+            self.leader_set({PUBLIC_NETWORK_CONFIG: json.dumps("")})
+
+    def _record_applied_public_network(self) -> None:
+        """Record the public network consumed at bootstrap, for check_configs.
+
+        First write wins: the baseline must keep describing what bootstrap
+        consumed even when this is re-run by a retried hook or a repeated
+        event after the option changed. A retry that reaches this only via
+        the "already bootstrapped" swallow can still record a value newer
+        than the one bootstrap really consumed if the option changed while
+        the unit sat in error; the true value is unrecoverable then, and the
+        current config is the closest available approximation.
+
+        Recorded as JSON so an unset option ("") stays distinguishable from a
+        key that was never written, which peer data cannot express.
+        """
+        if self.leader_get(PUBLIC_NETWORK_CONFIG) is not None:
+            return
+        self.leader_set(
+            {PUBLIC_NETWORK_CONFIG: json.dumps(self._get_network_config(PUBLIC_NETWORK_CONFIG))}
+        )
+
+    def handle_config_leader_cluster_network(self, event: ops.framework.EventBase) -> None:
+        """Apply the configured cluster network to the running cluster.
+
+        Unlike public_network, cluster_network can be set on a bootstrapped
+        cluster, so it is reconciled on every config-changed rather than only at
+        bootstrap. When the value changed, microceph restarts the affected
+        services (the momentary service disruption the config option warns
+        about).
+
+        The last value this handler applied is tracked in peer data: an
+        unchanged option is a no-op without touching the daemon, clearing the
+        option after it was set reverts the cluster network to the fallback
+        subnet (the leader's subnet in the cluster space), and an option that
+        was never set leaves whatever bootstrap applied untouched.
+
+        A pending change that cannot be applied yet defers AND raises waiting:
+        the defer gets the event re-delivered, and the raise stops the
+        reconcile from ending in active, which would misreport a cluster whose
+        requested network is not in effect (the caller's guard turns the raise
+        into a waiting status).
+        """
+        configured = self._get_network_config(CLUSTER_NETWORK_CONFIG)
+        recorded = self.leader_get(CLUSTER_NETWORK_CONFIG)
+        applied = json.loads(recorded) if recorded else ""
+
+        if configured == applied:
+            # Nothing to reconcile. Returning before any daemon call also
+            # keeps a steady-state reconcile independent of transient daemon
+            # unavailability.
+            logger.debug("Cluster network config unchanged, nothing to reconcile")
+            return
+
+        cluster_net = configured
+        if not configured:
+            subnet = self._get_space_subnet(space="cluster")
+            if subnet is None:
+                # Possibly a transient binding-resolution gap: retry on a
+                # later hook rather than silently abandoning the revert.
+                event.defer()
+                raise sunbeam_guard.WaitingExceptionError(
+                    f"No subnet in the cluster space, revert of cluster network {applied} pending"
+                )
+            cluster_net = str(subnet)
+            logger.info(f"Cluster network cleared, reverting to fallback subnet {cluster_net}")
+
+        if not self.ready_for_service():
+            event.defer()
+            raise sunbeam_guard.WaitingExceptionError(
+                f"MicroCeph not ready, update of cluster network to {cluster_net} pending"
+            )
+
+        logger.debug(f"Configuring cluster network {cluster_net}")
+        try:
+            microceph.update_cluster_configs({"cluster_network": cluster_net})
+        except ClusterServiceUnavailableException as e:
+            logger.warning(str(e))
+            event.defer()
+            raise sunbeam_guard.WaitingExceptionError(
+                f"Cluster service unavailable, update of cluster network to {cluster_net} pending"
+            )
+        except UnrecognizedClusterConfigOption as e:
+            # Not transient: the running microceph rejects the option, so
+            # deferring would retry forever. Block until the operator unsets.
+            raise sunbeam_guard.BlockedExceptionError(
+                f"microceph rejected cluster_network ({e}), unset {CLUSTER_NETWORK_CONFIG}"
+            )
+        self.leader_set({CLUSTER_NETWORK_CONFIG: json.dumps(configured)})
 
     def handle_config_leader_ceph_pool_pgs(self, event) -> None:
         """Configure Ceph."""
