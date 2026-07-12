@@ -14,6 +14,7 @@
 
 """Tests for Microceph charm."""
 
+import ipaddress
 import json
 from pathlib import Path
 from subprocess import CalledProcessError, TimeoutExpired
@@ -22,11 +23,16 @@ from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch
 import ops_sunbeam.guard as sunbeam_guard
 import ops_sunbeam.test_utils as test_utils
 from charms.ceph_mon.v0 import ceph_cos_agent
+from ops.model import BlockedStatus
 from unit import testbase
 
 import charm
 import microceph
-from microceph_client import MaintenanceOperationFailedException
+from microceph_client import (
+    ClusterServiceUnavailableException,
+    MaintenanceOperationFailedException,
+    UnrecognizedClusterConfigOption,
+)
 
 
 class TestCharm(testbase.TestBaseCharm):
@@ -35,18 +41,7 @@ class TestCharm(testbase.TestBaseCharm):
     def setUp(self):
         """Setup MicroCeph Charm tests."""
         super().setUp(charm, self.PATCHES)
-        with open("config.yaml", "r") as f:
-            config_data = f.read()
-        with open("metadata.yaml", "r") as f:
-            metadata = f.read()
-        self.harness = test_utils.get_harness(
-            testbase._MicroCephCharm,
-            container_calls=self.container_calls,
-            charm_config=config_data,
-            charm_metadata=metadata,
-        )
-        self.addCleanup(self.harness.cleanup)
-        self.harness.begin()
+        self.init_harness()
 
     @patch.object(microceph, "is_ready")
     @patch.object(charm.MicroCephCharm, "handle_config_rgw_service")
@@ -1746,3 +1741,503 @@ class TestCharm(testbase.TestBaseCharm):
             micro_ip="10.0.0.10",
             availability_zone="az-1",
         )
+
+
+class TestNetworkConfig(testbase.TestBaseCharm):
+    """Tests for ceph-public-network and ceph-cluster-network."""
+
+    PATCHES = ["subprocess"]
+
+    def setUp(self):
+        """Setup MicroCeph Charm tests."""
+        super().setUp(charm, self.PATCHES)
+        self.init_harness()
+
+    def set_config(self, config: dict) -> None:
+        """Update config without running the config-changed hook."""
+        self.harness.disable_hooks()
+        self.harness.update_config(config)
+        self.harness.enable_hooks()
+
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    @patch("ceph.enable_ceph_monitoring")
+    @patch.object(microceph, "update_cluster_configs")
+    @patch.object(microceph, "is_ready")
+    @patch.object(microceph, "Client")
+    @patch("utils.subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
+    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
+    @patch("microceph._az_flag_supported", new=lambda: False)
+    def test_bootstrap_uses_configured_networks(
+        self,
+        _mock_file,
+        _mock_path_wb,
+        _mock_path_chmod,
+        subprocess,
+        cclient,
+        is_ready,
+        update_cluster_configs,
+        _enable_ceph_monitoring,
+        _utils,
+    ):
+        """Configured networks override the leader's space subnets at bootstrap.
+
+        Regression: _get_bootstrap_params looked the options up by space name
+        ("public") rather than config key ("ceph-public-network"), so the config
+        always read back empty and the space subnet fallback always won.
+        """
+        cclient.from_socket().cluster.list_services.return_value = []
+        is_ready.return_value = True
+
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        self.harness.update_config(
+            {
+                # Deliberately mixed delimiters: both forms are supported.
+                # The cluster list is deliberately not in sorted order: entry
+                # order is an address-selection priority to microceph and must
+                # reach it exactly as the operator wrote it.
+                "ceph-public-network": "10.5.0.0/24,10.5.1.0/24",
+                "ceph-cluster-network": "10.6.1.0/24 10.6.0.0/24",
+            }
+        )
+
+        subprocess.run.assert_any_call(
+            [
+                "microceph",
+                "cluster",
+                "bootstrap",
+                "--public-network",
+                "10.5.0.0/24,10.5.1.0/24",
+                "--cluster-network",
+                "10.6.1.0/24,10.6.0.0/24",
+                "--microceph-ip",
+                "10.0.0.10",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=180,
+        )
+
+        # The applied public network is recorded so later changes can be caught.
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertEqual(json.loads(app_data["ceph-public-network"]), "10.5.0.0/24,10.5.1.0/24")
+
+        # cluster_network is reconciled post-bootstrap; unchanged here, so
+        # update_cluster_configs finds nothing to do (it diffs internally).
+        update_cluster_configs.assert_called_once_with(
+            {"cluster_network": "10.6.1.0/24,10.6.0.0/24"}
+        )
+        # The reconciled cluster network is recorded too, so a later clearing
+        # of the option can revert to the fallback subnet.
+        self.assertEqual(json.loads(app_data["ceph-cluster-network"]), "10.6.1.0/24,10.6.0.0/24")
+
+        # cluster_network stays reconcilable post-bootstrap: a later config
+        # change must reach microceph end-to-end, without a new bootstrap.
+        update_cluster_configs.reset_mock()
+        self.harness.update_config({"ceph-cluster-network": "10.8.0.0/24"})
+        update_cluster_configs.assert_called_once_with({"cluster_network": "10.8.0.0/24"})
+
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    @patch("ceph.enable_ceph_monitoring")
+    @patch.object(microceph, "is_ready")
+    @patch.object(microceph, "Client")
+    @patch("utils.subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
+    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
+    @patch("microceph._az_flag_supported", new=lambda: False)
+    def test_public_network_change_after_bootstrap_blocks(
+        self,
+        _mock_file,
+        _mock_path_wb,
+        _mock_path_chmod,
+        _subprocess,
+        cclient,
+        is_ready,
+        _enable_ceph_monitoring,
+        _utils,
+    ):
+        """Changing public_network after bootstrap must block the charm.
+
+        microceph cannot apply a new public_network to a running cluster, and
+        silently ignoring the change would leave the operator believing it took
+        effect.
+
+        The charm must reach a steady state before config is mutated: a handler
+        that defers config-changed leaves the notice queued, and ops then skips
+        _on_config_changed on every later emission of that event.
+        """
+        cclient.from_socket().cluster.list_services.return_value = []
+        is_ready.return_value = True
+
+        self.harness.set_leader()
+        self.add_complete_peer_relation(self.harness)
+        self.harness.update_config({"ceph-public-network": "10.5.0.0/24 10.5.1.0/24"})
+
+        # Re-setting the same subnet set (different delimiters and order) is
+        # not a change: comparison is on the canonical parsed form.
+        self.harness.update_config({"ceph-public-network": " 10.5.1.0/24, 10.5.0.0/24 "})
+        self.assertNotIsInstance(self.harness.charm.status.status, BlockedStatus)
+
+        self.harness.update_config({"ceph-public-network": "10.9.0.0/24"})
+        status = self.harness.charm.status.status
+        self.assertIsInstance(status, BlockedStatus)
+        self.assertIn("ceph-public-network cannot be changed after bootstrap", status.message)
+        # The message names the recorded value, the only way to unblock.
+        self.assertIn("10.5.0.0/24,10.5.1.0/24", status.message)
+
+        # Blocked is durable: a relation handler reconciling via
+        # configure_charm directly must not flip the unit back to active.
+        self.harness.charm.configure_charm(MagicMock())
+        self.assertIsInstance(self.harness.charm.status.status, BlockedStatus)
+
+        # Also durable through a real relation event dispatch, which calls
+        # configure_charm without passing through _on_config_changed.
+        self.add_complete_identity_relation(self.harness)
+        self.assertIsInstance(self.harness.charm.status.status, BlockedStatus)
+
+        # Reverting to the bootstrapped value recovers the unit.
+        self.harness.update_config({"ceph-public-network": "10.5.0.0/24 10.5.1.0/24"})
+        self.assertNotIsInstance(self.harness.charm.status.status, BlockedStatus)
+
+        # Clearing the option is also a change: the cluster keeps the network
+        # it bootstrapped with, so pretending to unset it must block too.
+        self.harness.update_config({"ceph-public-network": ""})
+        self.assertIsInstance(self.harness.charm.status.status, BlockedStatus)
+
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    @patch("ceph.enable_ceph_monitoring")
+    @patch.object(microceph, "is_ready")
+    @patch.object(microceph, "Client")
+    @patch("utils.subprocess")
+    @patch.object(Path, "chmod")
+    @patch.object(Path, "write_bytes")
+    @patch("builtins.open", new_callable=mock_open, read_data="mon host dummy-ip")
+    @patch("microceph._az_flag_supported", new=lambda: False)
+    def test_public_network_change_blocks_non_leader(
+        self,
+        _mock_file,
+        _mock_path_wb,
+        _mock_path_chmod,
+        _subprocess,
+        cclient,
+        is_ready,
+        _enable_ceph_monitoring,
+        _utils,
+    ):
+        """The post-bootstrap check runs on every unit, not only the leader."""
+        cclient.from_socket().cluster.list_services.return_value = []
+        is_ready.return_value = True
+
+        self.harness.set_leader()
+        self.add_complete_peer_relation(self.harness)
+        self.harness.update_config({"ceph-public-network": "10.5.0.0/24"})
+
+        self.harness.set_leader(False)
+        self.harness.update_config({"ceph-public-network": "10.9.0.0/24"})
+        status = self.harness.charm.status.status
+        self.assertIsInstance(status, BlockedStatus)
+        self.assertIn("ceph-public-network cannot be changed after bootstrap", status.message)
+
+    @patch.object(ceph_cos_agent, "ceph_utils")
+    @patch("ceph.enable_ceph_monitoring")
+    @patch.object(microceph, "is_ready")
+    @patch.object(microceph, "Client")
+    @patch("utils.subprocess")
+    def test_upgrade_records_never_applied_baseline(
+        self, _subprocess, cclient, is_ready, _enable_ceph_monitoring, _utils
+    ):
+        """A cluster bootstrapped before the option existed records "" as baseline.
+
+        On charm upgrade the recording key is absent while the cluster is
+        already bootstrapped; whatever the option reads as at that point was
+        never consumed by bootstrap, so recording it would let an unapplied
+        value masquerade as applied.
+        """
+        cclient.from_socket().cluster.list_services.return_value = []
+        is_ready.return_value = True
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        self.harness.update_relation_data(
+            rel_id, self.harness.charm.app.name, {"leader_ready": "true"}
+        )
+        # The operator sets the option at upgrade time, hoping it applies.
+        self.set_config({"ceph-public-network": "10.9.0.0/24"})
+
+        self.harness.charm.handle_config_leader_set_ready()
+
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertEqual(json.loads(app_data["ceph-public-network"]), "")
+
+        # And the pending value now blocks instead of pretending it applied.
+        self.harness.update_config({"ceph-public-network": "10.8.0.0/24"})
+        self.assertIsInstance(self.harness.charm.status.status, BlockedStatus)
+
+    def test_record_applied_public_network_first_write_wins(self):
+        """A re-run after the option changed must not overwrite the baseline.
+
+        Retried hooks and repeated adopt events re-reach the recording; the
+        baseline has to keep describing what bootstrap actually consumed.
+        """
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        self.set_config({"ceph-public-network": "10.5.0.0/24"})
+        self.harness.charm._record_applied_public_network()
+
+        self.set_config({"ceph-public-network": "10.9.0.0/24"})
+        self.harness.charm._record_applied_public_network()
+
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertEqual(json.loads(app_data["ceph-public-network"]), "10.5.0.0/24")
+
+    def test_quincy_with_network_config_blocks(self):
+        """Quincy snaps cannot apply the network options; block, don't ignore.
+
+        Bootstrapping anyway would silently drop the operator's networks and
+        record a baseline claiming they were applied.
+        """
+        self.set_config({"ceph-public-network": "10.5.0.0/24"})
+        with patch("charm.snap.SnapCache") as cache:
+            cache.return_value.__getitem__.return_value.channel = "quincy/stable"
+            with self.assertRaises(sunbeam_guard.BlockedExceptionError) as ctx:
+                self.harness.charm._get_bootstrap_params()
+        self.assertIn("quincy", str(ctx.exception))
+
+    def test_quincy_without_network_config_bootstraps_bare(self):
+        """Unset options keep the pre-existing quincy behavior: no params.
+
+        Whitespace-only values parse to no subnets and must count as unset
+        here too, like everywhere else the options are read.
+        """
+        for value in ("", " , "):
+            with self.subTest(value=value):
+                self.set_config({"ceph-public-network": value})
+                with patch("charm.snap.SnapCache") as cache:
+                    cache.return_value.__getitem__.return_value.channel = "quincy/stable"
+                    self.assertEqual(self.harness.charm._get_bootstrap_params(), {})
+
+    @patch.object(microceph, "adopt_ceph_cluster")
+    def test_adopt_records_public_network_baseline(self, adopt):
+        """The adopt path records the consumed option, like the bootstrap path."""
+        adopt.return_value = {}
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        self.set_config({"ceph-public-network": "10.5.0.0/24"})
+
+        self.harness.charm.adopt_cluster("fsid", ["10.0.0.1"], "key")
+
+        self.assertEqual(
+            adopt.call_args.kwargs["public_net"],
+            "10.5.0.0/24",
+        )
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertEqual(json.loads(app_data["ceph-public-network"]), "10.5.0.0/24")
+
+    @patch.object(microceph, "adopt_ceph_cluster")
+    def test_adopt_retry_records_baseline_when_already_bootstrapped(self, adopt):
+        """A retried adopt hook must still record the baseline.
+
+        Without it, handle_config_leader_set_ready's upgrade fallback stamps
+        "" and the unchanged option permanently blocks the unit.
+        """
+        self.subprocess.CalledProcessError = CalledProcessError
+        self.subprocess.TimeoutExpired = TimeoutExpired
+        adopt.side_effect = CalledProcessError(
+            1, "cmd", stderr="Unable to initialize cluster: Database is online"
+        )
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        self.set_config({"ceph-public-network": "10.5.0.0/24"})
+
+        self.harness.charm.adopt_cluster("fsid", ["10.0.0.1"], "key")
+
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertEqual(json.loads(app_data["ceph-public-network"]), "10.5.0.0/24")
+
+    def test_malformed_network_config_blocks(self):
+        """A bad subnet blocks rather than being silently dropped from the list."""
+        cases = {
+            # A bare address is a valid /32 to ip_network(), but is never a
+            # network an operator means.
+            "10.0.0.1": "no prefix length",
+            # An interface address, not a subnet.
+            "10.0.0.5/24": "has host bits set",
+            "10.0.0.0/24 garbage/24": "garbage/24",
+        }
+        for value, expected in cases.items():
+            for option in ("ceph-public-network", "ceph-cluster-network"):
+                with self.subTest(option=option, value=value):
+                    self.harness.update_config({option: value})
+                    status = self.harness.charm.status.status
+                    self.assertIsInstance(status, BlockedStatus)
+                    self.assertIn(f"Invalid config {option}", status.message)
+                    self.assertIn(expected, status.message)
+                    self.set_config({option: ""})
+
+    @patch.object(charm.MicroCephCharm, "ready_for_service")
+    @patch.object(microceph, "update_cluster_configs")
+    def test_cluster_network_applied_on_config_change(self, update_cluster_configs, ready):
+        """cluster_network is mutable post-bootstrap, so reconcile it each hook."""
+        ready.return_value = True
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        self.set_config({"ceph-cluster-network": "10.6.0.0/24, 10.6.1.0/24"})
+
+        self.harness.charm.handle_config_leader_cluster_network(MagicMock())
+
+        update_cluster_configs.assert_called_once_with(
+            {"cluster_network": "10.6.0.0/24,10.6.1.0/24"}
+        )
+        # The applied value is recorded, so clearing the option can revert it.
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertEqual(json.loads(app_data["ceph-cluster-network"]), "10.6.0.0/24,10.6.1.0/24")
+
+    @patch.object(charm.MicroCephCharm, "ready_for_service")
+    @patch.object(microceph, "update_cluster_configs")
+    def test_cluster_network_never_set_is_noop(self, update_cluster_configs, ready):
+        """An option that was never set leaves the bootstrap value untouched."""
+        ready.return_value = True
+        self.harness.set_leader()
+        self.add_complete_peer_relation(self.harness)
+
+        self.harness.charm.handle_config_leader_cluster_network(MagicMock())
+
+        update_cluster_configs.assert_not_called()
+
+    @patch.object(charm.MicroCephCharm, "_get_space_subnet")
+    @patch.object(charm.MicroCephCharm, "ready_for_service")
+    @patch.object(microceph, "update_cluster_configs")
+    def test_cluster_network_cleared_reverts_to_fallback(
+        self, update_cluster_configs, ready, space_subnet
+    ):
+        """Clearing a previously set option reverts to the space fallback subnet."""
+        ready.return_value = True
+        space_subnet.return_value = ipaddress.ip_network("10.7.0.0/24")
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+
+        # A custom value is applied, then the operator clears the option.
+        self.set_config({"ceph-cluster-network": "10.6.0.0/24"})
+        self.harness.charm.handle_config_leader_cluster_network(MagicMock())
+        update_cluster_configs.assert_called_once_with({"cluster_network": "10.6.0.0/24"})
+        update_cluster_configs.reset_mock()
+        self.set_config({"ceph-cluster-network": ""})
+
+        self.harness.charm.handle_config_leader_cluster_network(MagicMock())
+
+        space_subnet.assert_called_once_with(space="cluster")
+        update_cluster_configs.assert_called_once_with({"cluster_network": "10.7.0.0/24"})
+        # The revert is recorded: later hooks with the option still unset are
+        # no-ops rather than repeatedly re-applying the fallback.
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertEqual(json.loads(app_data["ceph-cluster-network"]), "")
+        update_cluster_configs.reset_mock()
+        self.harness.charm.handle_config_leader_cluster_network(MagicMock())
+        update_cluster_configs.assert_not_called()
+
+    @patch.object(charm.MicroCephCharm, "ready_for_service")
+    @patch.object(microceph, "update_cluster_configs")
+    def test_cluster_network_unchanged_skips_daemon(self, update_cluster_configs, ready):
+        """An unchanged option must be a pure no-op on the steady-state path.
+
+        This handler runs on every reconcile of the leader's lifetime, so an
+        unchanged value must not gate on readiness or call the cluster API:
+        both would make a steady-state reconcile defer (and so look degraded)
+        whenever the daemon is transiently unavailable.
+        """
+        ready.return_value = False  # would defer if the no-op path consulted it
+        self.harness.set_leader()
+        self.add_complete_peer_relation(self.harness)
+        self.set_config({"ceph-cluster-network": "10.6.0.0/24"})
+        self.harness.charm.leader_set({"ceph-cluster-network": json.dumps("10.6.0.0/24")})
+
+        event = MagicMock()
+        self.harness.charm.handle_config_leader_cluster_network(event)
+
+        update_cluster_configs.assert_not_called()
+        ready.assert_not_called()
+        event.defer.assert_not_called()
+
+    @patch.object(charm.MicroCephCharm, "_get_space_subnet")
+    @patch.object(charm.MicroCephCharm, "ready_for_service")
+    @patch.object(microceph, "update_cluster_configs")
+    def test_cluster_network_revert_defers_without_subnet(
+        self, update_cluster_configs, ready, space_subnet
+    ):
+        """A transient binding gap must not silently abandon a requested revert.
+
+        Deferring alone would let the reconcile finish and mark the unit
+        active while the revert never happened; raising waiting keeps the
+        pending revert visible until a later hook can resolve the subnet.
+        """
+        ready.return_value = True
+        space_subnet.return_value = None
+        self.harness.set_leader()
+        self.add_complete_peer_relation(self.harness)
+        self.harness.charm.leader_set({"ceph-cluster-network": json.dumps("10.6.0.0/24")})
+
+        event = MagicMock()
+        with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+            self.harness.charm.handle_config_leader_cluster_network(event)
+
+        update_cluster_configs.assert_not_called()
+        event.defer.assert_called_once()
+
+    @patch.object(charm.MicroCephCharm, "ready_for_service")
+    @patch.object(microceph, "update_cluster_configs")
+    def test_cluster_network_defers_until_ready(self, update_cluster_configs, ready):
+        """Setting cluster config on a not-yet-ready daemon would error."""
+        ready.return_value = False
+        self.harness.set_leader()
+        self.add_complete_peer_relation(self.harness)
+        self.set_config({"ceph-cluster-network": "10.6.0.0/24"})
+
+        event = MagicMock()
+        with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+            self.harness.charm.handle_config_leader_cluster_network(event)
+
+        update_cluster_configs.assert_not_called()
+        event.defer.assert_called_once()
+
+        # The re-emitted event must actually apply the config once ready.
+        ready.return_value = True
+        retry = MagicMock()
+        self.harness.charm.handle_config_leader_cluster_network(retry)
+        update_cluster_configs.assert_called_once_with({"cluster_network": "10.6.0.0/24"})
+        retry.defer.assert_not_called()
+
+    @patch.object(charm.MicroCephCharm, "ready_for_service")
+    @patch.object(microceph, "update_cluster_configs")
+    def test_cluster_network_defers_when_cluster_unavailable(self, update_cluster_configs, ready):
+        """A transiently unavailable cluster service is retried on a later hook."""
+        ready.return_value = True
+        update_cluster_configs.side_effect = ClusterServiceUnavailableException("unavailable")
+        self.harness.set_leader()
+        rel_id = self.add_complete_peer_relation(self.harness)
+        self.set_config({"ceph-cluster-network": "10.6.0.0/24"})
+
+        event = MagicMock()
+        with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+            self.harness.charm.handle_config_leader_cluster_network(event)
+
+        event.defer.assert_called_once()
+        # Nothing may be recorded as applied when the update did not happen.
+        app_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
+        self.assertNotIn("ceph-cluster-network", app_data)
+
+    @patch.object(charm.MicroCephCharm, "ready_for_service")
+    @patch.object(microceph, "update_cluster_configs")
+    def test_cluster_network_unrecognized_option_blocks(self, update_cluster_configs, ready):
+        """A daemon that rejects cluster_network cannot be retried into accepting it."""
+        ready.return_value = True
+        update_cluster_configs.side_effect = UnrecognizedClusterConfigOption("Option not found")
+        self.harness.set_leader()
+        self.add_complete_peer_relation(self.harness)
+        self.set_config({"ceph-cluster-network": "10.6.0.0/24"})
+
+        with self.assertRaises(sunbeam_guard.BlockedExceptionError) as ctx:
+            self.harness.charm.handle_config_leader_cluster_network(MagicMock())
+        self.assertIn("ceph-cluster-network", str(ctx.exception))
