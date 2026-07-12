@@ -85,6 +85,21 @@ class _MicroCephCharm(charm.MicroCephCharm):
 
 
 class TestBaseCharm(test_utils.CharmTestCase):
+    def init_harness(self) -> None:
+        """Create, register cleanup for, and begin a microceph charm harness."""
+        with open("config.yaml", "r") as f:
+            config_data = f.read()
+        with open("metadata.yaml", "r") as f:
+            metadata = f.read()
+        self.harness = test_utils.get_harness(
+            _MicroCephCharm,
+            container_calls=self.container_calls,
+            charm_config=config_data,
+            charm_metadata=metadata,
+        )
+        self.addCleanup(self.harness.cleanup)
+        self.harness.begin()
+
     def add_complete_identity_relation(self, harness: Harness) -> None:
         """Add complete identity-service relation."""
         credentials_content = {"username": "svcuser1", "password": "svcpass1"}

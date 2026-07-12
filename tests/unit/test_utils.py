@@ -152,3 +152,72 @@ class TestNormalizeIp(unittest.TestCase):
         }
         for addr, expected in cases.items():
             self.assertEqual(utils._normalize_ip(addr), expected, addr)
+
+
+class TestSplitSpaceOrComma(unittest.TestCase):
+    """Operators may delimit lists with spaces, commas, or both."""
+
+    def test_split(self):
+        cases = {
+            "": [],
+            "  ": [],
+            "10.0.0.0/24": ["10.0.0.0/24"],
+            "10.0.0.0/24,10.0.1.0/24": ["10.0.0.0/24", "10.0.1.0/24"],
+            "10.0.0.0/24 10.0.1.0/24": ["10.0.0.0/24", "10.0.1.0/24"],
+            "10.0.0.0/24, 10.0.1.0/24": ["10.0.0.0/24", "10.0.1.0/24"],
+            " 10.0.0.0/24 ,, 10.0.1.0/24 ": ["10.0.0.0/24", "10.0.1.0/24"],
+        }
+        for value, expected in cases.items():
+            self.assertEqual(utils.split_space_or_comma(value), expected, value)
+
+
+class TestParseNetworks(unittest.TestCase):
+    """parse_networks validates subnets and returns them canonicalised."""
+
+    def test_valid_networks(self):
+        cases = {
+            "": [],
+            "10.0.0.0/24": ["10.0.0.0/24"],
+            "10.0.0.0/24 10.0.1.0/24": ["10.0.0.0/24", "10.0.1.0/24"],
+            "10.0.0.0/24,10.0.1.0/24": ["10.0.0.0/24", "10.0.1.0/24"],
+            "fd00::/64": ["fd00::/64"],
+            "fd00:0:0:0::/64": ["fd00::/64"],  # canonicalised
+        }
+        for value, expected in cases.items():
+            self.assertEqual(utils.parse_networks(value), expected, value)
+
+    def test_order_preserved_and_deduped(self):
+        """Entry order is the operator's priority; duplicates collapse.
+
+        microceph picks the first listed subnet with a local address, so
+        parse_networks must not reorder entries — only canonicalise and dedup.
+        """
+        cases = {
+            # Operator order is preserved, not sorted.
+            "10.0.1.0/24 10.0.0.0/24": ["10.0.1.0/24", "10.0.0.0/24"],
+            "fd00::/64 10.0.0.0/24": ["fd00::/64", "10.0.0.0/24"],
+            # Duplicates collapse to the first occurrence, respelled ones too.
+            "10.0.0.0/24,10.0.0.0/24": ["10.0.0.0/24"],
+            "fd00::/64 fd00:0:0:0::/64": ["fd00::/64"],
+            "10.0.1.0/24 10.0.0.0/24 10.0.1.0/24": ["10.0.1.0/24", "10.0.0.0/24"],
+        }
+        for value, expected in cases.items():
+            self.assertEqual(utils.parse_networks(value), expected, value)
+
+    def test_bare_address_rejected(self):
+        """ip_network() would accept a bare address as a /32 host route."""
+        for value in ("10.0.0.1", "fd00::1", "10.0.0.0/24 10.0.1.1"):
+            with self.assertRaises(ValueError) as ctx:
+                utils.parse_networks(value)
+            self.assertIn("no prefix length", str(ctx.exception))
+
+    def test_host_bits_set_rejected(self):
+        """An interface address is not a subnet: 10.0.0.5/24 has host bits set."""
+        with self.assertRaises(ValueError) as ctx:
+            utils.parse_networks("10.0.0.5/24")
+        self.assertIn("10.0.0.5/24", str(ctx.exception))
+
+    def test_malformed_entry_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            utils.parse_networks("10.0.0.0/24 not-a-subnet/24")
+        self.assertIn("not-a-subnet/24", str(ctx.exception))
