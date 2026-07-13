@@ -756,7 +756,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 # Block rather than silently bootstrap without the requested
                 # networks: the recorded baseline would claim they were applied.
                 raise sunbeam_guard.BlockedExceptionError(
-                    f"{PUBLIC_NETWORK_CONFIG} and {CLUSTER_NETWORK_CONFIG} are not "
+                    f"neither {PUBLIC_NETWORK_CONFIG} nor {CLUSTER_NETWORK_CONFIG} are "
                     "supported on quincy snap channels, unset them"
                 )
             logger.warning("Juju spaces incompatible with quincy revision snaps")
