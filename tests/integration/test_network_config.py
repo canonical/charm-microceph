@@ -96,12 +96,7 @@ NUM_UNITS = 3
 # Must match the base of the charm artifact the microceph_charm fixture
 # resolves (microceph_ubuntu-24.04-amd64.charm).
 MACHINE_BASE = "ubuntu@24.04"
-# Multi-subnet network values need microceph#768 (2026-06-25), which as of
-# 2026-07 has not reached tentacle/stable (the charm's default channel):
-# older snaps parse the bootstrap network flags as a single CIDR and fail
-# on a comma-delimited value. Pin the first channel that carries it; drop
-# the pin (and this comment) once the default channel does.
-SNAP_CHANNEL = "tentacle/candidate"
+SNAP_CHANNEL = "tentacle/stable"
 
 MACHINES_TIMEOUT = 900
 DEPLOY_TIMEOUT = 2400
