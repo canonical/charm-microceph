@@ -6,7 +6,7 @@ jsonschema
 tenacity
 jinja2
 pydantic>=2.12,<2.13 
-cosl==0.0.55
+cosl==1.10.2
 requests<2.32 # https://github.com/psf/requests/issues/6707 (similar issue with http+unix)
 # Pinned to match uv.lock; bump together via `uv lock --upgrade-package ...`
 git+https://opendev.org/openstack/sunbeam-charms@69ec637504645053adee8c89f8e83f24c065745d#egg=ops-sunbeam&subdirectory=ops-sunbeam
