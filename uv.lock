@@ -195,19 +195,19 @@ wheels = [
 
 [[package]]
 name = "cosl"
-version = "0.0.55"
+version = "1.10.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "lightkube" },
+    { name = "diskcache" },
     { name = "ops" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "tenacity" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/83/96cec403e992be7d283b5538f53e3bfe39723d61092776d45c3768136ecf/cosl-0.0.55.tar.gz", hash = "sha256:d3b8ee6f78302ac111d3a15d36c42a38c298a806161d762869513d348d778316", size = 76014, upload-time = "2025-02-18T11:55:32.405Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a9/18/9199c798915b667c9516ce664152dbc1f14d80aed963c22f640a0400c253/cosl-1.10.2.tar.gz", hash = "sha256:911981f89a3447dd3f26e1f69f8cdd44b5935fb1e2cfdbd60e75c28d86a17e6d", size = 157045, upload-time = "2026-07-17T21:32:13.709Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/b2/63e8c8e084129230f97dacf7878e611e6f73f004fba530139770fd681542/cosl-0.0.55-py3-none-any.whl", hash = "sha256:bf641d611f982c8f494f3cf72ac4181b24e30c69504cfbd55aa8f54964797f90", size = 61014, upload-time = "2025-02-18T11:55:30.54Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/53/26902ea5662f0016282c672214bdfbf99251135eeec35ace6875f7784c8d/cosl-1.10.2-py3-none-any.whl", hash = "sha256:ff4aa756ab084def1f49fe31b49781aa584176ac7eec107dd192ae0c87899fc0", size = 41117, upload-time = "2026-07-17T21:32:12.535Z" },
 ]
 
 [[package]]
@@ -261,6 +261,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/44/46/466269e833f1c4718d6cd496ffe20c56c9c8d013486ff66b4f69c302a68d/cryptography-46.0.6-cp38-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:6617f67b1606dfd9fe4dbfa354a9508d4a6d37afe30306fe6c101b7ce3274b72", size = 4659255, upload-time = "2026-03-25T23:34:33.679Z" },
     { url = "https://files.pythonhosted.org/packages/0a/09/ddc5f630cc32287d2c953fc5d32705e63ec73e37308e5120955316f53827/cryptography-46.0.6-cp38-abi3-win32.whl", hash = "sha256:7f6690b6c55e9c5332c0b59b9c8a3fb232ebf059094c17f9019a51e9827df91c", size = 3010660, upload-time = "2026-03-25T23:34:35.418Z" },
     { url = "https://files.pythonhosted.org/packages/1b/82/ca4893968aeb2709aacfb57a30dec6fa2ab25b10fa9f064b8882ce33f599/cryptography-46.0.6-cp38-abi3-win_amd64.whl", hash = "sha256:79e865c642cfc5c0b3eb12af83c35c5aeff4fa5c672dc28c43721c2c9fdd2f0f", size = 3471160, upload-time = "2026-03-25T23:34:37.191Z" },
+]
+
+[[package]]
+name = "diskcache"
+version = "5.6.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", size = 67916, upload-time = "2023-08-31T06:12:00.316Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", size = 45550, upload-time = "2023-08-31T06:11:58.822Z" },
 ]
 
 [[package]]
@@ -506,7 +515,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "charms-ceph", git = "https://github.com/canonical/ceph-charms?subdirectory=charms.ceph&rev=f427e7e4a1b7b3d0d2d0f3df3a4537a4b39980e2" },
-    { name = "cosl", specifier = "==0.0.55" },
+    { name = "cosl", specifier = "==1.10.2" },
     { name = "cryptography" },
     { name = "jinja2" },
     { name = "jsonschema" },
