@@ -5,7 +5,7 @@ pytest
 jubilant~=1.0
 ops<3.4
 pydantic>=2.12,<2.13 
-cosl==0.0.55
+cosl==0.1.1
 
 # Pinned to match uv.lock; bump together via `uv lock --upgrade-package ...`
 git+https://github.com/canonical/ceph-charms@f427e7e4a1b7b3d0d2d0f3df3a4537a4b39980e2#egg=charms_ceph&subdirectory=charms.ceph
