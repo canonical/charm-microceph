@@ -137,6 +137,47 @@ class TestGetMonAddresses(unittest.TestCase):
 
         self.assertEqual(utils.get_mon_addresses(), addrs)
 
+    @patch("ceph.get_live_mon_ips")
+    @patch("utils.Client")
+    def test_stable_order_regardless_of_api_order(self, client, get_live):
+        # The same set of mons reported in different orders must serialize to the
+        # same list, so a mere reordering never looks like a relation change
+        # (LP#2161602).
+        get_live.return_value = {"10.241.3.26", "10.241.3.45", "10.241.3.52"}
+
+        client.from_socket.return_value.cluster.get_mon_addresses.return_value = [
+            "10.241.3.26",
+            "10.241.3.45",
+            "10.241.3.52",
+        ]
+        first = utils.get_mon_addresses()
+
+        client.from_socket.return_value.cluster.get_mon_addresses.return_value = [
+            "10.241.3.52",
+            "10.241.3.26",
+            "10.241.3.45",
+        ]
+        second = utils.get_mon_addresses()
+
+        self.assertEqual(first, second)
+        self.assertEqual(first, ["10.241.3.26", "10.241.3.45", "10.241.3.52"])
+
+    @patch("ceph.get_live_mon_ips")
+    @patch("utils.Client")
+    def test_stable_order_no_live_monmap(self, client, get_live):
+        # Ordering is stabilised even on the fallback path (no live monmap).
+        get_live.return_value = set()
+        client.from_socket.return_value.cluster.get_mon_addresses.return_value = [
+            "10.241.3.52",
+            "10.241.3.26",
+            "10.241.3.45",
+        ]
+
+        self.assertEqual(
+            utils.get_mon_addresses(),
+            ["10.241.3.26", "10.241.3.45", "10.241.3.52"],
+        )
+
 
 class TestNormalizeIp(unittest.TestCase):
     """_normalize_ip canonicalises bare IPs and leaves anything else untouched."""

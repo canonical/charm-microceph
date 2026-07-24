@@ -98,6 +98,19 @@ def is_departing(app, context: str = "") -> bool:
         return False
 
 
+def _sort_mon_addresses(addrs: list[str]) -> list[str]:
+    """Return mon addresses in a stable, deterministic order.
+
+    The microceph service API (and the ceph.conf fallback) can report the same
+    set of mons in a different order on successive calls. Publishing that list
+    verbatim makes an otherwise unchanged mon set serialize differently each
+    time, which Juju treats as a real relation-data change and fans out to every
+    client (LP#2161602). Sort by normalized IP so equivalent representations
+    order consistently, with the original string as a tiebreaker.
+    """
+    return sorted(addrs, key=lambda a: (_normalize_ip(a) or a, a))
+
+
 def get_mon_addresses():
     """Get the Ceph mon addresses, cross-checked against the live monmap.
 
@@ -106,6 +119,10 @@ def get_mon_addresses():
     those present in the live monmap (``ceph mon dump``). Fall back to the
     unfiltered list if the monmap is unavailable or the intersection is empty,
     so a format mismatch can never regress to an empty list.
+
+    The returned list is sorted in a stable order so that an unchanged set of
+    mons always serializes identically; this prevents mere reordering from
+    triggering spurious relation-changed events (LP#2161602).
     """
     # Local import: ceph imports utils, so a module-level import would cycle.
     import ceph
@@ -132,7 +149,7 @@ def get_mon_addresses():
                 addrs,
                 sorted(live),
             )
-            return filtered
+            return _sort_mon_addresses(filtered)
         logger.warning(
             "Live monmap cross-check removed all reported mon addresses; "
             "using the unfiltered list %s",
@@ -144,7 +161,7 @@ def get_mon_addresses():
             live or "empty",
             addrs,
         )
-    return addrs
+    return _sort_mon_addresses(addrs)
 
 
 def get_fsid():
