@@ -597,12 +597,15 @@ def add_disk_match_cmd(
 
 
 def get_snap_info(snap_name):
-    """Get snap info from the charm store."""
-    url = f"https://api.snapcraft.io/v2/snaps/info/{snap_name}"
-    headers = {"Snap-Device-Series": "16"}  # magic header val for snapstore
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    return response.json()
+    """Get snap info from the store via snapd.
+
+    We query the local snapd daemon (over its Unix socket) rather than hitting
+    the public Snapcraft API (api.snapcraft.io) directly. snapd honours the
+    system's snap store proxy configuration, so this works in airgapped
+    environments where only the proxy -- and not the public store -- is
+    reachable. See snapd's GET /v2/find endpoint.
+    """
+    return snap.SnapClient().get_snap_information(snap_name)
 
 
 def list_disk_cmd(host_only: bool = False) -> dict:
@@ -684,10 +687,30 @@ def _is_block_device_enrollable(disk: str) -> bool:
 
 
 def get_snap_tracks(snap_name):
-    """Get snap tracks from the charm store."""
+    """Get snap tracks from the store via snapd."""
     info = get_snap_info(snap_name)
-    tracks = {item["channel"]["track"] for item in info["channel-map"]}
-    return tracks
+    # snapd's find endpoint returns the list of tracks directly.
+    return set(info.get("tracks", []))
+
+
+def _major_series_from_version(version: str) -> str:
+    """Map a snap version string (e.g. '19.2.3+snap...') to a release series."""
+    major = version.split(".", 1)[0]
+    return MAJOR_VERSIONS[major]
+
+
+def _resolve_latest_track(snap_name: str) -> str:
+    """Resolve the 'latest' track to its current release series (e.g. 'squid').
+
+    snapd reports a per-channel version in its ``channels`` map. Prefer the
+    stable risk of the latest track, falling back to the snap's default
+    channel version reported at the top level.
+    """
+    info = get_snap_info(snap_name)
+    channels = info.get("channels", {})
+    latest_stable = channels.get("latest/stable")
+    version = latest_stable["version"] if latest_stable else info["version"]
+    return _major_series_from_version(version)
 
 
 def can_upgrade_snap(current, new: str) -> bool:
@@ -704,8 +727,7 @@ def can_upgrade_snap(current, new: str) -> bool:
 
     # resolve major version if set to latest currently
     if current == "latest":
-        ver = get_snap_info("microceph")["latest"]
-        current = MAJOR_VERSIONS[ver]
+        current = _resolve_latest_track("microceph")
         logger.debug(f"Resolved 'latest' track to {current}")
 
     # We must not downgrade the major version of the snap
