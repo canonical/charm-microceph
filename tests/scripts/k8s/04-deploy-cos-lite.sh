@@ -54,8 +54,11 @@ echo "==> Waiting for all units to settle (timeout: ${WAIT_TIMEOUT}s)"
 if ! juju wait-for model "${MODEL_NAME}" \
   --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' \
   --timeout="${WAIT_TIMEOUT}s"; then
-  echo "==> Juju debug-log (last 50 lines):"
-  juju debug-log --replay --tail 50 --no-tail || true
+  echo "==> Juju status:"
+  juju status || true
+  echo ""
+  echo "==> Juju debug-log (last 100 lines):"
+  juju debug-log --replay --no-tail 2>&1 | tail -n 100 || true
   echo ""
   echo "==> k8s pod status in cos-lite namespace:"
   lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get pods -n "${MODEL_NAME}" -o wide 2>/dev/null || true

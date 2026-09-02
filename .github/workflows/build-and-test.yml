@@ -1519,8 +1519,8 @@ jobs:
           juju status -m ck8s-cloud:cos-lite -o logs/cos-lite-status.yaml || true
           cat logs/cos-lite-status.yaml || true
 
-          echo "==> COS Lite Juju debug-log (last 100 lines)"
-          juju debug-log -m ck8s-cloud:cos-lite --replay --tail 100 --no-tail > logs/cos-lite-debug-log.txt 2>&1 || true
+          echo "==> COS Lite Juju debug-log (last 200 lines)"
+          juju debug-log -m ck8s-cloud:cos-lite --replay --no-tail 2>&1 | tail -n 200 > logs/cos-lite-debug-log.txt || true
 
           echo "==> k8s pod status in cos-lite namespace"
           lxc exec k8s-node -- k8s kubectl get pods -n cos-lite -o wide > logs/k8s-pods.txt 2>&1 || true
