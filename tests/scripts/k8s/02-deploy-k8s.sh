@@ -32,6 +32,8 @@ KUBECONFIG_PATH="${KUBECONFIG_PATH:-$(pwd)/kubeconfig.yaml}"
 # defaults to --timeout 90s. Cluster readiness alone takes 47-87s on the CI
 # runners, so the default trips on a slow runner. Give it real headroom.
 K8S_CMD_TIMEOUT="${K8S_CMD_TIMEOUT:-10m}"
+# Seconds to wait for MetalLB's controller/speaker rollouts.
+METALLB_TIMEOUT="${METALLB_TIMEOUT:-600}"
 
 # Load-balancer IP range — must be routable from the host via the LXD bridge.
 # Auto-detect from the bridge if not explicitly set.
@@ -76,18 +78,55 @@ lxc exec "${VM_NAME}" -- k8s enable ingress --timeout "${K8S_CMD_TIMEOUT}"
 echo "==> Enabling load-balancer"
 lxc exec "${VM_NAME}" -- k8s enable load-balancer --timeout "${K8S_CMD_TIMEOUT}"
 
-# MetalLB webhook needs its pods running before config can be applied.
-echo "==> Waiting for MetalLB pods to be ready"
-lxc exec "${VM_NAME}" -- k8s kubectl wait \
-  --for=condition=ready pod \
-  -l app.kubernetes.io/name=metallb \
-  -n metallb-system \
-  --timeout=180s
+# `k8s enable load-balancer` returns before MetalLB's workloads have been
+# created, and `kubectl wait` exits immediately with "no matching resources
+# found" when its selector matches nothing. So: poll until the controller
+# Deployment and the speaker DaemonSet exist, then wait for their rollouts.
+echo "==> Waiting for MetalLB workloads to roll out (timeout: ${METALLB_TIMEOUT}s)"
+metallb_kubectl() {
+  lxc exec "${VM_NAME}" -- k8s kubectl -n metallb-system "$@"
+}
+deadline=$(( $(date +%s) + METALLB_TIMEOUT ))
+workloads=""
+while :; do
+  workloads=$(metallb_kubectl get deployment,daemonset \
+    -l app.kubernetes.io/name=metallb -o name 2>/dev/null || true)
+  if echo "${workloads}" | grep -q '^deployment' && echo "${workloads}" | grep -q '^daemonset'; then
+    break
+  fi
+  if (( $(date +%s) >= deadline )); then
+    echo "ERROR: MetalLB workloads did not appear within ${METALLB_TIMEOUT}s" >&2
+    metallb_kubectl get all 2>/dev/null || true
+    exit 1
+  fi
+  echo "    Waiting for MetalLB workloads to be created..."
+  sleep 5
+done
+for workload in ${workloads}; do
+  remaining=$(( deadline - $(date +%s) ))
+  if (( remaining <= 0 )); then
+    echo "ERROR: ran out of time waiting for MetalLB rollouts" >&2
+    exit 1
+  fi
+  metallb_kubectl rollout status "${workload}" --timeout="${remaining}s"
+done
 
+# The load-balancer config is validated by MetalLB's admission webhook, which
+# can lag its pods by a few seconds; retry rather than fail on the first try.
 echo "==> Configuring load-balancer L2 mode with CIDRs: ${LB_CIDRS}"
-lxc exec "${VM_NAME}" -- k8s set --timeout "${K8S_CMD_TIMEOUT}" \
-  load-balancer.cidrs="${LB_CIDRS}" \
-  load-balancer.l2-mode=true
+for i in $(seq 1 12); do
+  if lxc exec "${VM_NAME}" -- k8s set --timeout "${K8S_CMD_TIMEOUT}" \
+      load-balancer.cidrs="${LB_CIDRS}" \
+      load-balancer.l2-mode=true; then
+    break
+  fi
+  if [ "${i}" -eq 12 ]; then
+    echo "ERROR: could not apply load-balancer configuration" >&2
+    exit 1
+  fi
+  echo "    load-balancer config not accepted yet (attempt ${i}/12), retrying in 10s..."
+  sleep 10
+done
 
 # --- Export kubeconfig ---
 echo "==> Exporting kubeconfig to ${KUBECONFIG_PATH}"
