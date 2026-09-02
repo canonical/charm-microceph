@@ -1433,8 +1433,18 @@ jobs:
 
       - name: Bootstrap localhost controller
         run: |
-          set -eux
+          set -euxo pipefail
           juju bootstrap localhost lxd
+          # The LXD controller must not sit inside MetalLB's VIP range
+          # (<subnet>.220-.240), or the Juju client ends up talking to the
+          # k8s controller/traefik with the wrong CA. 01-setup-lxd-vm.sh
+          # restricts the bridge's DHCP pool; this guards against regressions.
+          ctrl_endpoints=$(juju show-controller lxd --format json | jq -r '.lxd.details["api-endpoints"][]')
+          echo "${ctrl_endpoints}"
+          if echo "${ctrl_endpoints}" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.(22[0-9]|23[0-9]|240):'; then
+            echo "ERROR: LXD controller address collides with the MetalLB VIP range" >&2
+            exit 1
+          fi
 
       - name: Deploy MicroCeph charm over LXD
         run: |
@@ -1490,6 +1500,8 @@ jobs:
           set -eux
           juju status -m lxd:microceph || true
           juju status -m ck8s-cloud:cos-lite || true
+          echo "==> LXD instances (IPv4 addresses, to spot MetalLB VIP collisions):"
+          lxc list || true
           echo "==> k8s pods in cos-lite namespace:"
           lxc exec k8s-node -- k8s kubectl get pods -n cos-lite -o wide || true
 

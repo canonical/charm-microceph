@@ -32,6 +32,23 @@ VM_MEMORY="${VM_MEMORY:-16GB}"
 VM_DISK="${VM_DISK:-40GB}"
 UBUNTU_IMAGE="${UBUNTU_IMAGE:-ubuntu:24.04}"
 
+# --- Keep the bridge's DHCP pool clear of MetalLB's VIP range ---
+# 02-deploy-k8s.sh hands MetalLB <subnet>.220-.240 of this bridge. LXD's
+# dnsmasq leases the whole subnet by default and runs with --no-ping (no
+# conflict detection), so a later container/VM on the bridge (the localhost
+# Juju controller, the MicroCeph VM) can be leased an address that MetalLB is
+# already announcing. That shows up as Juju API x509 "juju-ca" errors and an
+# unreachable traefik endpoint. Restricting the pool removes the overlap.
+BRIDGE_CIDR=$(lxc network get "${LXD_BRIDGE}" ipv4.address)   # e.g. 10.1.2.1/24
+if [[ "${BRIDGE_CIDR}" != */24 ]]; then
+  echo "ERROR: expected a /24 on ${LXD_BRIDGE}, got '${BRIDGE_CIDR}'; set DHCP_RANGE and LB_CIDRS explicitly." >&2
+  exit 1
+fi
+BRIDGE_PREFIX=$(echo "${BRIDGE_CIDR}" | grep -oP '^\d+\.\d+\.\d+')
+DHCP_RANGE="${DHCP_RANGE:-${BRIDGE_PREFIX}.2-${BRIDGE_PREFIX}.199}"
+echo "==> Restricting ${LXD_BRIDGE} DHCP pool to ${DHCP_RANGE}"
+lxc network set "${LXD_BRIDGE}" ipv4.dhcp.ranges="${DHCP_RANGE}"
+
 echo "==> Creating LXD profile '${PROFILE_NAME}'"
 lxc profile create "${PROFILE_NAME}" 2>/dev/null || echo "    Profile already exists, updating."
 lxc profile set "${PROFILE_NAME}" limits.cpu="${VM_CPUS}" limits.memory="${VM_MEMORY}"
