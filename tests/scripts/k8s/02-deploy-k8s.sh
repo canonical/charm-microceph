@@ -28,6 +28,10 @@ set -euo pipefail
 VM_NAME="${VM_NAME:-k8s-node}"
 K8S_CHANNEL="${K8S_CHANNEL:-1.32-classic/stable}"
 KUBECONFIG_PATH="${KUBECONFIG_PATH:-$(pwd)/kubeconfig.yaml}"
+# Every k8s CLI verb that waits (bootstrap, status --wait-ready, enable, set)
+# defaults to --timeout 90s. Cluster readiness alone takes 47-87s on the CI
+# runners, so the default trips on a slow runner. Give it real headroom.
+K8S_CMD_TIMEOUT="${K8S_CMD_TIMEOUT:-10m}"
 
 # Load-balancer IP range — must be routable from the host via the LXD bridge.
 # Auto-detect from the bridge if not explicitly set.
@@ -60,17 +64,17 @@ lxc exec "${VM_NAME}" -- snap install k8s --classic --channel="${K8S_CHANNEL}"
 
 # --- Bootstrap the cluster ---
 echo "==> Bootstrapping k8s cluster"
-lxc exec "${VM_NAME}" -- k8s bootstrap
+lxc exec "${VM_NAME}" -- k8s bootstrap --timeout "${K8S_CMD_TIMEOUT}"
 
 echo "==> Waiting for cluster to be ready"
-lxc exec "${VM_NAME}" -- k8s status --wait-ready
+lxc exec "${VM_NAME}" -- k8s status --wait-ready --timeout "${K8S_CMD_TIMEOUT}"
 
 # --- Enable ingress and load-balancer ---
 echo "==> Enabling ingress"
-lxc exec "${VM_NAME}" -- k8s enable ingress
+lxc exec "${VM_NAME}" -- k8s enable ingress --timeout "${K8S_CMD_TIMEOUT}"
 
 echo "==> Enabling load-balancer"
-lxc exec "${VM_NAME}" -- k8s enable load-balancer
+lxc exec "${VM_NAME}" -- k8s enable load-balancer --timeout "${K8S_CMD_TIMEOUT}"
 
 # MetalLB webhook needs its pods running before config can be applied.
 echo "==> Waiting for MetalLB pods to be ready"
@@ -81,7 +85,7 @@ lxc exec "${VM_NAME}" -- k8s kubectl wait \
   --timeout=180s
 
 echo "==> Configuring load-balancer L2 mode with CIDRs: ${LB_CIDRS}"
-lxc exec "${VM_NAME}" -- k8s set \
+lxc exec "${VM_NAME}" -- k8s set --timeout "${K8S_CMD_TIMEOUT}" \
   load-balancer.cidrs="${LB_CIDRS}" \
   load-balancer.l2-mode=true
 

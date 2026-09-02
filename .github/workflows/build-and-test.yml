@@ -1381,7 +1381,9 @@ jobs:
       - build
     name: COS integration (${{ matrix.agent }})
     runs-on: self-hosted-linux-amd64-noble-xlarge
-    timeout-minutes: 120
+    # The k8s bring-up now waits up to K8S_CMD_TIMEOUT (10m) per k8s CLI call;
+    # give the job matching headroom. Successful runs take 25-40 minutes.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -1418,6 +1420,7 @@ jobs:
         run: bash tests/scripts/k8s/01-setup-lxd-vm.sh
 
       - name: Deploy k8s
+        timeout-minutes: 30
         run: bash tests/scripts/k8s/02-deploy-k8s.sh
 
       - name: Add Juju cloud and bootstrap controller
