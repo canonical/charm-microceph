@@ -29,7 +29,9 @@ LXD_BRIDGE="${LXD_BRIDGE:-lxdbr0}"
 LXD_POOL="${LXD_POOL:-default}"
 VM_CPUS="${VM_CPUS:-4}"
 VM_MEMORY="${VM_MEMORY:-16GB}"
-VM_DISK="${VM_DISK:-40GB}"
+# Root disk also backs k8s' rawfile local storage (every COS Lite PVC plus the
+# Juju controller's). 40GB has run out on some runners; 60GB gives headroom.
+VM_DISK="${VM_DISK:-60GB}"
 UBUNTU_IMAGE="${UBUNTU_IMAGE:-ubuntu:24.04}"
 
 # --- Keep the bridge's DHCP pool clear of MetalLB's VIP range ---
