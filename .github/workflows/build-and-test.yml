@@ -489,7 +489,8 @@ jobs:
           juju ssh microceph/$stop_mon_unit -- sudo snap stop microceph.mon --disable
 
           # wait for the cluster to report mon quorum warning
-          for i in {0..100}; do
+          # Ceph mon failure detection can take up to ~5 minutes under CI load.
+          for i in {0..300}; do
               if juju ssh microceph/0 -- "sudo microceph.ceph health | grep quorum > /dev/null 2>&1" ; then
                 echo "Cluster reports MON quorum warning as expected."
                 exit 0
@@ -816,7 +817,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: microceph_juju_upgrade_test_logs
+          name: microceph_snap_upgrade_test_logs
           path: logs
           retention-days: 30
 
@@ -1054,7 +1055,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: microceph_juju_mds_test_logs
+          name: microceph_juju_remote_relation_test_logs
           path: logs
           retention-days: 30
 
@@ -1155,7 +1156,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: microceph_juju_mds_test_logs
+          name: microceph_juju_adopt_ceph_test_logs
           path: logs
           retention-days: 30
 
@@ -1661,7 +1662,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: microceph_juju_upgrade_test_logs
+          name: microceph_charm_upgrade_test_logs
           path: logs
           retention-days: 30
 

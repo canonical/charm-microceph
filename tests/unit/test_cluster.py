@@ -105,40 +105,43 @@ class TestAddNodeToCluster(unittest.TestCase):
         cn.charm.peers.set_app_data.assert_not_called()
 
     @patch("utils.run_cmd")
-    def test_add_node_other_unique_constraint_raises(self, run_cmd):
-        """A UNIQUE constraint on a non-token_records table should still raise."""
+    def test_add_node_other_unique_constraint_no_raise(self, run_cmd):
+        """A UNIQUE constraint on a non-token_records table is logged without crashing the hook."""
         run_cmd.side_effect = self._make_called_process_error(
             "UNIQUE constraint failed: some_other_table.column"
         )
         cn = self._make_cluster_nodes()
         event = self._make_event()
 
-        with self.assertRaises(subprocess.CalledProcessError):
-            cn.add_node_to_cluster(event)
+        # Should NOT raise — logged and retried on next peers-relation-changed
+        cn.add_node_to_cluster(event)
+        cn.charm.peers.set_app_data.assert_not_called()
 
     @patch("utils.run_cmd")
-    def test_add_node_other_error_raises(self, run_cmd):
-        """Non-UNIQUE errors should propagate."""
+    def test_add_node_other_error_no_raise(self, run_cmd):
+        """Non-UNIQUE errors are logged without crashing the hook; retry on next relation event."""
         run_cmd.side_effect = self._make_called_process_error(
             "Error: something completely different went wrong"
         )
         cn = self._make_cluster_nodes()
         event = self._make_event()
 
-        with self.assertRaises(subprocess.CalledProcessError):
-            cn.add_node_to_cluster(event)
+        # Should NOT raise — _rel_changed_leader re-emits add_node until token appears
+        cn.add_node_to_cluster(event)
+        cn.charm.peers.set_app_data.assert_not_called()
 
     @patch("utils.run_cmd")
-    def test_add_node_timeout_error_raises(self, run_cmd):
-        """Timeout errors should propagate."""
+    def test_add_node_timeout_error_no_raise(self, run_cmd):
+        """Timeout errors are logged without crashing the hook; stderr=None handled gracefully."""
         err = subprocess.TimeoutExpired("microceph cluster add", 30)
-        err.stderr = ""
+        err.stderr = None
         run_cmd.side_effect = err
         cn = self._make_cluster_nodes()
         event = self._make_event()
 
-        with self.assertRaises(subprocess.TimeoutExpired):
-            cn.add_node_to_cluster(event)
+        # Should NOT raise — stderr=None is handled via `e.stderr or ""`
+        cn.add_node_to_cluster(event)
+        cn.charm.peers.set_app_data.assert_not_called()
 
     def test_add_node_no_unit(self):
         """Event without unit should return early."""
