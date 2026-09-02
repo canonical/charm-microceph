@@ -1534,6 +1534,12 @@ jobs:
           lxc exec k8s-node -- k8s kubectl describe nodes > logs/k8s-nodes.txt 2>&1 || true
           grep -A 15 "Allocated resources" logs/k8s-nodes.txt || true
 
+          echo "==> k8s persistent volume claims and VM disk usage"
+          lxc exec k8s-node -- k8s kubectl get pvc -A -o wide > logs/k8s-pvc.txt 2>&1 || true
+          cat logs/k8s-pvc.txt || true
+          lxc exec k8s-node -- df -h / /var/snap/k8s/common > logs/k8s-vm-df.txt 2>&1 || true
+          cat logs/k8s-vm-df.txt || true
+
       - name: Upload logs
         if: failure()
         uses: actions/upload-artifact@v4
