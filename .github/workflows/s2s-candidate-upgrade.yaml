@@ -113,7 +113,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_charm_s2s_upgrade_logs
           path: logs
