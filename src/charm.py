@@ -36,6 +36,7 @@ import ops_sunbeam.guard as sunbeam_guard
 import ops_sunbeam.relation_handlers as sunbeam_rhandlers
 from charms.ceph_mon.v0 import ceph_cos_agent
 from charms.operator_libs_linux.v2 import snap
+from charms.role_distributor.v0.role_assignment import RoleAssignmentRequirer, UnitRoleAssignment
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus
 
@@ -60,6 +61,7 @@ from relation_handlers import (
     UpgradeNodeDoneEvent,
     UpgradeNodeRequestEvent,
     collect_peer_data,
+    get_nfs_space_address,
 )
 from storage import StorageHandler
 
@@ -68,6 +70,70 @@ CACERT_FILE = "/usr/local/share/ca-certificates/receive-keystone-ca-bundle.crt"
 MAX_PG_PER_OSD = 400
 PUBLIC_NETWORK_CONFIG = "ceph-public-network"
 CLUSTER_NETWORK_CONFIG = "ceph-cluster-network"
+
+
+class SafeRoleAssignmentRequirer(RoleAssignmentRequirer):
+    """Subclass of RoleAssignmentRequirer to safely handle edge cases."""
+
+    def _read_assignment(self, relation: ops.Relation):
+        remote_app = relation.app
+        if remote_app is None:
+            return None
+        raw = relation.data[remote_app].get("assignments")
+        if raw is None:
+            return None
+        try:
+            assignments_map = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("Malformed assignments JSON in Provider App databag")
+            return None
+
+        if not isinstance(assignments_map, dict):
+            logger.warning("Assignments JSON is not a dictionary")
+            return None
+
+        unit_entry = assignments_map.get(self._charm.unit.name)
+        if unit_entry is None:
+            return None
+
+        if not isinstance(unit_entry, dict):
+            logger.warning("Unit entry in assignments map is not a dictionary")
+            return None
+
+        return UnitRoleAssignment.from_dict(unit_entry)
+
+    def _on_relation_changed(self, event: ops.RelationChangedEvent) -> None:
+        # Check if the "assignments" data key exists at all.
+        remote_app = event.relation.app
+        if remote_app is not None:
+            raw = event.relation.data[remote_app].get("assignments")
+            if raw is not None:
+                try:
+                    assignments_map = json.loads(raw)
+                except json.JSONDecodeError:
+                    assignments_map = None
+
+                # If assignments_map is a dictionary but our unit's specific entry
+                # has been removed/disappeared, we treat it as a role revocation event.
+                if (
+                    isinstance(assignments_map, dict)
+                    and self._charm.unit.name not in assignments_map
+                ):
+                    logger.info(
+                        "Unit entry has disappeared from the assignments map. Emitting revoked."
+                    )
+                    self.on.role_assignment_revoked.emit(event.relation)
+                    return
+
+        assignment = self._read_assignment(event.relation)
+        if assignment is not None:
+            self.on.role_assignment_changed.emit(
+                event.relation,
+                assignment.status,
+                assignment.roles,
+                assignment.message,
+                assignment.workload_params,
+            )
 
 
 class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
@@ -96,6 +162,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             is_mgr_available_cb=microceph.cos_agent_is_mgr_available_cb,
         )
 
+        self.role_assignment = SafeRoleAssignmentRequirer(self, "role-assignment")
+
         # Initialise handlers for events.
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.stop, self._on_stop)
@@ -103,6 +171,14 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.framework.observe(self.on.set_pool_size_action, self._set_pool_size_action)
         self.framework.observe(self.on.peers_relation_created, self._on_peer_relation_created)
         self.framework.observe(self.on["peers"].relation_departed, self._on_peer_relation_departed)
+        self.framework.observe(
+            self.role_assignment.on.role_assignment_changed,
+            self._on_role_assignment_changed,
+        )
+        self.framework.observe(
+            self.role_assignment.on.role_assignment_revoked,
+            self._on_role_assignment_revoked,
+        )
 
     def _on_install(self, event: ops.framework.EventBase) -> None:
         config = self.model.config.get
@@ -377,6 +453,24 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 self.configure_rgw_service(event)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             raise sunbeam_guard.BlockedExceptionError("Updating CA Certificates failed")
+
+    def role_managed_enabled(self) -> bool:
+        """Check if role-managed mode is enabled."""
+        return bool(self.model.config.get("role-managed", False))
+
+    def is_unit_storage_eligible(self):
+        """Check if the local unit is eligible for OSD enrollment."""
+        if not self.role_managed_enabled():
+            return True
+
+        assignment = self.role_assignment.get_assignment()
+        if not assignment:
+            return False
+
+        if assignment.status != "assigned":
+            return False
+
+        return "storage" in (assignment.roles or [])
 
     def is_valid_placement_directive(self, directive: str) -> bool:
         """Check if placement directive is valid or not."""
@@ -685,6 +779,209 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.handle_config_rgw_service(event)
         self.handle_config_leader_charm_upgrade()
         self.handle_config_leader_new_node(event)
+        self._reconcile_placement(event)
+
+    def _get_role_assignments(self):
+        """Fetch and parse OS106 assignments from the role-assignment relation."""
+        relation = self.model.get_relation("role-assignment")
+        if not relation:
+            return None
+
+        provider_app_data = relation.data.get(relation.app)
+        if not provider_app_data:
+            return None
+
+        assignments_json = provider_app_data.get("assignments")
+        if not assignments_json:
+            return None
+
+        try:
+            assignments = json.loads(assignments_json)
+        except (TypeError, ValueError, json.JSONDecodeError) as e:
+            logger.error("Malformed role-assignment assignments data: %s", e)
+            raise
+
+        if not isinstance(assignments, dict) or not assignments:
+            logger.warning("Assignments must be a non-empty dictionary")
+            return None
+
+        for unit_name, assignment in assignments.items():
+            if not isinstance(assignment, dict):
+                logger.warning("Assignment for %s must be a dictionary", unit_name)
+                return None
+
+        return assignments
+
+    def _get_unit_to_hostname_map(self) -> dict:
+        """Map Juju unit names to hostnames (member names) using peer relation."""
+        unit_map = {self.unit.name: gethostname()}
+        peers = self.model.get_relation("peers")
+        if peers:
+            for unit in peers.units:
+                hostname = peers.data[unit].get(unit.name)
+                if hostname:
+                    unit_map[unit.name] = hostname
+        return unit_map
+
+    def _parse_assignment(self, assignment, unit_name, unit_to_address):
+        """Fetch and parse RGW and NFS placements for a gateway role."""
+        roles = assignment.get("roles") or []
+        if "gateway" not in roles:
+            return False, []
+
+        workload_params = assignment.get("workload-params") or {}
+        flavors = workload_params.get("flavors")
+        if not isinstance(flavors, list) or not flavors:
+            logger.warning("Gateway role assigned but 'flavors' is missing or invalid")
+            return False, []
+
+        rgw = "rgw" in flavors
+        nfs = []
+
+        if "nfs" in flavors:
+            nfs_cluster_id = workload_params.get("nfs-cluster-id")
+            if isinstance(nfs_cluster_id, str) and nfs_cluster_id:
+                bind_address = unit_to_address.get(unit_name) or ""
+                if bind_address:
+                    nfs.append(
+                        {
+                            "group_id": "role-" + nfs_cluster_id,
+                            "bind_address": bind_address,
+                        }
+                    )
+                else:
+                    logger.warning("Unresolved NFS bind address")
+            else:
+                logger.warning("Invalid NFS assignment: %s" % workload_params)
+
+        return rgw, nfs
+
+    def _get_unit_to_address_map(self) -> dict:
+        """Map Juju unit names to NFS or public addresses (bind addresses) using peer relation."""
+        unit_to_address = {}
+
+        # Local unit address resolution
+        nfs_addr = get_nfs_space_address(self.model)
+        if nfs_addr:
+            unit_to_address[self.unit.name] = nfs_addr
+        else:
+            binding = self.model.get_binding("public")
+            if binding:
+                unit_to_address[self.unit.name] = str(binding.network.bind_address)
+
+        # Peer units address resolution
+        peers = self.model.get_relation("peers")
+        if peers:
+            for unit in peers.units:
+                # Prefer the peer's advertised nfs-address, then public-address
+                addr = peers.data[unit].get("nfs-address") or peers.data[unit].get(
+                    "public-address"
+                )
+                if addr:
+                    unit_to_address[unit.name] = addr
+        return unit_to_address
+
+    def _build_placement_policy_members(
+        self, assignments: dict, unit_to_hostname: dict, unit_to_address: dict
+    ) -> dict:
+        """Build the members dictionary for the placement policy."""
+        members = {}
+        for unit_name, assignment in assignments.items():
+            hostname = unit_to_hostname.get(unit_name)
+            if not hostname:
+                # If no hostname, skip the unit.
+                continue
+
+            roles = assignment.get("roles") or []
+            status = assignment.get("status")
+
+            # Default values.
+            control, storage, rgw, nfs = (False, False, False, [])
+
+            if status == "assigned":
+                control = "control" in roles
+                storage = "storage" in roles
+                rgw, nfs = self._parse_assignment(assignment, unit_name, unit_to_address)
+
+            members[hostname] = {
+                "control": control,
+                "storage_eligible": storage,
+                "rgw": rgw,
+                "nfs": nfs,
+            }
+        return members
+
+    def _delete_placement_policy(self) -> None:
+        """Clear active placement policy from the snap."""
+        logger.info("role-managed disabled; clearing any active placement policy from the snap")
+        try:
+            client = microceph.Client.from_socket()
+            client.cluster.delete_placement()
+        except Exception as e:
+            logger.error("Failed to delete/clear placement policy from the snap: %s", e)
+
+    def _check_assignments_frozen(self, assignments: dict) -> bool:
+        """Check if any assignment is in a pending or error state."""
+        for unit_name, assignment in assignments.items():
+            status = assignment.get("status")
+            if status in ("pending", "error"):
+                logger.info(
+                    "Role-assignment for %s is '%s'; freezing placement policy until assigned.",
+                    unit_name,
+                    status,
+                )
+                return True
+        return False
+
+    def _apply_placement_policy(self, policy: dict, event: ops.framework.EventBase) -> None:
+        """Apply placement policy to the snap."""
+        try:
+            client = microceph.Client.from_socket()
+            client.cluster.apply_placement(policy)
+            logger.info("Successfully applied role-managed placement policy: %s", policy)
+        except Exception as e:
+            logger.error("Failed to apply role-managed placement policy to the snap: %s", e)
+            event.defer()
+            raise sunbeam_guard.WaitingExceptionError(
+                "waiting for microceph snap API to apply placement policy"
+            )
+
+    def _reconcile_placement(self, event: ops.framework.EventBase) -> None:
+        """Reconcile role-managed placement policy for the storage role."""
+        if not self.unit.is_leader():
+            return
+
+        if not self.role_managed_enabled():
+            self._delete_placement_policy()
+            return
+
+        logger.info("Reconciling role-managed placement policy")
+        try:
+            assignments = self._get_role_assignments()
+        except (TypeError, ValueError, json.JSONDecodeError) as e:
+            logger.warning("Malformed assignments JSON: %s", e)
+            self.status.set(BlockedStatus("Malformed role-assignment assignments data"))
+            return
+
+        if assignments is None or self._check_assignments_frozen(assignments):
+            return
+
+        unit_to_hostname = self._get_unit_to_hostname_map()
+        unit_to_address = self._get_unit_to_address_map()
+
+        members = self._build_placement_policy_members(
+            assignments, unit_to_hostname, unit_to_address
+        )
+        policy = {"mode": "reconcile", "members": members}
+        self._apply_placement_policy(policy, event)
+
+    def _on_role_assignment_changed(self, event):
+        """Handle role-assignment changed event."""
+        self.configure_charm(event)
+
+    def _on_role_assignment_revoked(self, event):
+        """Handle role-assignment revoked event."""
+        self.configure_charm(event)
 
     def configure_app_non_leader(self, event: ops.framework.EventBase) -> None:
         """Configure the non leader unit."""

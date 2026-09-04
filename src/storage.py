@@ -103,6 +103,13 @@ class StorageHandler(Object):
             event.defer()
             return
 
+        if not self.charm.is_unit_storage_eligible():
+            logger.warning(
+                "Storage attachment deferred: unit is not yet eligible for storage in role-managed mode."
+            )
+            event.defer()
+            return
+
         self._clean_stale_osd_data()
 
         enroll = []
@@ -188,6 +195,11 @@ class StorageHandler(Object):
         """Add OSD disks to microceph."""
         if not self.charm.peers.interface.state.joined:
             event.set_results({"message": "Node not yet joined in microceph cluster"})
+            event.fail()
+            return
+
+        if not self.charm.is_unit_storage_eligible():
+            event.set_results({"message": "This unit does not have the 'storage' role assigned."})
             event.fail()
             return
 
@@ -277,6 +289,13 @@ class StorageHandler(Object):
             if not self.charm.ready_for_service():
                 logger.warning("MicroCeph not ready yet, deferring storage config processing")
                 event.defer()
+                return
+
+            if not self.charm.is_unit_storage_eligible():
+                logger.warning(
+                    "Config-driven OSD enrollment skipped: unit is not eligible for storage in role-managed mode."
+                )
+                self._set_storage_config_idle_status()
                 return
 
             if self._is_cached_osd_config(storage_request):
