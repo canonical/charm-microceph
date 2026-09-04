@@ -1381,7 +1381,9 @@ jobs:
       - build
     name: COS integration (${{ matrix.agent }})
     runs-on: self-hosted-linux-amd64-noble-xlarge
-    timeout-minutes: 120
+    # The k8s bring-up now waits up to K8S_CMD_TIMEOUT (10m) per k8s CLI call;
+    # give the job matching headroom. Successful runs take 25-40 minutes.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -1418,6 +1420,7 @@ jobs:
         run: bash tests/scripts/k8s/01-setup-lxd-vm.sh
 
       - name: Deploy k8s
+        timeout-minutes: 30
         run: bash tests/scripts/k8s/02-deploy-k8s.sh
 
       - name: Add Juju cloud and bootstrap controller
@@ -1430,8 +1433,18 @@ jobs:
 
       - name: Bootstrap localhost controller
         run: |
-          set -eux
+          set -euxo pipefail
           juju bootstrap localhost lxd
+          # The LXD controller must not sit inside MetalLB's VIP range
+          # (<subnet>.220-.240), or the Juju client ends up talking to the
+          # k8s controller/traefik with the wrong CA. 01-setup-lxd-vm.sh
+          # restricts the bridge's DHCP pool; this guards against regressions.
+          ctrl_endpoints=$(juju show-controller lxd --format json | jq -r '.lxd.details["api-endpoints"][]')
+          echo "${ctrl_endpoints}"
+          if echo "${ctrl_endpoints}" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.(22[0-9]|23[0-9]|240):'; then
+            echo "ERROR: LXD controller address collides with the MetalLB VIP range" >&2
+            exit 1
+          fi
 
       - name: Deploy MicroCeph charm over LXD
         run: |
@@ -1487,6 +1500,8 @@ jobs:
           set -eux
           juju status -m lxd:microceph || true
           juju status -m ck8s-cloud:cos-lite || true
+          echo "==> LXD instances (IPv4 addresses, to spot MetalLB VIP collisions):"
+          lxc list || true
           echo "==> k8s pods in cos-lite namespace:"
           lxc exec k8s-node -- k8s kubectl get pods -n cos-lite -o wide || true
 
@@ -1504,8 +1519,8 @@ jobs:
           juju status -m ck8s-cloud:cos-lite -o logs/cos-lite-status.yaml || true
           cat logs/cos-lite-status.yaml || true
 
-          echo "==> COS Lite Juju debug-log (last 100 lines)"
-          juju debug-log -m ck8s-cloud:cos-lite --replay --tail 100 --no-tail > logs/cos-lite-debug-log.txt 2>&1 || true
+          echo "==> COS Lite Juju debug-log (last 200 lines)"
+          juju debug-log -m ck8s-cloud:cos-lite --replay --no-tail 2>&1 | tail -n 200 > logs/cos-lite-debug-log.txt || true
 
           echo "==> k8s pod status in cos-lite namespace"
           lxc exec k8s-node -- k8s kubectl get pods -n cos-lite -o wide > logs/k8s-pods.txt 2>&1 || true
@@ -1518,6 +1533,12 @@ jobs:
           echo "==> k8s node resource allocation"
           lxc exec k8s-node -- k8s kubectl describe nodes > logs/k8s-nodes.txt 2>&1 || true
           grep -A 15 "Allocated resources" logs/k8s-nodes.txt || true
+
+          echo "==> k8s persistent volume claims and VM disk usage"
+          lxc exec k8s-node -- k8s kubectl get pvc -A -o wide > logs/k8s-pvc.txt 2>&1 || true
+          cat logs/k8s-pvc.txt || true
+          lxc exec k8s-node -- df -h / /var/snap/k8s/common > logs/k8s-vm-df.txt 2>&1 || true
+          cat logs/k8s-vm-df.txt || true
 
       - name: Upload logs
         if: failure()

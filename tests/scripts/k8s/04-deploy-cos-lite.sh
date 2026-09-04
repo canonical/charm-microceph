@@ -54,8 +54,11 @@ echo "==> Waiting for all units to settle (timeout: ${WAIT_TIMEOUT}s)"
 if ! juju wait-for model "${MODEL_NAME}" \
   --query='forEach(units, unit => unit.workload-status=="active" && unit.agent-status=="idle")' \
   --timeout="${WAIT_TIMEOUT}s"; then
-  echo "==> Juju debug-log (last 50 lines):"
-  juju debug-log --replay --tail 50 --no-tail || true
+  echo "==> Juju status:"
+  juju status || true
+  echo ""
+  echo "==> Juju debug-log (last 100 lines):"
+  juju debug-log --replay --no-tail 2>&1 | tail -n 100 || true
   echo ""
   echo "==> k8s pod status in cos-lite namespace:"
   lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get pods -n "${MODEL_NAME}" -o wide 2>/dev/null || true
@@ -65,6 +68,12 @@ if ! juju wait-for model "${MODEL_NAME}" \
   echo ""
   echo "==> k8s node resources:"
   lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl describe nodes 2>/dev/null | grep -A 10 "Allocated resources" || true
+  echo ""
+  echo "==> k8s persistent volume claims:"
+  lxc exec "${VM_NAME:-k8s-node}" -- k8s kubectl get pvc -n "${MODEL_NAME}" -o wide 2>/dev/null || true
+  echo ""
+  echo "==> k8s VM disk usage (rawfile storage lives on /):"
+  lxc exec "${VM_NAME:-k8s-node}" -- df -h / /var/snap/k8s/common 2>/dev/null || true
   exit 1
 fi
 
