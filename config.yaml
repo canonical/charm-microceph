@@ -86,6 +86,20 @@ options:
     description: |
       Whether charm microceph should wait for an external ceph cluster to yield admin credentials using which microceph will
       adopt the external cluster rather than bootstrapping a new ceph cluster on microceph bootstrap.
+  osd-encryption-provider:
+    type: string
+    default: "none"
+    description: |
+      Selects how newly attached osd-standalone storage is encrypted.
+
+      Supported values:
+      none         - Enroll attached storage directly in MicroCeph (default).
+      vaultlocker  - Request fresh LUKS encryption through the encrypted-device
+                     relation, then enroll the returned mapper device.
+
+      vaultlocker mode only supports newly attached osd-standalone storage. It
+      does not support the add-osd action, osd-devices, device-add-flags,
+      WAL/DB devices, or enrollment of an existing LUKS device.
   osd-devices:
     type: string
     default: ""

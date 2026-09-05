@@ -78,6 +78,35 @@ Example:
 juju config microceph device-add-flags="wipe:osd,encrypt:osd"
 ```
 
+## Vaultlocker OSD encryption
+
+When related to a Vaultlocker subordinate that implements the OS116
+`encrypted-device` contract, the charm can use Vaultlocker for fresh LUKS
+creation and key escrow. MicroCeph only publishes stable device identities and
+consumes the returned mapper path; it does not receive Vault credentials or
+keys.
+
+Enable this mode before attaching OSD storage:
+
+```bash
+juju integrate microceph:encrypted-device vaultlocker:encrypted-device
+juju config microceph osd-encryption-provider=vaultlocker
+juju add-storage microceph/0 osd-standalone=<storage-provider-spec>
+```
+
+The initial implementation supports only fresh encryption of Juju-attached
+`osd-standalone` block storage. It rejects the `add-osd` action, `osd-devices`,
+`device-add-flags`, WAL/DB devices, and existing-LUKS enrollment. MicroCeph
+validates the target is stable, unmounted, not swap or root storage, and not a
+lower block-device layer before publishing a request.
+
+A missing matching result means Vaultlocker has not completed safely; investigate
+its unit status and logs rather than falling back to native `--encrypt`. Do not
+switch the provider back to `none` while Vaultlocker-managed storage remains.
+MicroCeph writes a systemd drop-in so its OSD service starts after the relevant
+Vaultlocker boot-unlock units. Removing a request or relation does not decrypt
+the device or remove its Vault-managed key.
+
 ## Terraform module
 
 A reusable Terraform + Terragrunt module for deploying the `microceph` charm can be found in `terraform/microceph/`. See the module README for usage instructions.
