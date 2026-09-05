@@ -90,16 +90,17 @@ options:
     type: string
     default: "none"
     description: |
-      Selects how newly attached osd-standalone storage is encrypted.
+      Selects how newly attached or action-requested OSD storage is encrypted.
 
       Supported values:
       none         - Enroll attached storage directly in MicroCeph (default).
       vaultlocker  - Request fresh LUKS encryption through the encrypted-device
                      relation, then enroll the returned mapper device.
 
-      vaultlocker mode only supports newly attached osd-standalone storage. It
-      does not support the add-osd action, osd-devices, device-add-flags,
-      WAL/DB devices, or enrollment of an existing LUKS device.
+      vaultlocker mode supports fresh osd-standalone storage and direct
+      add-osd requests with encrypt=true. It does not support loop-spec, wipe,
+      osd-devices, device-add-flags, WAL/DB devices, or enrollment of an
+      existing LUKS device.
   osd-devices:
     type: string
     default: ""

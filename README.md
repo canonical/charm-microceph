@@ -94,11 +94,22 @@ juju config microceph osd-encryption-provider=vaultlocker
 juju add-storage microceph/0 osd-standalone=<storage-provider-spec>
 ```
 
-The initial implementation supports only fresh encryption of Juju-attached
-`osd-standalone` block storage. It rejects the `add-osd` action, `osd-devices`,
-`device-add-flags`, WAL/DB devices, and existing-LUKS enrollment. MicroCeph
-validates the target is stable, unmounted, not swap or root storage, and not a
-lower block-device layer before publishing a request.
+The initial implementation supports fresh encryption of Juju-attached
+`osd-standalone` storage and direct block-device `add-osd` requests. For a
+direct device, use its stable by-id path and request encryption explicitly:
+
+```bash
+juju run microceph/0 add-osd \
+  device-id=/dev/disk/by-id/wwn-0x5000c500aabbcc01 encrypt=true
+```
+
+Vaultlocker-backed `add-osd` is asynchronous: the action reports a pending
+request, and MicroCeph enrolls the returned mapper after Vaultlocker publishes
+its result. In Vaultlocker mode, `add-osd` rejects unencrypted devices,
+`loop-spec`, and `wipe`; it also rejects `osd-devices`, `device-add-flags`,
+WAL/DB devices, and existing-LUKS enrollment. MicroCeph validates the target
+is stable, unmounted, not swap or root storage, and not a lower block-device
+layer before publishing a request.
 
 A missing matching result means Vaultlocker has not completed safely; investigate
 its unit status and logs rather than falling back to native `--encrypt`. Do not
