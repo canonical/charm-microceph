@@ -8,28 +8,37 @@ list-disks:
       description: List OSDs on the node instead of cluster.
 add-osd:
   description: |
-    Add ceph disks (OSD) to cluster
+    Add Ceph disks (OSDs) to the cluster.
+
+    With osd-encryption-provider=vaultlocker, device-id must name a direct
+    block device and encrypt must be true. The action publishes an asynchronous
+    Vaultlocker request and reports pending; MicroCeph enrolls the returned
+    mapper after Vaultlocker publishes its result. loop-spec and wipe are not
+    supported in Vaultlocker mode.
   params:
     loop-spec:
       type: string
-      description: /
+      description: |
         The specification of the files to be created and used as OSDs,
-        e.g. 4G,3 would create 3 file based OSDs of size 4GB.
+        e.g. 4G,3 would create 3 file based OSDs of size 4GB. Not supported
+        when osd-encryption-provider=vaultlocker.
     device-id:
       type: string
       description: |
-        Device ID of the disk. Accepts comma separated
-        device id's to specify multiple disks
+        Device ID of the disk. Accepts comma separated device IDs to specify
+        multiple disks. In Vaultlocker mode, use a stable /dev/disk/by-id path.
     wipe:
       type: boolean
       description: |
-        Wipe the disk before adding it.
+        Wipe the disk before adding it. This is not supported when
+        osd-encryption-provider=vaultlocker.
         Note: This will destroy all data on the disk.
       default: false
     encrypt:
       type: boolean
       description: |
-        Encrypt the disk prior to use (only block devices)
+        Encrypt the disk prior to use (only block devices). This must be true
+        when osd-encryption-provider=vaultlocker.
       default: false
   additionalProperties: false
 set-pool-size:
