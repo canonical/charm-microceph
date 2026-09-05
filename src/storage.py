@@ -64,6 +64,7 @@ class StorageHandler(Object):
     standalone = "osd-standalone"
     encrypted_device_relation = "encrypted-device"
     vaultlocker_provider = "vaultlocker"
+    vaultlocker_action_prefix = "add-osd:"
     vaultlocker_osd_dropin = Path(
         "/etc/systemd/system/snap.microceph.osd.service.d/vaultlocker.conf"
     )
@@ -236,7 +237,7 @@ class StorageHandler(Object):
     def _reconcile_vaultlocker_storage_requests(
         self, relation, results: dict
     ) -> tuple[list, list]:
-        """Reconcile each attached standalone device and return requested/pending paths."""
+        """Reconcile attached storage and pending add-osd action requests."""
         requested_paths = []
         pending_paths = []
         for storage_name in self._fetch_filtered_storages([self.standalone]):
@@ -249,6 +250,33 @@ class StorageHandler(Object):
                 requested_paths.append(request_path)
             if pending:
                 pending_paths.append(request_path)
+
+        action_requested, action_pending = self._reconcile_vaultlocker_action_requests(results)
+        requested_paths.extend(action_requested)
+        pending_paths.extend(action_pending)
+        return requested_paths, pending_paths
+
+    def _reconcile_vaultlocker_action_requests(self, results: dict) -> tuple[list, list]:
+        """Consume results for direct-device add-osd requests without storage events."""
+        requested_paths = []
+        pending_paths = []
+        for request_key, request in self._stored.vaultlocker_devices.items():
+            if request.get("source") != "add-osd":
+                continue
+
+            request_path = request["request_path"]
+            result = results.get(request_path)
+            if request.get("phase") == "enrolled":
+                if result is not None:
+                    self._assert_vaultlocker_result_is_unchanged(request, result, completed=True)
+                continue
+            if result is None:
+                requested_paths.append(request_path)
+                pending_paths.append(request_path)
+                continue
+
+            self._consume_vaultlocker_result(request_key, request, result)
+            requested_paths.append(request_path)
         return requested_paths, pending_paths
 
     def _reconcile_vaultlocker_storage(
@@ -572,31 +600,140 @@ class StorageHandler(Object):
 
         self.charm.status.set(ActiveStatus("charm is ready"))
 
-    def _reject_add_osd_for_vaultlocker(self, event: ActionEvent) -> bool:
-        """Reject an action request that would bypass Vaultlocker bookkeeping."""
+    def _handle_vaultlocker_add_osd_action(self, event: ActionEvent) -> bool:
+        """Publish an asynchronous fresh-encryption request for an add-osd action."""
         try:
             vaultlocker_mode = self._vaultlocker_mode_enabled()
         except sunbeam_guard.BlockedExceptionError as exc:
-            event.set_results({"message": exc.msg})
-            event.fail(exc.msg)
-            return True
+            return self._fail_vaultlocker_add_osd_action(event, exc.msg)
 
         if not vaultlocker_mode:
             return False
 
-        message = "add-osd action is not supported with vaultlocker OSD encryption"
+        try:
+            device_ids = self._vaultlocker_add_osd_action_device_ids(event)
+        except sunbeam_guard.BlockedExceptionError as exc:
+            return self._fail_vaultlocker_add_osd_action(event, exc.msg)
+
+        relation = self.charm.model.get_relation(self.encrypted_device_relation)
+        if relation is None:
+            return self._fail_vaultlocker_add_osd_action(
+                event,
+                "Vaultlocker relation is required for vaultlocker OSD encryption",
+            )
+
+        existing_request_keys = set(self._stored.vaultlocker_devices)
+        try:
+            self._assert_vaultlocker_relation_is_unchanged(relation)
+            requests = self._vaultlocker_action_requests_for_devices(device_ids, relation)
+        except sunbeam_guard.BlockedExceptionError as exc:
+            for request_key in set(self._stored.vaultlocker_devices) - existing_request_keys:
+                self._stored.vaultlocker_devices.pop(request_key)
+            return self._fail_vaultlocker_add_osd_action(event, exc.msg)
+
+        self._publish_vaultlocker_requests(relation)
+        request_paths = [request["request_path"] for request in requests]
+        pending_paths = [
+            request["request_path"] for request in requests if request.get("phase") != "enrolled"
+        ]
+        self._set_vaultlocker_reconcile_status(request_paths, pending_paths)
+        event.set_results(
+            {
+                "result": [
+                    {
+                        "request-path": request["request_path"],
+                        "spec": device_id,
+                        "status": "enrolled" if request.get("phase") == "enrolled" else "pending",
+                    }
+                    for device_id, request in zip(device_ids, requests)
+                ]
+            }
+        )
+        return True
+
+    def _fail_vaultlocker_add_osd_action(self, event: ActionEvent, message: str) -> bool:
+        """Report a Vaultlocker action validation error as an action failure."""
         event.set_results({"message": message})
         event.fail(message)
         return True
 
+    def _vaultlocker_add_osd_action_device_ids(self, event: ActionEvent) -> list[str]:
+        """Validate action-only constraints and return direct device IDs."""
+        if not event.params.get("encrypt", False):
+            raise sunbeam_guard.BlockedExceptionError(
+                "add-osd requires encrypt=true with vaultlocker OSD encryption"
+            )
+        if event.params.get("loop-spec") is not None:
+            raise sunbeam_guard.BlockedExceptionError(
+                "loop-spec is not supported with vaultlocker OSD encryption"
+            )
+        if event.params.get("wipe", False):
+            raise sunbeam_guard.BlockedExceptionError(
+                "wipe is not supported with vaultlocker OSD encryption"
+            )
+        device_ids = [
+            device_id.strip()
+            for device_id in (event.params.get("device-id") or "").split(",")
+            if device_id.strip()
+        ]
+        if not device_ids:
+            raise sunbeam_guard.BlockedExceptionError(
+                "device-id is required with vaultlocker OSD encryption"
+            )
+        return device_ids
+
+    def _vaultlocker_action_requests_for_devices(
+        self, device_ids: list[str], relation
+    ) -> list[dict]:
+        """Create action requests while rejecting aliases repeated in the same action."""
+        requests = []
+        request_paths = set()
+        for device_id in device_ids:
+            request = self._vaultlocker_action_request_for_device(device_id, relation)
+            request_path = request["request_path"]
+            if request_path in request_paths:
+                raise sunbeam_guard.BlockedExceptionError(
+                    "add-osd includes the same block device more than once"
+                )
+            request_paths.add(request_path)
+            requests.append(request)
+        return requests
+
+    def _vaultlocker_action_request_for_device(self, device_id: str, relation) -> dict:
+        """Create or return the immutable Vaultlocker request for an action device."""
+        stable_device = self._resolve_vaultlocker_stable_device(device_id)
+        request_key = f"{self.vaultlocker_action_prefix}{stable_device.path}"
+        request = self._stored.vaultlocker_devices.get(request_key)
+        if request is not None:
+            if (
+                request["rdev"] != stable_device.rdev
+                or request["request_path"] != stable_device.path
+            ):
+                raise sunbeam_guard.BlockedExceptionError(
+                    "add-osd device changed during Vaultlocker provisioning"
+                )
+            return request
+
+        self._validate_vaultlocker_fresh_target(stable_device.path)
+        self._assert_vaultlocker_device_is_unique(request_key, stable_device.rdev)
+        request = {
+            "request_path": stable_device.path,
+            "rdev": stable_device.rdev,
+            "relation_id": relation.id,
+            "phase": "requested",
+            "source": "add-osd",
+        }
+        self._stored.vaultlocker_devices[request_key] = request
+        return request
+
     def _add_osd_action(self, event: ActionEvent):
         """Add OSD disks to microceph."""
-        if self._reject_add_osd_for_vaultlocker(event):
-            return
-
         if not self.charm.peers.interface.state.joined:
             event.set_results({"message": "Node not yet joined in microceph cluster"})
             event.fail()
+            return
+
+        if self._handle_vaultlocker_add_osd_action(event):
             return
 
         # list of osd specs to be executed with disk add cmd.
