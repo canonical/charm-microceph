@@ -61,6 +61,11 @@ requires:
   adopt-ceph:
     interface: ceph-admin
     optional: true
+  encrypted-device:
+    interface: encrypted-device
+    optional: true
+    limit: 1
+    scope: container
 
 peers:
   peers:
