@@ -147,8 +147,220 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
         assert status.message == "WAL/DB storage is not supported with vaultlocker OSD encryption"
         normalize.assert_not_called()
 
-    def test_add_osd_action_is_rejected_in_vaultlocker_mode(self):
-        """The action cannot bypass Vaultlocker with an untracked raw device."""
+    def test_add_osd_action_requests_vaultlocker_encryption(self):
+        """An encrypted direct-device action publishes an asynchronous request."""
+        relation_id = self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        event = MagicMock()
+        event.params = {
+            "device-id": "/dev/vdb,/dev/vdc",
+            "loop-spec": None,
+            "wipe": False,
+            "encrypt": True,
+        }
+        stable_devices = [
+            StableDevice(path="/dev/disk/by-id/wwn-0x5000c500aabbcc01", rdev=2048),
+            StableDevice(path="/dev/disk/by-id/wwn-0x5000c500aabbcc02", rdev=4096),
+        ]
+
+        with (
+            patch("storage.resolve_stable_block_device", side_effect=stable_devices),
+            patch("storage.validate_fresh_encryption_target"),
+            patch("storage.microceph.add_osd_cmd") as add_osd_cmd,
+        ):
+            self.storage._add_osd_action(event)
+
+        relation_data = self.harness.get_relation_data(relation_id, self.harness.charm.unit.name)
+        assert json.loads(relation_data["device_requests"]) == {
+            stable_device.path: {} for stable_device in stable_devices
+        }
+        event.set_results.assert_called_once_with(
+            {
+                "result": [
+                    {
+                        "request-path": stable_devices[0].path,
+                        "spec": "/dev/vdb",
+                        "status": "pending",
+                    },
+                    {
+                        "request-path": stable_devices[1].path,
+                        "spec": "/dev/vdc",
+                        "status": "pending",
+                    },
+                ]
+            }
+        )
+        event.fail.assert_not_called()
+        add_osd_cmd.assert_not_called()
+        assert isinstance(self.storage.storage_status.status, WaitingStatus)
+
+    def test_add_osd_action_reports_existing_completed_request(self):
+        """Retrying an action reports completion rather than another pending request."""
+        relation_id = self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        stable_path = "/dev/disk/by-id/wwn-0x5000c500aabbcc01"
+        self.storage._stored.vaultlocker_devices = {
+            f"{self.storage.vaultlocker_action_prefix}{stable_path}": {
+                "request_path": stable_path,
+                "rdev": 2048,
+                "relation_id": relation_id,
+                "phase": "enrolled",
+                "mapper_path": "/dev/mapper/crypt-a1b2c3d4",
+                "luks_uuid": "a1b2c3d4",
+                "source": "add-osd",
+            }
+        }
+        event = MagicMock()
+        event.params = {
+            "device-id": "/dev/vdb",
+            "loop-spec": None,
+            "wipe": False,
+            "encrypt": True,
+        }
+
+        with (
+            patch(
+                "storage.resolve_stable_block_device",
+                return_value=StableDevice(path=stable_path, rdev=2048),
+            ),
+            patch("storage.microceph.add_osd_cmd") as add_osd_cmd,
+        ):
+            self.storage._add_osd_action(event)
+
+        event.set_results.assert_called_once_with(
+            {
+                "result": [
+                    {
+                        "request-path": stable_path,
+                        "spec": "/dev/vdb",
+                        "status": "enrolled",
+                    }
+                ]
+            }
+        )
+        event.fail.assert_not_called()
+        add_osd_cmd.assert_not_called()
+
+    def test_add_osd_action_rejects_unencrypted_device_in_vaultlocker_mode(self):
+        """Vaultlocker mode cannot silently fall back to a raw-device OSD."""
+        self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        event = MagicMock()
+        event.params = {
+            "device-id": "/dev/vdb",
+            "loop-spec": None,
+            "wipe": False,
+            "encrypt": False,
+        }
+        stable_path = "/dev/disk/by-id/wwn-0x5000c500aabbcc01"
+
+        with (
+            patch(
+                "storage.resolve_stable_block_device",
+                return_value=StableDevice(path=stable_path, rdev=2048),
+            ),
+            patch("storage.validate_fresh_encryption_target"),
+            patch("storage.microceph.add_osd_cmd") as add_osd_cmd,
+        ):
+            self.storage._add_osd_action(event)
+
+        message = "add-osd requires encrypt=true with vaultlocker OSD encryption"
+        event.set_results.assert_called_once_with({"message": message})
+        event.fail.assert_called_once_with(message)
+        add_osd_cmd.assert_not_called()
+        assert not self.storage._stored.vaultlocker_devices
+
+    def test_add_osd_action_rejects_loop_spec_in_vaultlocker_mode(self):
+        """Loop devices cannot provide the stable identity required by the relation."""
+        self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        event = MagicMock()
+        event.params = {
+            "device-id": None,
+            "loop-spec": "4G,3",
+            "wipe": False,
+            "encrypt": True,
+        }
+
+        with patch("storage.microceph.add_osd_cmd") as add_osd_cmd:
+            self.storage._add_osd_action(event)
+
+        message = "loop-spec is not supported with vaultlocker OSD encryption"
+        event.set_results.assert_called_once_with({"message": message})
+        event.fail.assert_called_once_with(message)
+        add_osd_cmd.assert_not_called()
+        assert not self.storage._stored.vaultlocker_devices
+
+    def test_add_osd_action_rejects_wipe_in_vaultlocker_mode(self):
+        """Vaultlocker fresh encryption does not expose the native wipe operation."""
+        self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        event = MagicMock()
+        event.params = {
+            "device-id": "/dev/vdb",
+            "loop-spec": None,
+            "wipe": True,
+            "encrypt": True,
+        }
+        stable_path = "/dev/disk/by-id/wwn-0x5000c500aabbcc01"
+
+        with (
+            patch(
+                "storage.resolve_stable_block_device",
+                return_value=StableDevice(path=stable_path, rdev=2048),
+            ),
+            patch("storage.validate_fresh_encryption_target"),
+            patch("storage.microceph.add_osd_cmd") as add_osd_cmd,
+        ):
+            self.storage._add_osd_action(event)
+
+        message = "wipe is not supported with vaultlocker OSD encryption"
+        event.set_results.assert_called_once_with({"message": message})
+        event.fail.assert_called_once_with(message)
+        add_osd_cmd.assert_not_called()
+        assert not self.storage._stored.vaultlocker_devices
+
+    def test_add_osd_action_requires_device_id_in_vaultlocker_mode(self):
+        """A Vaultlocker request needs a concrete block device identity."""
+        self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        event = MagicMock()
+        event.params = {
+            "device-id": None,
+            "loop-spec": None,
+            "wipe": False,
+            "encrypt": True,
+        }
+
+        with patch("storage.microceph.add_osd_cmd") as add_osd_cmd:
+            self.storage._add_osd_action(event)
+
+        message = "device-id is required with vaultlocker OSD encryption"
+        event.set_results.assert_called_once_with({"message": message})
+        event.fail.assert_called_once_with(message)
+        add_osd_cmd.assert_not_called()
+        assert not self.storage._stored.vaultlocker_devices
+
+    def test_add_osd_action_requires_vaultlocker_relation(self):
+        """The asynchronous action cannot proceed without a provider to consume it."""
         test_utils.add_complete_peer_relation(self.harness)
         self.harness.charm.peers.interface.state.joined = True
         self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
@@ -157,16 +369,175 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
             "device-id": "/dev/vdb",
             "loop-spec": None,
             "wipe": False,
-            "encrypt": False,
+            "encrypt": True,
         }
 
         with patch("storage.microceph.add_osd_cmd") as add_osd_cmd:
             self.storage._add_osd_action(event)
 
-        event.fail.assert_called_once_with(
-            "add-osd action is not supported with vaultlocker OSD encryption"
-        )
+        message = "Vaultlocker relation is required for vaultlocker OSD encryption"
+        event.set_results.assert_called_once_with({"message": message})
+        event.fail.assert_called_once_with(message)
         add_osd_cmd.assert_not_called()
+        assert not self.storage._stored.vaultlocker_devices
+
+    def test_add_osd_action_reports_unsafe_target(self):
+        """A failed local preflight does not leave an asynchronous action request behind."""
+        self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        event = MagicMock()
+        event.params = {
+            "device-id": "/dev/vdb",
+            "loop-spec": None,
+            "wipe": False,
+            "encrypt": True,
+        }
+        stable_path = "/dev/disk/by-id/wwn-0x5000c500aabbcc01"
+
+        with (
+            patch(
+                "storage.resolve_stable_block_device",
+                return_value=StableDevice(path=stable_path, rdev=2048),
+            ),
+            patch(
+                "storage.validate_fresh_encryption_target",
+                side_effect=ValueError("device is mounted"),
+            ),
+            patch("storage.microceph.add_osd_cmd") as add_osd_cmd,
+        ):
+            self.storage._add_osd_action(event)
+
+        message = "OSD storage is not safe for Vaultlocker encryption"
+        event.set_results.assert_called_once_with({"message": message})
+        event.fail.assert_called_once_with(message)
+        add_osd_cmd.assert_not_called()
+        assert not self.storage._stored.vaultlocker_devices
+
+    def test_add_osd_action_rejects_duplicate_device_in_one_batch(self):
+        """A direct-device batch cannot publish the same underlying device twice."""
+        self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        event = MagicMock()
+        event.params = {
+            "device-id": "/dev/vdb,/dev/vdc",
+            "loop-spec": None,
+            "wipe": False,
+            "encrypt": True,
+        }
+        stable_device = StableDevice(
+            path="/dev/disk/by-id/wwn-0x5000c500aabbcc01",
+            rdev=2048,
+        )
+
+        with (
+            patch("storage.resolve_stable_block_device", return_value=stable_device),
+            patch("storage.validate_fresh_encryption_target"),
+            patch("storage.microceph.add_osd_cmd") as add_osd_cmd,
+        ):
+            self.storage._add_osd_action(event)
+
+        message = "add-osd includes the same block device more than once"
+        event.set_results.assert_called_once_with({"message": message})
+        event.fail.assert_called_once_with(message)
+        add_osd_cmd.assert_not_called()
+        assert not self.storage._stored.vaultlocker_devices
+
+    def test_add_osd_action_rolls_back_partial_request_batch(self):
+        """One invalid device does not publish another device from the same action."""
+        self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        event = MagicMock()
+        event.params = {
+            "device-id": "/dev/vdb,/dev/vdc",
+            "loop-spec": None,
+            "wipe": False,
+            "encrypt": True,
+        }
+        stable_paths = [
+            StableDevice(path="/dev/disk/by-id/wwn-0x5000c500aabbcc01", rdev=2048),
+            StableDevice(path="/dev/disk/by-id/wwn-0x5000c500aabbcc02", rdev=4096),
+        ]
+
+        with (
+            patch("storage.resolve_stable_block_device", side_effect=stable_paths),
+            patch(
+                "storage.validate_fresh_encryption_target",
+                side_effect=[None, ValueError("device is mounted")],
+            ),
+            patch("storage.microceph.add_osd_cmd") as add_osd_cmd,
+        ):
+            self.storage._add_osd_action(event)
+
+        message = "OSD storage is not safe for Vaultlocker encryption"
+        event.set_results.assert_called_once_with({"message": message})
+        event.fail.assert_called_once_with(message)
+        add_osd_cmd.assert_not_called()
+        assert not self.storage._stored.vaultlocker_devices
+
+    def test_add_osd_action_result_enrolls_returned_mapper(self):
+        """A matching result completes an asynchronous add-osd request once."""
+        relation_id = self._add_vaultlocker_relation()
+        test_utils.add_complete_peer_relation(self.harness)
+        self.harness.charm.peers.interface.state.joined = True
+        with patch.object(self.storage, "_clean_stale_osd_data"):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+        stable_path = "/dev/disk/by-id/wwn-0x5000c500aabbcc01"
+        mapper_path = "/dev/mapper/crypt-a1b2c3d4"
+        event = MagicMock()
+        event.params = {
+            "device-id": "/dev/vdb",
+            "loop-spec": None,
+            "wipe": False,
+            "encrypt": True,
+        }
+
+        with (
+            patch(
+                "storage.resolve_stable_block_device",
+                return_value=StableDevice(path=stable_path, rdev=2048),
+            ),
+            patch("storage.validate_fresh_encryption_target"),
+        ):
+            self.storage._add_osd_action(event)
+
+        with (
+            patch.object(self.storage, "_clean_stale_osd_data"),
+            patch.object(self.storage, "_fetch_filtered_storages", return_value=[]),
+            patch("storage.validate_mapper_block_device"),
+            patch("storage.microceph.ensure_dm_crypt") as ensure_dm_crypt,
+            patch("storage.microceph.enroll_disks_as_osds") as enroll_disks,
+            patch.object(self.storage, "_save_vaultlocker_osd_data"),
+            patch.object(self.storage, "_update_vaultlocker_boot_order"),
+        ):
+            self.harness.update_relation_data(
+                relation_id,
+                "vaultlocker/0",
+                {
+                    "device_results": json.dumps(
+                        {
+                            stable_path: {
+                                "mapper_path": mapper_path,
+                                "luks_uuid": "a1b2c3d4",
+                            }
+                        }
+                    )
+                },
+            )
+
+        ensure_dm_crypt.assert_called_once_with()
+        enroll_disks.assert_called_once_with([mapper_path])
+        request = next(iter(self.storage._stored.vaultlocker_devices.values()))
+        assert request["phase"] == "enrolled"
+        assert request["mapper_path"] == mapper_path
 
     def test_boot_order_dropin_tracks_enrolled_vaultlocker_osds(self):
         """Completed OSDs make the snap service wait for their unlock units."""
