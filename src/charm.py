@@ -805,12 +805,14 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             logger.warning("Assignments must be a non-empty dictionary")
             return None
 
+        ret = {}
         for unit_name, assignment in assignments.items():
             if not isinstance(assignment, dict):
                 logger.warning("Assignment for %s must be a dictionary", unit_name)
                 return None
+            ret[unit_name] = UnitRoleAssignment.from_dict(assignment)
 
-        return assignments
+        return ret
 
     def _get_unit_to_hostname_map(self) -> dict:
         """Map Juju unit names to hostnames (member names) using peer relation."""
@@ -825,11 +827,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
     def _parse_assignment(self, assignment, unit_name, unit_to_address):
         """Fetch and parse RGW and NFS placements for a gateway role."""
-        roles = assignment.get("roles") or []
+        roles = assignment.roles
         if "gateway" not in roles:
             return False, []
 
-        workload_params = assignment.get("workload-params") or {}
+        workload_params = assignment.workload_params
         flavors = workload_params.get("flavors")
         if not isinstance(flavors, list) or not flavors:
             logger.warning("Gateway role assigned but 'flavors' is missing or invalid")
@@ -892,8 +894,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 # If no hostname, skip the unit.
                 continue
 
-            roles = assignment.get("roles") or []
-            status = assignment.get("status")
+            roles = assignment.roles
+            status = assignment.status
 
             # Default values.
             control, storage, rgw, nfs = (False, False, False, [])
@@ -923,7 +925,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _check_assignments_frozen(self, assignments: dict) -> bool:
         """Check if any assignment is in a pending or error state."""
         for unit_name, assignment in assignments.items():
-            status = assignment.get("status")
+            status = assignment.status
             if status in ("pending", "error"):
                 logger.info(
                     "Role-assignment for %s is '%s'; freezing placement policy until assigned.",
