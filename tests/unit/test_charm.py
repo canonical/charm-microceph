@@ -2235,3 +2235,341 @@ class TestNetworkConfig(testbase.TestBaseCharm):
         with self.assertRaises(sunbeam_guard.BlockedExceptionError) as ctx:
             self.harness.charm.handle_config_leader_cluster_network(MagicMock())
         self.assertIn("ceph-cluster-network", str(ctx.exception))
+
+
+class TestPlacementReconciliation(testbase.TestBaseCharm):
+    PATCHES = ["subprocess"]
+
+    def setUp(self):
+        super().setUp(charm, self.PATCHES)
+        self.init_harness()
+
+    def set_config(self, config: dict) -> None:
+        """Update config without running the config-changed hook."""
+        self.harness.disable_hooks()
+        self.harness.update_config(config)
+        self.harness.enable_hooks()
+
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_non_leader_is_noop(self, cclient):
+        """When not leader, reconciliation is a no-op."""
+        self.harness.set_leader(False)
+        self.harness.charm._reconcile_placement(MagicMock())
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_disabled_deletes_placement(self, cclient):
+        """When role-managed is disabled, reconciliation deletes the policy."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": False})
+        self.harness.charm._reconcile_placement(MagicMock())
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+        cclient.from_socket().cluster.delete_placement.assert_called_once()
+
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_missing_relation_freezes_placement(self, cclient):
+        """When relation is missing, placement is frozen."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        self.harness.charm._reconcile_placement(MagicMock())
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_reconciles_assignments_correctly(self, cclient, mock_gethostname):
+        """When assignments exist, the correct placement policy is computed and sent."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+
+        # Add relation and data
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {
+                        "microceph/0": {"status": "assigned", "roles": ["storage"]},
+                        "microceph/1": {"status": "assigned", "roles": ["control"]},
+                    }
+                )
+            },
+        )
+
+        # Set peer relation to map unit names to hostnames
+        peer_rel_id = self.harness.add_relation("peers", "microceph")
+        self.harness.add_relation_unit(peer_rel_id, "microceph/1")
+        self.harness.update_relation_data(
+            peer_rel_id,
+            "microceph/1",
+            {"microceph/1": "node-b"},
+        )
+
+        self.harness.charm._reconcile_placement(MagicMock())
+
+        cclient.from_socket().cluster.apply_placement.assert_called_once_with(
+            {
+                "mode": "reconcile",
+                "members": {
+                    "node-a": {
+                        "control": False,
+                        "storage_eligible": True,
+                        "rgw": False,
+                        "nfs": [],
+                    },
+                    "node-b": {
+                        "control": True,
+                        "storage_eligible": False,
+                        "rgw": False,
+                        "nfs": [],
+                    },
+                },
+            }
+        )
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_reconciles_gateways_correctly(self, cclient, mock_gethostname):
+        """When gateway assignments exist, RGW and NFS flavors are correctly parsed and sent."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+
+        # Add relation and data
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {
+                        "microceph/0": {"status": "assigned", "roles": ["storage"]},
+                        "microceph/1": {
+                            "status": "assigned",
+                            "roles": ["gateway"],
+                            "workload-params": {
+                                "flavors": ["rgw", "nfs"],
+                                "nfs-cluster-id": "alpha",
+                            },
+                        },
+                    }
+                )
+            },
+        )
+
+        # Set peer relation to map unit names to hostnames and public addresses
+        peer_rel_id = self.harness.add_relation("peers", "microceph")
+        self.harness.add_relation_unit(peer_rel_id, "microceph/1")
+        self.harness.update_relation_data(
+            peer_rel_id,
+            "microceph/1",
+            {"microceph/1": "node-b", "public-address": "10.0.0.14"},
+        )
+
+        self.harness.charm._reconcile_placement(MagicMock())
+
+        cclient.from_socket().cluster.apply_placement.assert_called_once_with(
+            {
+                "mode": "reconcile",
+                "members": {
+                    "node-a": {
+                        "control": False,
+                        "storage_eligible": True,
+                        "rgw": False,
+                        "nfs": [],
+                    },
+                    "node-b": {
+                        "control": False,
+                        "storage_eligible": False,
+                        "rgw": True,
+                        "nfs": [{"group_id": "role-alpha", "bind_address": "10.0.0.14"}],
+                    },
+                },
+            }
+        )
+
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_malformed_assignments_blocks_charm(self, cclient):
+        """When assignments data is malformed, the charm enters blocked status."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+
+        # Add relation with malformed assignments JSON string
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {"assignments": "invalid-json{"},
+        )
+
+        self.harness.charm._reconcile_placement(MagicMock())
+
+        # Verify apply_placement is not called and the charm status is BlockedStatus
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+        self.assertIsInstance(self.harness.charm.status.status, BlockedStatus)
+        self.assertIn(
+            "Malformed role-assignment assignments data", self.harness.charm.status.status.message
+        )
+
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_pending_or_error_freezes_placement(self, cclient):
+        """When an assignment status is pending or error, placement reconciliation is frozen."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {
+                        "microceph/0": {"status": "pending", "roles": ["storage"]},
+                    }
+                )
+            },
+        )
+
+        self.harness.charm._reconcile_placement(MagicMock())
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_api_failure_defers_and_raises(self, cclient):
+        """When the placement API fails, the event is deferred and a waiting error is raised."""
+        from ops_sunbeam.guard import WaitingExceptionError
+
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {
+                        "microceph/0": {"status": "assigned", "roles": ["storage"]},
+                    }
+                )
+            },
+        )
+
+        cclient.from_socket().cluster.apply_placement.side_effect = Exception("API error")
+        mock_event = MagicMock()
+
+        with self.assertRaises(WaitingExceptionError):
+            self.harness.charm._reconcile_placement(mock_event)
+
+        mock_event.defer.assert_called_once()
+
+    @patch("charm.get_nfs_space_address", return_value="10.20.30.40")
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_prefers_nfs_address(
+        self, cclient, mock_gethostname, mock_nfs_addr
+    ):
+        """When nfs-use-dedicated-binding is enabled, nfs-address is preferred over public."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {
+                        "microceph/0": {
+                            "status": "assigned",
+                            "roles": ["gateway"],
+                            "workload-params": {
+                                "flavors": ["nfs"],
+                                "nfs-cluster-id": "nfs-cluster",
+                            },
+                        },
+                    }
+                )
+            },
+        )
+
+        self.harness.charm._reconcile_placement(MagicMock())
+
+        cclient.from_socket().cluster.apply_placement.assert_called_once_with(
+            {
+                "mode": "reconcile",
+                "members": {
+                    "node-a": {
+                        "control": False,
+                        "storage_eligible": False,
+                        "rgw": False,
+                        "nfs": [{"group_id": "role-nfs-cluster", "bind_address": "10.20.30.40"}],
+                    }
+                },
+            }
+        )
+
+    def test_safe_role_assignment_requirer_invalid_json_type(self):
+        """Verify SafeRoleAssignmentRequirer handles valid JSON that is not a dict."""
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {"assignments": json.dumps([])},  # list, not dict
+        )
+
+        # Triggering a change event should not raise AttributeError on get()
+        self.harness.charm.role_assignment._on_relation_changed(
+            MagicMock(relation=self.harness.model.get_relation("role-assignment", rel_id))
+        )
+        self.assertIsNone(self.harness.charm.role_assignment.get_assignment())
+
+    def test_safe_role_assignment_requirer_revoked_on_disappeared_entry(self):
+        """Verify SafeRoleAssignmentRequirer emits revoked when the unit entry disappears."""
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+
+        # Initial assignment
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {
+                        "microceph/0": {"status": "assigned", "roles": ["storage"]},
+                    }
+                )
+            },
+        )
+
+        import ops.framework
+
+        class RevokeListener(ops.framework.Object):
+            def __init__(self, charm):
+                super().__init__(charm, "revoke-listener")
+                self.emitted_revoked = False
+
+            def on_revoked(self, event):
+                self.emitted_revoked = True
+
+        listener = RevokeListener(self.harness.charm)
+
+        self.harness.charm.framework.observe(
+            self.harness.charm.role_assignment.on.role_assignment_revoked, listener.on_revoked
+        )
+
+        # Disappear the entry
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {
+                        "other-unit/0": {"status": "assigned", "roles": ["storage"]},
+                    }
+                )
+            },
+        )
+
+        # Triggers changed which should detect missing entry and emit revoked
+        self.harness.charm.role_assignment._on_relation_changed(
+            MagicMock(relation=self.harness.model.get_relation("role-assignment", rel_id))
+        )
+        self.assertTrue(listener.emitted_revoked)
