@@ -1,0 +1,101 @@
+name: Build charms
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    name: Pack ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-24.04-amd64
+            runner: ubuntu-24.04
+          - platform: ubuntu-26.04-amd64
+            runner: ubuntu-24.04
+          - platform: ubuntu-26.04-arm64
+            runner: self-hosted-linux-arm64-resolute-xlarge
+          - platform: ubuntu-26.04-s390x
+            runner: self-hosted-linux-s390x-resolute-medium
+          - platform: ubuntu-26.04-ppc64el
+            runner: self-hosted-linux-ppc64el-resolute-medium
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check native architecture
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          test "$(dpkg --print-architecture)" = "${PLATFORM##*-}"
+
+      # v1 tolerates runners without Docker's DOCKER-USER firewall chain.
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v1
+        with:
+          channel: 5.21/stable
+
+      - name: Install charmcraft
+        run: |
+          # Multi-base platforms require charmcraft >= 4.1.
+          if snap list charmcraft >/dev/null 2>&1; then
+            sudo snap refresh charmcraft --channel=latest/candidate
+          else
+            sudo snap install charmcraft --classic --channel=latest/candidate
+          fi
+
+      - name: Pack native platform
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          charmcraft pack -v --use-lxd --platform "$PLATFORM"
+          # Managed builds currently put the artifact in the project root.
+          mkdir -p built-charms
+          mv "microceph_${PLATFORM}.charm" built-charms/
+
+      - name: Upload platform charm
+        uses: actions/upload-artifact@v4
+        with:
+          name: charm-${{ matrix.platform }}
+          path: built-charms/microceph_${{ matrix.platform }}.charm
+          if-no-files-found: error
+
+  collect:
+    name: Collect and validate charms
+    needs: pack
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download platform charms
+        uses: actions/download-artifact@v4
+        with:
+          pattern: charm-ubuntu-*
+          merge-multiple: true
+          path: built-charms
+
+      - name: Install validation dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-yaml
+
+      - name: Validate complete artifact set and native binaries
+        run: /usr/bin/python3 tests/scripts/check_charm_artifacts.py built-charms
+
+      # Preserve the artifact contract used by the existing amd64 test jobs.
+      - name: Upload collected charms
+        uses: actions/upload-artifact@v4
+        with:
+          name: charms
+          path: built-charms/*.charm
+          if-no-files-found: error

@@ -3,18 +3,23 @@
 
 type: charm
 platforms:
-  # amd64-only build matrix. Cross-builds for arm64/ppc64el/s390x are
-  # intentionally out of scope: charmcraft's uv plugin currently installs
-  # host-arch wheels regardless of the declared `build-for`, producing a
-  # silently corrupt artifact for any charm with native deps. Re-add the
-  # other architectures once cross-build (or a per-arch native runner)
-  # is set up.
+  # Build each platform on its native architecture: the uv plugin installs
+  # host-architecture wheels, so cross-building would corrupt native dependencies.
   ubuntu-24.04-amd64:
     build-on: [ubuntu@24.04:amd64]
     build-for: [ubuntu@24.04:amd64]
   ubuntu-26.04-amd64:
     build-on: [ubuntu@26.04:amd64]
     build-for: [ubuntu@26.04:amd64]
+  ubuntu-26.04-arm64:
+    build-on: [ubuntu@26.04:arm64]
+    build-for: [ubuntu@26.04:arm64]
+  ubuntu-26.04-s390x:
+    build-on: [ubuntu@26.04:s390x]
+    build-for: [ubuntu@26.04:s390x]
+  ubuntu-26.04-ppc64el:
+    build-on: [ubuntu@26.04:ppc64el]
+    build-for: [ubuntu@26.04:ppc64el]
 
 parts:
   files:
@@ -31,3 +36,12 @@ parts:
       - astral-uv
     build-packages:
       - git
+      - build-essential
+      # cryptography has no s390x wheel in uv.lock; build its Rust extension
+      # against the build base's OpenSSL rather than relying on runner packages.
+      - on s390x:
+          - cargo
+          - rustc
+          - pkg-config
+          - libssl-dev
+          - libffi-dev

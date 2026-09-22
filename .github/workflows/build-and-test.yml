@@ -51,29 +51,8 @@ jobs:
         run: ./tests/scripts/ci_helpers.sh validate_terragrunt_module
 
   build:
-    name: Build the charm
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 1
-      - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
-        with:
-          channel: 5.21/stable
-      - name: Build charm(s)
-        id: builder
-        run: |
-          # multi-base charmcraft.yaml requires charmcraft >= 4.1, which
-          # latest/candidate carries (4.2.x at the time of writing).
-          sudo snap install charmcraft --classic --channel=latest/candidate
-          charmcraft pack -v
-      - name: Upload built charm
-        uses: actions/upload-artifact@v4
-        with:
-          name: charms
-          path: "*.charm"
+    name: Build the charms
+    uses: ./.github/workflows/build.yaml
 
   integration-test:
     needs:

@@ -82,6 +82,24 @@ juju config microceph device-add-flags="wipe:osd,encrypt:osd"
 
 A reusable Terraform + Terragrunt module for deploying the `microceph` charm can be found in `terraform/microceph/`. See the module README for usage instructions.
 
+## Building the charm
+
+Build natively on the target architecture; cross-building with the `uv` plugin can
+package dependencies for the wrong architecture. Ubuntu 24.04 builds remain amd64-only.
+Ubuntu 26.04 builds cover amd64, arm64, s390x and ppc64el:
+
+```bash
+# Run on an arm64 host with LXD configured and Charmcraft >= 4.1 installed.
+charmcraft pack -v --use-lxd --platform ubuntu-26.04-arm64
+```
+
+CI uses `.github/workflows/build.yaml` for both PR builds and releases. It builds each
+platform on a matching runner, validates the complete five-charm set (including manifest
+bases and native ELF architectures), then collects them into the `charms` artifact.
+Publishing remains a single job targeting `tentacle/edge`. The deployment integration
+suite remains on amd64; the additional architectures initially have build and artifact
+validation coverage only.
+
 ## Sunbeam end-to-end test
 
 The repository also carries an attached-model Sunbeam test flow for the self-hosted CI runner and local reproduction. Sunbeam bootstraps the model and deploys the `microceph` application; the pytest suite attaches to that existing model, refreshes the app to the local charm, and exercises the post-refresh workflow:

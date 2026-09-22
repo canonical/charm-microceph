@@ -28,6 +28,10 @@ jobs:
       - name: Run tests
         run: tox -e py3
 
+  build:
+    name: Build the charms
+    uses: ./.github/workflows/build.yaml
+
   release-to-charmhub:
     name: Release to CharmHub
     permissions:
@@ -35,6 +39,7 @@ jobs:
     needs:
       - lint
       - unit-test
+      - build
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -42,37 +47,21 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.1
+      - name: Download built charms
+        uses: actions/download-artifact@v4
         with:
-          channel: 5.21/stable
+          name: charms
+          path: built-charms
 
-      - name: Install charmcraft
-        run: |
-          # multi-base charmcraft.yaml requires charmcraft >= 4.1, which
-          # latest/candidate carries (4.2.x at the time of writing).
-          sudo snap install charmcraft --classic --channel=latest/candidate
+      - name: Install validation dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-yaml
 
-      - name: Pack charm (multi-base)
-        id: pack
-        shell: bash
+      - name: Validate release artifacts
+        id: artifacts
         run: |
-          charmcraft pack -v
-          # Comma-separated list of all per-base/per-arch artifacts produced
-          # by the multi-base charmcraft.yaml. The upload-charm step below
-          # consumes the same set.
-          # nullglob so an unmatched glob expands to nothing (not the
-          # literal "microceph_*.charm"), letting the empty-array check
-          # below actually fire when no artifacts were produced.
-          shopt -s nullglob
-          charms=( microceph_*.charm )
-          if (( ${#charms[@]} == 0 )); then
-            echo "No microceph_*.charm artifacts produced by charmcraft pack" >&2
-            exit 1
-          fi
-          artifacts=$(IFS=,; echo "${charms[*]}")
+          # Refuse partial releases or artifacts for the wrong base/architecture.
+          artifacts=$(/usr/bin/python3 tests/scripts/check_charm_artifacts.py built-charms)
           echo "artifacts=${artifacts}" >> "${GITHUB_OUTPUT}"
-          ls -al "${charms[@]}"
 
       # `tag-prefix: tentacle` namespaces the GitHub tags created by
       # charming-actions so tentacle revisions are distinguishable from
@@ -84,6 +73,6 @@ jobs:
           credentials: "${{ secrets.CHARMHUB_TOKEN }}"
           github-token: "${{ secrets.GITHUB_TOKEN }}"
           channel: tentacle/edge
-          built-charm-path: "${{ steps.pack.outputs.artifacts }}"
+          built-charm-path: "${{ steps.artifacts.outputs.artifacts }}"
           charmcraft-channel: latest/candidate
           tag-prefix: tentacle
