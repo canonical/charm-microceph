@@ -609,9 +609,20 @@ function sanitize_model_name() {
     echo "${model_//:/-}"
 }
 
+function microceph_apps_for_model() {
+    # Applications running the microceph charm. Match on the charm name
+    # rather than the application name: several tests deploy the charm under
+    # a different name (e.g. the adopt test uses primary/secondary).
+    local model="${1?missing}"
+    juju status -m "$model" --format json 2>/dev/null \
+      | jq -r '.applications | to_entries[]
+               | select(.key == "microceph" or ((.value.charm // "") | contains("microceph")))
+               | .key'
+}
+
 function model_has_microceph_app() {
     local model="${1?missing}"
-    juju status -m "$model" --format json | jq -e '.applications.microceph != null' > /dev/null 2>&1
+    [[ -n "$(microceph_apps_for_model "$model")" ]]
 }
 
 function resolve_target_models() {
@@ -660,35 +671,43 @@ function collect_juju_logs_for_model() {
     }
     cat "logs/${model_}.yaml"
 
-    juju debug-log -m "$model" --replay --no-tail --limit 5000 &> "logs/${model_}-debug-log.txt" \
+    # Without --replay, --limit keeps the most recent lines instead of the
+    # first ones, so the collected window covers the moment of the failure.
+    juju debug-log -m "$model" --no-tail --limit 5000 &> "logs/${model_}-debug-log.txt" \
       || echo "Not able to get debug logs for model $model"
 }
 
 function collect_microceph_specific_logs_for_model() {
     local model="${1?missing}"
-    local model_
+    local model_ app
+    local apps=()
     model_=$(sanitize_model_name "$model")
 
-    if ! model_has_microceph_app "$model"; then
-      echo "Model $model has no microceph app; skipping microceph-specific collection"
-      return 1
+    mapfile -t apps < <(microceph_apps_for_model "$model")
+    if [[ ${#apps[@]} -eq 0 ]]; then
+        echo "Model $model has no microceph app; skipping microceph-specific collection"
+        return 1
     fi
 
-    juju ssh -m "$model" microceph/leader sudo microceph status &> "logs/${model_}-microceph-status.txt" || true
-    juju ssh -m "$model" microceph/leader sudo microceph.ceph status &> "logs/${model_}-ceph-status.txt" || true
+    for app in "${apps[@]}"; do
+        juju ssh -m "$model" "${app}/leader" sudo microceph status &> "logs/${model_}-${app}-microceph-status.txt" || true
+        juju ssh -m "$model" "${app}/leader" sudo microceph.ceph status &> "logs/${model_}-${app}-ceph-status.txt" || true
+    done
 
     juju_crashdump "$model" || echo "Not able to collect crashdump for model $model"
 }
 
 function collect_microceph_logs_for_model() {
     local model="${1?missing}"
-    local model_
+    local model_ status_file
     model_=$(sanitize_model_name "$model")
 
     collect_juju_logs_for_model "$model" || return 0
 
     if collect_microceph_specific_logs_for_model "$model"; then
-      cat "logs/${model_}-microceph-status.txt"
+        for status_file in "logs/${model_}"-*-microceph-status.txt; do
+            [[ -f "$status_file" ]] && cat "$status_file"
+        done
     fi
 }
 

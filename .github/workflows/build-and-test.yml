@@ -1054,7 +1054,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: microceph_juju_mds_test_logs
+          name: microceph_juju_remote_relation_test_logs
           path: logs
           retention-days: 30
 
@@ -1155,7 +1155,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: microceph_juju_mds_test_logs
+          name: microceph_juju_adopt_test_logs
           path: logs
           retention-days: 30
 
