@@ -10,7 +10,7 @@ jobs:
   pack:
     name: Pack ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.platform == 'ubuntu-26.04-s390x' && 180 || 60 }}
     strategy:
       fail-fast: false
       matrix:
