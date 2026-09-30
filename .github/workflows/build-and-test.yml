@@ -1104,6 +1104,28 @@ jobs:
           bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment primary/0 secondary
           bash ./tests/scripts/remote_integration_helpers.sh wait_for_remote_enlistment secondary/0 primary
 
+      - name: Verify the adopted primary can accept new members
+        run: |
+          set -eux
+          # The adopted leader must answer microceph status before a new
+          # unit asks to join: an uninitialized dqlite DB makes the
+          # leader's peers-relation-changed (microceph cluster add) error
+          # and leaves the new unit "waiting to join cluster" until the
+          # 20 minute scale-up timeout. Wait for readiness instead, so a
+          # leader that never becomes ready fails here, fast and labelled.
+          # https://github.com/canonical/charm-microceph/issues/355
+          for i in $(seq 1 60); do
+            if juju ssh primary/leader -- sudo microceph status > /dev/null 2>&1; then
+              echo "primary/leader answers microceph status"
+              exit 0
+            fi
+            echo "primary/leader does not answer microceph status yet, waiting..."
+            sleep 10
+          done
+          echo "ERROR: primary/leader still not answering microceph status" >&2
+          juju ssh primary/leader -- sudo microceph status
+          exit 1
+
       - name: Scale up the primary cluster
         run: |
           set -eux
