@@ -28,6 +28,36 @@ POLL_INTERVAL_PROM="${POLL_INTERVAL_PROM:-30}"
 POLL_INTERVAL_GRAF="${POLL_INTERVAL_GRAF:-60}"
 POLL_INTERVAL_LOKI="${POLL_INTERVAL_LOKI:-30}"
 
+# curl wrapper for polling: never aborts the script (the loops below run
+# under set -e), bounds each probe, and yields an empty body on any failure
+# so callers can treat "no answer yet" like "no data yet".
+probe() {
+  curl -sS --max-time 20 "$@" 2>/dev/null || true
+}
+
+# Extract a JSON field from a (possibly empty or non-JSON) body; prints the
+# fallback when there is nothing usable.
+json_field() {
+  local body="$1" filter="$2" fallback="$3" value
+  value=$(echo "${body}" | jq -r "${filter}" 2>/dev/null || true)
+  echo "${value:-${fallback}}"
+}
+
+# Wait until an HTTP endpoint accepts connections at all. MetalLB announces
+# the traefik VIP via L2 ARP, which can lag the URL Juju reports.
+wait_for_http() {
+  local url="$1" label="$2" i
+  for i in $(seq 1 "${POLL_ATTEMPTS}"); do
+    if curl -sS --max-time 10 -o /dev/null "${url}" 2>/dev/null; then
+      return 0
+    fi
+    echo "    Waiting for ${label} at ${url} to accept connections (attempt ${i}/${POLL_ATTEMPTS})..."
+    sleep "${POLL_INTERVAL_PROM}"
+  done
+  echo "ERROR: ${label} at ${url} never accepted connections" >&2
+  return 1
+}
+
 # --- Resolve the expected dashboards file ---
 if [ ! -f "${EXPECTED_DASHBOARDS_FILE}" ]; then
   echo "ERROR: Expected dashboards file not found at ${EXPECTED_DASHBOARDS_FILE}" >&2
@@ -87,10 +117,12 @@ echo "    Loki URL: ${loki_url}"
 # ==============================================================================
 echo "==> Verifying Prometheus metrics"
 
+wait_for_http "${prom_url}/api/v1/status/buildinfo" "Prometheus"
+
 for i in $(seq 1 "${POLL_ATTEMPTS}"); do
-  curl_output=$(curl -s "${prom_url}/api/v1/query?query=ceph_health_detail")
-  prom_status=$(echo "$curl_output" | jq -r '.status')
-  result_count=$(echo "$curl_output" | jq '.data.result | length')
+  curl_output=$(probe "${prom_url}/api/v1/query?query=ceph_health_detail")
+  prom_status=$(json_field "$curl_output" '.status' "")
+  result_count=$(json_field "$curl_output" '.data.result | length' 0)
   if [[ "$prom_status" == "success" && "$result_count" -gt 0 ]]; then
     echo "    Ceph metrics found in Prometheus (${result_count} result(s))"
     break
@@ -100,9 +132,9 @@ for i in $(seq 1 "${POLL_ATTEMPTS}"); do
 done
 
 # Final assertion
-curl_output=$(curl -s "${prom_url}/api/v1/query?query=ceph_health_detail")
-prom_status=$(echo "$curl_output" | jq -r '.status')
-result_count=$(echo "$curl_output" | jq '.data.result | length')
+curl_output=$(probe "${prom_url}/api/v1/query?query=ceph_health_detail")
+prom_status=$(json_field "$curl_output" '.status' "")
+result_count=$(json_field "$curl_output" '.data.result | length' 0)
 if [[ "$prom_status" != "success" || "$result_count" -eq 0 ]]; then
   echo "ERROR: Prometheus query for ceph_health_detail failed or returned no results: $curl_output" >&2
   exit 1
@@ -117,8 +149,8 @@ echo "==> Verifying Grafana dashboards"
 expected_dashboard_count=$(wc -l <"${EXPECTED_DASHBOARDS_FILE}")
 
 for i in $(seq 1 "${POLL_ATTEMPTS}"); do
-  curl -s -u "admin:${grafana_pass}" "${graf_url}/api/search" |
-    jq '.[].title' | jq -s 'sort' >dashboards.json
+  probe -u "admin:${grafana_pass}" "${graf_url}/api/search" |
+    jq '.[].title' 2>/dev/null | jq -s 'sort' >dashboards.json || true
   cat dashboards.json
   match_count=$(grep -F -c -f "${EXPECTED_DASHBOARDS_FILE}" dashboards.json || true)
   if [[ "$match_count" -eq "$expected_dashboard_count" ]]; then
@@ -149,11 +181,11 @@ echo "==> Verifying Loki logs from MicroCeph units"
 loki_query='{juju_application="microceph"}'
 
 for i in $(seq 1 "${POLL_ATTEMPTS}"); do
-  loki_output=$(curl -s -G "${loki_url}/loki/api/v1/query_range" \
+  loki_output=$(probe -G "${loki_url}/loki/api/v1/query_range" \
     --data-urlencode "query=${loki_query}" \
     --data-urlencode "limit=1")
-  loki_status=$(echo "$loki_output" | jq -r '.status')
-  loki_result_count=$(echo "$loki_output" | jq '.data.result | length')
+  loki_status=$(json_field "$loki_output" '.status' "")
+  loki_result_count=$(json_field "$loki_output" '.data.result | length' 0)
   if [[ "$loki_status" == "success" && "$loki_result_count" -gt 0 ]]; then
     echo "    MicroCeph logs found in Loki (${loki_result_count} stream(s))"
     break
@@ -163,11 +195,11 @@ for i in $(seq 1 "${POLL_ATTEMPTS}"); do
 done
 
 # Final assertion
-loki_output=$(curl -s -G "${loki_url}/loki/api/v1/query_range" \
+loki_output=$(probe -G "${loki_url}/loki/api/v1/query_range" \
   --data-urlencode "query=${loki_query}" \
   --data-urlencode "limit=1")
-loki_status=$(echo "$loki_output" | jq -r '.status')
-loki_result_count=$(echo "$loki_output" | jq '.data.result | length')
+loki_status=$(json_field "$loki_output" '.status' "")
+loki_result_count=$(json_field "$loki_output" '.data.result | length' 0)
 if [[ "$loki_status" != "success" || "$loki_result_count" -eq 0 ]]; then
   echo "ERROR: Loki query for MicroCeph logs failed or returned no results: $loki_output" >&2
   exit 1
