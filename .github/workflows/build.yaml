@@ -63,7 +63,7 @@ jobs:
           mv "microceph_${PLATFORM}.charm" built-charms/
 
       - name: Upload platform charm
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: charm-${{ matrix.platform }}
           path: built-charms/microceph_${{ matrix.platform }}.charm
@@ -80,7 +80,7 @@ jobs:
           persist-credentials: false
 
       - name: Download platform charms
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: charm-ubuntu-*
           merge-multiple: true
@@ -94,7 +94,7 @@ jobs:
 
       # Preserve the artifact contract used by the existing amd64 test jobs.
       - name: Upload collected charms
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: charms
           path: built-charms/*.charm
