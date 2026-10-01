@@ -511,7 +511,7 @@ requires-dist = [
     { name = "jinja2" },
     { name = "jsonschema" },
     { name = "netifaces" },
-    { name = "ops", specifier = "<3.4" },
+    { name = "ops", specifier = "<3.9" },
     { name = "ops-sunbeam", git = "https://opendev.org/openstack/sunbeam-charms?subdirectory=ops-sunbeam&rev=69ec637504645053adee8c89f8e83f24c065745d" },
     { name = "pydantic", specifier = ">=2.12,<2.13" },
     { name = "pyroute2" },
@@ -551,16 +551,16 @@ wheels = [
 
 [[package]]
 name = "ops"
-version = "3.3.1"
+version = "3.8.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "pyyaml" },
     { name = "websocket-client" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3f/cd/bbd4263b53bb19e87f995b05ef93f565fa4edcb90bacacec615d47c56568/ops-3.3.1.tar.gz", hash = "sha256:8dec621c32a31365d040eaf05960c0e65a2ffbcdbfa91107e03b1ee9d4d26034", size = 541783, upload-time = "2025-10-16T01:46:25.431Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/fb/5028f6db40b58939bd352e1373ebf9e722772c8d0929c4977ddb5e674ea5/ops-3.8.3.tar.gz", hash = "sha256:fd0c474f0c650bc9decfa613578a800931e6cf1ea948c7a59f55aeacfd8e6d4e", size = 612626, upload-time = "2026-10-01T03:11:24.325Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/97/c1e5447c3c0d86cab16cad802e1bb58613b2396b7184797af2e4484c2014/ops-3.3.1-py3-none-any.whl", hash = "sha256:38229bb1cc6d9c2aa4dff4495f3e33af928dbd1070e8c5d8b697dfb32dcd89a8", size = 191338, upload-time = "2025-10-16T01:46:20.038Z" },
+    { url = "https://files.pythonhosted.org/packages/91/c1/ec795e4a04815d6a1b6d313cf03821f7041f8d68cad365c0534dcf339118/ops-3.8.3-py3-none-any.whl", hash = "sha256:037feb823874da6d700852e1a5c06927077311c939276daaa1b925fd16cbf15b", size = 216166, upload-time = "2026-10-01T03:11:19.978Z" },
 ]
 
 [[package]]
