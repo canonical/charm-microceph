@@ -83,7 +83,7 @@ def collect_peer_data(model: ops.model.Model) -> dict:
     # Publish the NFS bind address when dedicated binding is enabled; otherwise
     # (option disabled or binding unresolved) drop any previously published
     # value so the NFS provider falls back to the public address.
-    nfs_address = _get_nfs_space_address(model)
+    nfs_address = get_nfs_space_address(model)
     if nfs_address:
         if current_data.get("nfs-address") != nfs_address:
             to_update["nfs-address"] = nfs_address
@@ -93,7 +93,7 @@ def collect_peer_data(model: ops.model.Model) -> dict:
     return to_update
 
 
-def _get_nfs_space_address(model: ops.model.Model) -> Optional[str]:
+def get_nfs_space_address(model: ops.model.Model) -> Optional[str]:
     """Resolve this unit's bind address for the NFS network space.
 
     Returns the ``nfs`` extra-binding's address when

@@ -14,6 +14,7 @@
 
 """Unit tests for StorageHandler config-driven storage reconciliation."""
 
+import json
 from subprocess import CalledProcessError
 from unittest.mock import MagicMock, patch
 
@@ -676,3 +677,60 @@ class TestConfigDrivenStorage(testbase.TestBaseCharm):
 
         self.assertIsInstance(self._storage_config_status(), BlockedStatus)
         self.assertIn("WAL carrier overlaps", self._storage_config_status().message)
+
+    def test_is_unit_storage_eligible_defaults_to_true_when_role_managed_disabled(self):
+        """When role-managed is disabled, any unit is eligible for storage."""
+        self.harness.update_config({"role-managed": False})
+        self.assertTrue(self.harness.charm.is_unit_storage_eligible())
+
+    def test_is_unit_storage_eligible_false_when_role_managed_enabled_but_no_relation(self):
+        """When role-managed is enabled but no relation exists, the unit is ineligible."""
+        self.harness.update_config({"role-managed": True})
+        self.assertFalse(self.harness.charm.is_unit_storage_eligible())
+
+    def test_is_unit_storage_eligible_false_when_role_managed_enabled_but_no_assignments(self):
+        """When relation exists but there are no assignments yet, the unit is ineligible."""
+        self.harness.update_config({"role-managed": True})
+        self.harness.add_relation("role-assignment", "provider-charm")
+        self.assertFalse(self.harness.charm.is_unit_storage_eligible())
+
+    def test_is_unit_storage_eligible_true_when_role_managed_enabled_and_assigned_storage(self):
+        """When assigned storage, the unit is eligible."""
+        self.harness.update_config({"role-managed": True})
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {self.harness.charm.unit.name: {"status": "assigned", "roles": ["storage"]}}
+                )
+            },
+        )
+        self.assertTrue(self.harness.charm.is_unit_storage_eligible())
+
+    def test_is_unit_storage_eligible_false_when_role_managed_enabled_and_assigned_other_roles(
+        self,
+    ):
+        """When assigned other roles but not storage, the unit is ineligible."""
+        self.harness.update_config({"role-managed": True})
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {self.harness.charm.unit.name: {"status": "assigned", "roles": ["control"]}}
+                )
+            },
+        )
+        self.assertFalse(self.harness.charm.is_unit_storage_eligible())
+
+    @patch("storage.microceph.add_disk_match_cmd")
+    def test_config_driven_gating_when_ineligible(self, add_disk_match_cmd):
+        """Config-driven OSD enrollment is skipped when unit is ineligible."""
+        self._setup_ready_charm()
+        self.harness.update_config({"role-managed": True})
+        self.harness.update_config({"osd-devices": "eq(@type,'nvme')"})
+
+        add_disk_match_cmd.assert_not_called()
