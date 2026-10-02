@@ -62,7 +62,8 @@ variable "config" {
   description = <<-DESC
     Additional charm configuration as key/value pairs. Keys must match MicroCeph charm config
     options (for example: snap-channel, default-pool-size, enable-rgw, region, namespace-projects,
-    rbd-stats-pools, enable-perf-metrics). Values are rendered as strings and forwarded to Juju.
+    rbd-stats-pools, enable-perf-metrics, osd-encryption-provider). Values are rendered as
+    strings and forwarded to Juju.
   DESC
   type        = map(string)
   default     = {}
@@ -78,7 +79,8 @@ variable "config" {
           "region",
           "namespace-projects",
           "rbd-stats-pools",
-          "enable-perf-metrics"
+          "enable-perf-metrics",
+          "osd-encryption-provider"
         ],
         key
       )
