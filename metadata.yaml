@@ -44,6 +44,11 @@ provides:
     interface: cos_agent
   remote-provider:
     interface: microceph-remote
+  encrypted-device:
+    interface: encrypted-device
+    optional: true
+    limit: 1
+    scope: container
 
 requires:
   traefik-route-rgw:
