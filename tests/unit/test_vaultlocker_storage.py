@@ -6,15 +6,28 @@
 import json
 from pathlib import Path
 from subprocess import CalledProcessError
-from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 import ops_sunbeam.test_utils as test_utils
+import yaml
 from ops.model import BlockedStatus, WaitingStatus
 from unit import testbase
 
 import charm
 from encrypted_device import StableDevice
+
+
+def test_encrypted_device_endpoint_is_provided_to_vaultlocker():
+    """The MicroCeph principal provides this relation to the Vaultlocker requirer."""
+    metadata = yaml.safe_load(Path("metadata.yaml").read_text(encoding="utf-8"))
+
+    assert metadata["provides"]["encrypted-device"] == {
+        "interface": "encrypted-device",
+        "optional": True,
+        "limit": 1,
+        "scope": "container",
+    }
+    assert "encrypted-device" not in metadata["requires"]
 
 
 class TestVaultlockerStorage(testbase.TestBaseCharm):
@@ -46,6 +59,16 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
         relation_id = self.harness.add_relation("encrypted-device", "vaultlocker")
         self.harness.add_relation_unit(relation_id, "vaultlocker/0")
         return relation_id
+
+    def test_uses_current_encrypted_device_provider_library(self):
+        """Relation publication and parsing go through the shared provider library."""
+        from vaultlocker_interfaces.encrypted_device import EncryptedDeviceProvides
+
+        assert isinstance(self.storage.encrypted_device, EncryptedDeviceProvides)
+
+    def test_does_not_manage_legacy_vaultlocker_systemd_units(self):
+        """The strictly confined snap owns boot unlock through its Pebble service."""
+        assert not hasattr(self.storage, "vaultlocker_osd_dropin")
 
     def test_broken_vaultlocker_relation_blocks_managed_storage(self):
         """A removed provider cannot complete or safely replace active requests."""
@@ -516,7 +539,6 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
             patch("storage.microceph.ensure_dm_crypt") as ensure_dm_crypt,
             patch("storage.microceph.enroll_disks_as_osds") as enroll_disks,
             patch.object(self.storage, "_save_vaultlocker_osd_data"),
-            patch.object(self.storage, "_update_vaultlocker_boot_order"),
         ):
             self.harness.update_relation_data(
                 relation_id,
@@ -538,74 +560,6 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
         request = next(iter(self.storage._stored.vaultlocker_devices.values()))
         assert request["phase"] == "enrolled"
         assert request["mapper_path"] == mapper_path
-
-    def test_boot_order_dropin_tracks_enrolled_vaultlocker_osds(self):
-        """Completed OSDs make the snap service wait for their unlock units."""
-        self.storage._stored.vaultlocker_devices = {
-            "osd-standalone/0": {
-                "phase": "enrolled",
-                "luks_uuid": "a1",
-            },
-            "osd-standalone/1": {
-                "phase": "requested",
-            },
-            "osd-standalone/2": {
-                "phase": "enrolled",
-                "luks_uuid": "b2",
-            },
-        }
-
-        with TemporaryDirectory() as directory:
-            dropin = Path(directory) / "snap.microceph.osd.service.d" / "vaultlocker.conf"
-            self.storage.vaultlocker_osd_dropin = dropin
-            with patch.object(self.storage, "_run") as run:
-                self.storage._update_vaultlocker_boot_order()
-
-            assert dropin.read_text() == (
-                "# Managed by charm-microceph. Do not edit.\n"
-                "[Unit]\n"
-                "After=vaultlocker-decrypt@a1.service vaultlocker-decrypt@b2.service\n"
-            )
-            run.assert_called_once_with(["systemctl", "daemon-reload"])
-
-    def test_boot_order_retries_daemon_reload_after_a_failure(self):
-        """A written drop-in is retried until systemd has loaded it."""
-        self.storage._stored.vaultlocker_devices = {
-            "osd-standalone/0": {"phase": "enrolled", "luks_uuid": "a1"}
-        }
-
-        with TemporaryDirectory() as directory:
-            dropin = Path(directory) / "snap.microceph.osd.service.d" / "vaultlocker.conf"
-            self.storage.vaultlocker_osd_dropin = dropin
-            with patch.object(
-                self.storage,
-                "_run",
-                side_effect=CalledProcessError(1, ["systemctl", "daemon-reload"]),
-            ):
-                with self.assertRaises(CalledProcessError):
-                    self.storage._update_vaultlocker_boot_order()
-
-            assert self.storage._stored.vaultlocker_boot_order_dirty
-            with patch.object(self.storage, "_run") as run:
-                self.storage._update_vaultlocker_boot_order()
-
-            run.assert_called_once_with(["systemctl", "daemon-reload"])
-            assert not self.storage._stored.vaultlocker_boot_order_dirty
-
-    def test_boot_order_dropin_is_removed_when_no_osds_remain(self):
-        """The OSD service stops ordering against removed Vaultlocker devices."""
-        self.storage._stored.vaultlocker_devices = {"osd-standalone/0": {"phase": "requested"}}
-
-        with TemporaryDirectory() as directory:
-            dropin = Path(directory) / "snap.microceph.osd.service.d" / "vaultlocker.conf"
-            dropin.parent.mkdir()
-            dropin.write_text("[Unit]\nAfter=vaultlocker-decrypt@old.service\n")
-            self.storage.vaultlocker_osd_dropin = dropin
-            with patch.object(self.storage, "_run") as run:
-                self.storage._update_vaultlocker_boot_order()
-
-            assert not dropin.exists()
-            run.assert_called_once_with(["systemctl", "daemon-reload"])
 
     def test_detaching_pending_storage_withdraws_vaultlocker_request(self):
         """Detaching before a result withdraws the uncompleted request."""
@@ -677,7 +631,6 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
             patch("storage.utils.is_departing", return_value=False),
             patch.object(self.storage, "_get_vaultlocker_mapper_osd_id", return_value=5),
             patch.object(self.storage, "remove_osd") as remove_osd,
-            patch.object(self.storage, "_update_vaultlocker_boot_order"),
         ):
             self.storage._on_storage_detaching(event)
 
@@ -685,7 +638,7 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
         assert storage_name not in self.storage._stored.vaultlocker_devices
 
     def test_force_detach_withdraws_completed_vaultlocker_request(self):
-        """Forced OSD removal cannot leave a stale request or boot dependency behind."""
+        """Forced OSD removal cannot leave a stale Vaultlocker request behind."""
         storage_name = "osd-standalone/0"
         self.storage._stored.osd_data = {5: {"disk": storage_name}}
         self.storage._stored.vaultlocker_devices = {
@@ -707,12 +660,10 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
         with (
             patch("storage.utils.is_departing", return_value=False),
             patch.object(self.storage, "remove_osd", side_effect=[safety_error, None]),
-            patch.object(self.storage, "_update_vaultlocker_boot_order") as update_boot_order,
         ):
             self.storage._on_storage_detaching(event)
 
         assert storage_name not in self.storage._stored.vaultlocker_devices
-        update_boot_order.assert_called_once_with()
 
     def test_attached_storage_publishes_fresh_vaultlocker_request(self):
         """Vaultlocker mode publishes an empty request and waits for its result."""
@@ -789,7 +740,6 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
             ) as ensure_dm_crypt,
             patch("storage.microceph.enroll_disks_as_osds") as enroll_disks,
             patch.object(self.storage, "_save_vaultlocker_osd_data") as save_osd_data,
-            patch.object(self.storage, "_update_vaultlocker_boot_order") as update_boot_order,
         ):
             self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
             self.storage._on_osd_standalone_attached(MagicMock())
@@ -798,7 +748,6 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
         assert phase_when_dm_crypt_is_prepared == ["requested"]
         enroll_disks.assert_called_once_with([mapper_path])
         save_osd_data.assert_called_once_with("osd-standalone/0", mapper_path)
-        update_boot_order.assert_called()
         request = self.storage._stored.vaultlocker_devices["osd-standalone/0"]
         assert request["phase"] == "enrolled"
         assert request["relation_id"] == relation_id
@@ -848,7 +797,6 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
                 return_value=StableDevice(path=stable_path, rdev=2048),
             ),
             patch("storage.validate_mapper_block_device"),
-            patch.object(self.storage, "_update_vaultlocker_boot_order"),
         ):
             self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
 
@@ -902,7 +850,6 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
             patch("storage.microceph.ensure_dm_crypt") as ensure_dm_crypt,
             patch("storage.microceph.enroll_disks_as_osds") as enroll_disks,
             patch.object(self.storage, "_save_vaultlocker_osd_data") as save_osd_data,
-            patch.object(self.storage, "_update_vaultlocker_boot_order"),
         ):
             self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
             self.storage._on_osd_standalone_attached(MagicMock())
@@ -1029,7 +976,6 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
                 "storage.resolve_stable_block_device",
                 return_value=StableDevice(path=stable_path, rdev=2048),
             ),
-            patch.object(self.storage, "_update_vaultlocker_boot_order"),
         ):
             self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
 
@@ -1068,6 +1014,134 @@ class TestVaultlockerStorage(testbase.TestBaseCharm):
         status = self.storage.storage_config_status.status
         assert isinstance(status, BlockedStatus)
         assert status.message == "Juju storage attachment changed during Vaultlocker provisioning"
+
+    def test_completed_result_remains_persisted_when_provider_data_is_temporarily_empty(self):
+        """A later empty result map does not repeat or forget completed enrollment."""
+        relation_id = self._add_vaultlocker_relation()
+        storage_name = "osd-standalone/0"
+        stable_path = "/dev/disk/by-id/wwn-0x5000c500aabbcc01"
+        request = {
+            "request_path": stable_path,
+            "rdev": 2048,
+            "relation_id": relation_id,
+            "phase": "enrolled",
+            "mapper_path": "/dev/mapper/crypt-a1b2c3d4",
+            "luks_uuid": "a1b2c3d4",
+        }
+        self.storage._stored.vaultlocker_devices = {storage_name: request}
+        self.storage._stored.osd_data = {5: {"disk": storage_name}}
+
+        with (
+            patch.object(self.storage, "_clean_stale_osd_data"),
+            patch.object(self.storage, "_fetch_filtered_storages", return_value=[storage_name]),
+            patch("storage.microceph.enroll_disks_as_osds") as enroll_disks,
+        ):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+            self.harness.update_relation_data(
+                relation_id,
+                "vaultlocker/0",
+                {"device_results": "{}"},
+            )
+
+        assert self.storage._stored.vaultlocker_devices[storage_name] == request
+        enroll_disks.assert_not_called()
+
+    def test_unavailable_mapper_is_retried_on_later_result_change(self):
+        """An incomplete reconciliation retries without losing the durable request."""
+        relation_id = self._add_vaultlocker_relation()
+        storage_name = "osd-standalone/0"
+        stable_path = "/dev/disk/by-id/wwn-0x5000c500aabbcc01"
+        mapper_path = "/dev/mapper/crypt-a1b2c3d4"
+        self.storage._stored.vaultlocker_devices = {
+            storage_name: {
+                "request_path": stable_path,
+                "rdev": 2048,
+                "relation_id": relation_id,
+                "phase": "requested",
+            }
+        }
+        result_data = json.dumps(
+            {
+                stable_path: {
+                    "mapper_path": mapper_path,
+                    "luks_uuid": "a1b2c3d4",
+                }
+            }
+        )
+
+        with (
+            patch.object(self.storage, "_clean_stale_osd_data"),
+            patch.object(self.storage, "_fetch_filtered_storages", return_value=[storage_name]),
+            patch.object(self.storage, "juju_storage_get", return_value="/dev/vdb"),
+            patch(
+                "storage.resolve_stable_block_device",
+                return_value=StableDevice(path=stable_path, rdev=2048),
+            ),
+            patch(
+                "storage.validate_mapper_block_device",
+                side_effect=[ValueError("mapper is not ready"), None],
+            ) as validate_mapper,
+            patch("storage.microceph.ensure_dm_crypt"),
+            patch("storage.microceph.enroll_disks_as_osds") as enroll_disks,
+            patch.object(self.storage, "_save_vaultlocker_osd_data"),
+        ):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+            self.harness.update_relation_data(
+                relation_id,
+                "vaultlocker/0",
+                {"device_results": result_data},
+            )
+            assert self.storage._stored.vaultlocker_devices[storage_name]["phase"] == "requested"
+
+            self.harness.update_relation_data(
+                relation_id,
+                "vaultlocker/0",
+                {"retry": "1"},
+            )
+
+        assert validate_mapper.call_count == 2
+        enroll_disks.assert_called_once_with([mapper_path])
+        assert self.storage._stored.vaultlocker_devices[storage_name]["phase"] == "enrolled"
+
+    def test_unsupported_vaultlocker_result_field_is_rejected(self):
+        """The shared contract rejects provider fields unknown to this version."""
+        relation_id = self._add_vaultlocker_relation()
+        stable_path = "/dev/disk/by-id/wwn-0x5000c500aabbcc01"
+        self.storage._stored.vaultlocker_devices = {
+            "osd-standalone/0": {
+                "request_path": stable_path,
+                "rdev": 2048,
+                "relation_id": relation_id,
+                "phase": "requested",
+            }
+        }
+
+        with (
+            patch.object(self.storage, "_clean_stale_osd_data"),
+            patch.object(self.storage, "_fetch_filtered_storages", return_value=[]),
+            patch("storage.microceph.enroll_disks_as_osds") as enroll_disks,
+        ):
+            self.harness.update_config({"osd-encryption-provider": "vaultlocker"})
+            self.harness.update_relation_data(
+                relation_id,
+                "vaultlocker/0",
+                {
+                    "device_results": json.dumps(
+                        {
+                            stable_path: {
+                                "mapper_path": "/dev/mapper/crypt-a1b2c3d4",
+                                "luks_uuid": "a1b2c3d4",
+                                "status": "ready",
+                            }
+                        }
+                    )
+                },
+            )
+
+        status = self.storage.storage_status.status
+        assert isinstance(status, BlockedStatus)
+        assert status.message == "Invalid Vaultlocker device result"
+        enroll_disks.assert_not_called()
 
     def test_invalid_vaultlocker_result_blocks_without_enrolling_osd(self):
         """Verify that the charm does not consume an incomplete Vaultlocker result."""
