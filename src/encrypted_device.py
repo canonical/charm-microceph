@@ -1,26 +1,14 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Helpers for the OS116 encrypted-device relation contract."""
+"""Host-side validation helpers for Vaultlocker-backed devices."""
 
 import glob
 import json
 import os
-import re
 import stat
 import subprocess
 from dataclasses import dataclass
-
-DEVICE_REQUESTS_KEY = "device_requests"
-DEVICE_RESULTS_KEY = "device_results"
-
-
-@dataclass(frozen=True)
-class DeviceResult:
-    """A successfully provisioned device published by Vaultlocker."""
-
-    mapper_path: str
-    luks_uuid: str
 
 
 @dataclass(frozen=True)
@@ -128,51 +116,3 @@ def validate_mapper_block_device(mapper_path: str) -> None:
 
     if not stat.S_ISBLK(mapper_stat.st_mode):
         raise ValueError("mapper_path is not a block device")
-
-
-def render_osd_unlock_dropin(luks_uuids: list[str]) -> str:
-    """Render OSD systemd ordering for Vaultlocker-managed mapper devices.
-
-    Vaultlocker's decrypt units are one-shot services, so they are deliberately
-    ordered with ``After=`` rather than made ``Requires=`` dependencies.
-    """
-    unlock_units = [f"vaultlocker-decrypt@{uuid}.service" for uuid in sorted(luks_uuids)]
-    unit_list = " ".join(unlock_units)
-    return "# Managed by charm-microceph. Do not edit.\n" "[Unit]\n" f"After={unit_list}\n"
-
-
-def build_fresh_device_requests(device_paths: list[str]) -> str:
-    """Encode fresh-encryption requests for the encrypted-device relation."""
-    return json.dumps({path: {} for path in sorted(device_paths)}, sort_keys=True)
-
-
-def parse_device_results(raw_results: str) -> dict[str, DeviceResult]:
-    """Decode successful encrypted-device results from a provider unit databag."""
-    try:
-        encoded_results = json.loads(raw_results)
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise ValueError("device_results is not valid JSON") from exc
-
-    if not isinstance(encoded_results, dict):
-        raise ValueError("device_results must be a JSON object")
-
-    results = {}
-    for path, result in encoded_results.items():
-        if not isinstance(path, str) or not isinstance(result, dict):
-            raise ValueError("device_results entries must map paths to objects")
-
-        mapper_path = result.get("mapper_path")
-        if not isinstance(mapper_path, str) or not mapper_path:
-            raise ValueError("device_results entry is missing mapper_path")
-        if not mapper_path.startswith("/dev/mapper/"):
-            raise ValueError("device_results entry has an invalid mapper_path")
-
-        luks_uuid = result.get("luks_uuid")
-        if not isinstance(luks_uuid, str) or not luks_uuid:
-            raise ValueError("device_results entry is missing luks_uuid")
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", luks_uuid):
-            raise ValueError("device_results entry has an invalid luks_uuid")
-
-        results[path] = DeviceResult(mapper_path=mapper_path, luks_uuid=luks_uuid)
-
-    return results
