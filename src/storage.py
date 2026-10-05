@@ -19,7 +19,6 @@
 import json
 import logging
 from dataclasses import asdict
-from pathlib import Path
 from subprocess import CalledProcessError, TimeoutExpired, run
 from types import SimpleNamespace
 
@@ -29,16 +28,15 @@ from ops.charm import ActionEvent, CharmBase, StorageAttachedEvent, StorageDetac
 from ops.framework import Object, StoredState
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
 from tenacity import retry, stop_after_attempt, wait_fixed
+from vaultlocker_interfaces.encrypted_device import (
+    DeviceRequest,
+    EncryptedDeviceProvides,
+)
 
 import microceph
 import utils
 from device_flags import DeviceAddFlags, parse_device_add_flags
 from encrypted_device import (
-    DEVICE_REQUESTS_KEY,
-    DEVICE_RESULTS_KEY,
-    build_fresh_device_requests,
-    parse_device_results,
-    render_osd_unlock_dropin,
     resolve_stable_block_device,
     validate_fresh_encryption_target,
     validate_mapper_block_device,
@@ -65,9 +63,6 @@ class StorageHandler(Object):
     encrypted_device_relation = "encrypted-device"
     vaultlocker_provider = "vaultlocker"
     vaultlocker_action_prefix = "add-osd:"
-    vaultlocker_osd_dropin = Path(
-        "/etc/systemd/system/snap.microceph.osd.service.d/vaultlocker.conf"
-    )
 
     charm = None
     # _stored: per unit stored state for storage class. Contains:
@@ -84,10 +79,13 @@ class StorageHandler(Object):
             last_encrypt_osd=False,
             last_storage_config_signature="",
             vaultlocker_devices={},
-            vaultlocker_boot_order_dirty=False,
         )
         self.charm = charm
         self.name = name
+        self.encrypted_device = EncryptedDeviceProvides(
+            charm,
+            self.encrypted_device_relation,
+        )
         self.storage_status = compound_status.Status(self.name)
         self.storage_config_status = compound_status.Status(f"{self.name}-config")
         self.charm.status_pool.add(self.storage_status)
@@ -111,7 +109,7 @@ class StorageHandler(Object):
             self._on_encrypted_device_relation_changed,
         )
         self.framework.observe(
-            charm.on[self.encrypted_device_relation].relation_changed,
+            self.encrypted_device.on.results_changed,
             self._on_encrypted_device_relation_changed,
         )
         self.framework.observe(
@@ -221,7 +219,6 @@ class StorageHandler(Object):
             self._vaultlocker_results(relation),
         )
         self._publish_vaultlocker_requests(relation)
-        self._update_vaultlocker_boot_order_if_needed()
         self._set_vaultlocker_reconcile_status(requested_paths, pending_paths)
 
     def _assert_vaultlocker_relation_is_unchanged(self, relation) -> None:
@@ -429,15 +426,6 @@ class StorageHandler(Object):
         self._save_vaultlocker_osd_data(storage_name, result.mapper_path)
         request["phase"] = "enrolled"
 
-    def _update_vaultlocker_boot_order_if_needed(self) -> None:
-        """Synchronize OSD boot ordering whenever it changed or an OSD is managed."""
-        has_enrolled_mapper = any(
-            request.get("phase") == "enrolled"
-            for request in self._stored.vaultlocker_devices.values()
-        )
-        if has_enrolled_mapper or self._stored.vaultlocker_boot_order_dirty:
-            self._update_vaultlocker_boot_order()
-
     def _set_vaultlocker_reconcile_status(
         self,
         requested_paths: list,
@@ -457,71 +445,37 @@ class StorageHandler(Object):
 
     def _publish_vaultlocker_requests(self, relation) -> None:
         """Publish the complete immutable request map from local durable state."""
-        device_paths = [
-            request["request_path"] for request in self._stored.vaultlocker_devices.values()
+        requests = [
+            DeviceRequest(target=request["request_path"])
+            for request in self._stored.vaultlocker_devices.values()
         ]
-        device_requests = build_fresh_device_requests(device_paths)
-        relation_data = relation.data[self.charm.unit]
-        if relation_data.get(DEVICE_REQUESTS_KEY) != device_requests:
-            relation_data[DEVICE_REQUESTS_KEY] = device_requests
+        self.encrypted_device.set_device_requests(relation, requests)
 
     def _withdraw_vaultlocker_request(self, storage_name: str) -> None:
         """Withdraw a request after its associated Juju storage is detached."""
-        request = self._stored.vaultlocker_devices.pop(storage_name, None)
+        self._stored.vaultlocker_devices.pop(storage_name, None)
         relation = self.charm.model.get_relation(self.encrypted_device_relation)
         if relation is not None:
             self._publish_vaultlocker_requests(relation)
-        if request and request.get("phase") == "enrolled":
-            self._update_vaultlocker_boot_order()
-
-    def _update_vaultlocker_boot_order(self) -> None:
-        """Order the MicroCeph OSD service after every managed unlock unit."""
-        luks_uuids = sorted(
-            {
-                request["luks_uuid"]
-                for request in self._stored.vaultlocker_devices.values()
-                if request.get("phase") == "enrolled" and request.get("luks_uuid")
-            }
-        )
-        dropin = self.vaultlocker_osd_dropin
-        if luks_uuids:
-            content = render_osd_unlock_dropin(luks_uuids)
-            existing_content = dropin.read_text(encoding="utf-8") if dropin.exists() else None
-            if existing_content != content:
-                self._stored.vaultlocker_boot_order_dirty = True
-                dropin.parent.mkdir(parents=True, exist_ok=True)
-                dropin.write_text(content, encoding="utf-8")
-                dropin.chmod(0o644)
-        elif dropin.exists():
-            self._stored.vaultlocker_boot_order_dirty = True
-            dropin.unlink()
-
-        if not self._stored.vaultlocker_boot_order_dirty:
-            return
-        self._run(["systemctl", "daemon-reload"])
-        self._stored.vaultlocker_boot_order_dirty = False
 
     def _vaultlocker_results(self, relation) -> dict:
         """Return the complete, non-conflicting result map from provider units."""
         results = {}
         for unit in relation.units:
-            raw_results = relation.data[unit].get(DEVICE_RESULTS_KEY)
-            if not raw_results:
-                continue
             try:
-                unit_results = parse_device_results(raw_results)
+                unit_results = self.encrypted_device.get_device_results(relation, unit)
             except ValueError as exc:
                 logger.warning("Vaultlocker returned an invalid device result: %s", exc)
                 raise sunbeam_guard.BlockedExceptionError(
                     "Invalid Vaultlocker device result"
                 ) from exc
-            for path, result in unit_results.items():
-                existing = results.get(path)
+            for result in unit_results:
+                existing = results.get(result.target)
                 if existing is not None and existing != result:
                     raise sunbeam_guard.BlockedExceptionError(
                         "Vaultlocker returned conflicting results for an OSD device"
                     )
-                results[path] = result
+                results[result.target] = result
         return results
 
     def _on_storage_detaching(self, event: StorageDetachingEvent):
@@ -542,8 +496,6 @@ class StorageHandler(Object):
         if osd_num is None:
             if request:
                 self._withdraw_vaultlocker_request(storage_name)
-            elif self._stored.vaultlocker_boot_order_dirty:
-                self._update_vaultlocker_boot_order()
             return
 
         # Whole-application teardown: when the entire application is being removed
@@ -568,7 +520,7 @@ class StorageHandler(Object):
                     )
                     logger.warning(warning)
                     # Forcefully remove the OSD because Juju WILL deprovision storage.
-                    # Its Vaultlocker request and boot dependency must be removed as well.
+                    # Its Vaultlocker request must be removed as well.
                     self.remove_osd(osd_num, force=True)
                     self._withdraw_vaultlocker_request(storage_name)
                     raise sunbeam_guard.BlockedExceptionError(warning)

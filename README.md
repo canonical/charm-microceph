@@ -114,9 +114,10 @@ layer before publishing a request.
 A missing matching result means Vaultlocker has not completed safely; investigate
 its unit status and logs rather than falling back to native `--encrypt`. Do not
 switch the provider back to `none` while Vaultlocker-managed storage remains.
-MicroCeph writes a systemd drop-in so its OSD service starts after the relevant
-Vaultlocker boot-unlock units. Removing a request or relation does not decrypt
-the device or remove its Vault-managed key.
+The strictly confined Vaultlocker snap owns boot-time unlock through its Pebble
+service; MicroCeph does not create legacy `vaultlocker-decrypt@` systemd units.
+Removing a request or relation does not decrypt the device or remove its
+Vault-managed key.
 
 ## Terraform module
 

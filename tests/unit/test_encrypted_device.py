@@ -12,9 +12,6 @@ import pytest
 
 from encrypted_device import (
     StableDevice,
-    build_fresh_device_requests,
-    parse_device_results,
-    render_osd_unlock_dropin,
     resolve_stable_block_device,
     validate_fresh_encryption_target,
     validate_mapper_block_device,
@@ -159,89 +156,3 @@ def test_validate_mapper_block_device_requires_an_open_block_device():
         return_value=SimpleNamespace(st_mode=stat.S_IFBLK, st_rdev=253),
     ):
         validate_mapper_block_device(mapper_path)
-
-
-def test_render_osd_unlock_dropin_orders_each_vaultlocker_unit():
-    """The MicroCeph OSD service waits for all managed unlock units at boot."""
-    assert render_osd_unlock_dropin(["b2", "a1"]) == (
-        "# Managed by charm-microceph. Do not edit.\n"
-        "[Unit]\n"
-        "After=vaultlocker-decrypt@a1.service vaultlocker-decrypt@b2.service\n"
-    )
-
-
-def test_build_fresh_device_requests_uses_empty_request_values():
-    """Fresh-encryption requests use stable paths as keys and empty values."""
-    requests = build_fresh_device_requests(
-        [
-            "/dev/disk/by-id/wwn-0x5000c500aabbcc01",
-            "/dev/disk/by-id/wwn-0x5000c500aabbcc02",
-        ]
-    )
-
-    assert json.loads(requests) == {
-        "/dev/disk/by-id/wwn-0x5000c500aabbcc01": {},
-        "/dev/disk/by-id/wwn-0x5000c500aabbcc02": {},
-    }
-
-
-def test_parse_device_results_returns_mapper_and_luks_uuid():
-    """A completed provider result supplies the mapper path and LUKS UUID."""
-    results = parse_device_results(
-        json.dumps(
-            {
-                "/dev/disk/by-id/wwn-0x5000c500aabbcc01": {
-                    "mapper_path": "/dev/mapper/crypt-a1b2c3d4",
-                    "luks_uuid": "a1b2c3d4",
-                }
-            }
-        )
-    )
-
-    result = results["/dev/disk/by-id/wwn-0x5000c500aabbcc01"]
-    assert result.mapper_path == "/dev/mapper/crypt-a1b2c3d4"
-    assert result.luks_uuid == "a1b2c3d4"
-
-
-def test_parse_device_results_rejects_non_mapper_path():
-    """Provider results must identify the opened device-mapper node."""
-    with pytest.raises(ValueError, match="mapper_path"):
-        parse_device_results(
-            json.dumps(
-                {
-                    "/dev/disk/by-id/wwn-0x5000c500aabbcc01": {
-                        "mapper_path": "/dev/vdb",
-                        "luks_uuid": "a1b2c3d4",
-                    }
-                }
-            )
-        )
-
-
-def test_parse_device_results_rejects_unsafe_luks_uuid():
-    """A LUKS UUID cannot inject additional systemd unit directives."""
-    with pytest.raises(ValueError, match="luks_uuid"):
-        parse_device_results(
-            json.dumps(
-                {
-                    "/dev/disk/by-id/wwn-0x5000c500aabbcc01": {
-                        "mapper_path": "/dev/mapper/crypt-a1b2c3d4",
-                        "luks_uuid": "a1\nRequires=attacker.service",
-                    }
-                }
-            )
-        )
-
-
-def test_parse_device_results_rejects_incomplete_provider_result():
-    """An incomplete provider result is not safe to consume as an OSD."""
-    with pytest.raises(ValueError, match="mapper_path"):
-        parse_device_results(
-            json.dumps(
-                {
-                    "/dev/disk/by-id/wwn-0x5000c500aabbcc01": {
-                        "luks_uuid": "a1b2c3d4",
-                    }
-                }
-            )
-        )
