@@ -95,7 +95,7 @@ jobs:
       CLIENT_NAME: johnny
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -130,7 +130,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_integration_test_logs
           path: logs
@@ -150,7 +150,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -178,7 +178,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_functional_test_logs
           path: logs
@@ -198,7 +198,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -258,7 +258,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_cluster_test_logs
           path: logs
@@ -278,7 +278,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -549,7 +549,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_cluster_maintenance_test_logs
           path: logs
@@ -569,7 +569,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -599,7 +599,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_wipe_test_logs
           path: logs
@@ -615,7 +615,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -697,7 +697,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_single_test_logs
           path: logs
@@ -717,7 +717,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -836,7 +836,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_upgrade_test_logs
           path: logs
@@ -856,7 +856,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -906,7 +906,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_network_spaces_test_logs
           path: logs
@@ -926,7 +926,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -980,7 +980,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_mds_test_logs
           path: logs
@@ -1000,7 +1000,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -1077,7 +1077,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_remote_relation_test_logs
           path: logs
@@ -1095,7 +1095,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -1179,7 +1179,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_adopt_test_logs
           path: logs
@@ -1199,7 +1199,7 @@ jobs:
     runs-on: self-hosted-linux-amd64-noble-xlarge
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -1259,7 +1259,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_storage_cluster_test_logs
           path: logs
@@ -1280,7 +1280,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -1322,7 +1322,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_az_fresh_deploy_test_logs
           path: logs
@@ -1343,7 +1343,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -1393,7 +1393,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_az_upgrade_test_logs
           path: logs
@@ -1428,7 +1428,7 @@ jobs:
             artifact_suffix: otel
     steps:
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -1572,7 +1572,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_${{ matrix.artifact_suffix }}_integration_logs
           path: logs
@@ -1593,7 +1593,7 @@ jobs:
     steps:
 
       - name: Download charm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: charms
           path: ~/artifacts/
@@ -1711,7 +1711,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: microceph_juju_upgrade_test_logs
           path: logs
