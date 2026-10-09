@@ -27,7 +27,7 @@ import subprocess
 from pathlib import Path
 from socket import gethostname
 from subprocess import CalledProcessError, TimeoutExpired
-from typing import List
+from typing import List, Optional
 
 import netifaces
 import ops.framework
@@ -39,6 +39,7 @@ from charms.operator_libs_linux.v2 import snap
 from charms.role_distributor.v0.role_assignment import RoleAssignmentRequirer, UnitRoleAssignment
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus
+from requests.exceptions import HTTPError
 
 import ceph
 import cluster
@@ -70,6 +71,8 @@ CACERT_FILE = "/usr/local/share/ca-certificates/receive-keystone-ca-bundle.crt"
 MAX_PG_PER_OSD = 400
 PUBLIC_NETWORK_CONFIG = "ceph-public-network"
 CLUSTER_NETWORK_CONFIG = "ceph-cluster-network"
+DECLARATIVE_PLACEMENT_CAPABILITY = "declarative-placement"
+PLACEMENT_RGW_CAPABILITY = "placement-rgw"
 
 
 class SafeRoleAssignmentRequirer(RoleAssignmentRequirer):
@@ -472,6 +475,57 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
         return "storage" in (assignment.roles or [])
 
+    def rgw_requested(self) -> bool:
+        """Check if RGW should run anywhere in the cluster.
+
+        Without role-managed mode this is the enable-rgw config. With it, RGW
+        is requested while any unit holds the rgw gateway flavor or any member
+        still runs a gateway. An unreadable placement status counts as
+        requested, so a transient API error never strips the RGW configs.
+        """
+        if not self.role_managed_enabled():
+            return self.model.config.get("enable-rgw") == "*"
+
+        if self._desired_rgw_units():
+            return True
+
+        observed = self._observed_rgw_frontends()
+        return observed is None or bool(observed)
+
+    @staticmethod
+    def _assignment_wants_rgw(assignment: UnitRoleAssignment) -> bool:
+        """Check if an assignment places an RGW gateway on its unit."""
+        if assignment.status != "assigned" or "gateway" not in (assignment.roles or []):
+            return False
+        flavors = (assignment.workload_params or {}).get("flavors")
+        return isinstance(flavors, list) and "rgw" in flavors
+
+    def _desired_rgw_units(self) -> set:
+        """Unit names the role-assignment relation asks to run RGW."""
+        try:
+            assignments = self._get_role_assignments() or {}
+        except (TypeError, ValueError):
+            return set()
+        return {
+            unit_name
+            for unit_name, assignment in assignments.items()
+            if self._assignment_wants_rgw(assignment)
+        }
+
+    def _observed_rgw_frontends(self) -> Optional[dict]:
+        """Map members running RGW to their applied frontend, or None if unknown."""
+        try:
+            status = microceph.Client.from_socket().cluster.get_placement()
+        except Exception as e:
+            logger.warning("Could not read placement status: %s", e)
+            return None
+
+        return {
+            observed["member"]: observed.get("rgw_frontend") or {}
+            for observed in status.get("observed") or []
+            if observed.get("rgw")
+        }
+
     def is_valid_placement_directive(self, directive: str) -> bool:
         """Check if placement directive is valid or not."""
         supported_directives = ["*", ""]
@@ -550,9 +604,58 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             },
         ]
 
+    def _get_hostname_to_public_address_map(self) -> dict:
+        """Map member names (hostnames) to unit public addresses."""
+        addresses = {}
+        unit_to_hostname = self._get_unit_to_hostname_map()
+        binding = self.model.get_binding("public")
+        if binding and binding.network.bind_address:
+            addresses[unit_to_hostname[self.unit.name]] = str(binding.network.bind_address)
+
+        peers = self.model.get_relation("peers")
+        if peers:
+            for unit in peers.units:
+                hostname = unit_to_hostname.get(unit.name)
+                address = peers.data[unit].get("public-address")
+                if hostname and address:
+                    addresses[hostname] = address
+        return addresses
+
+    @staticmethod
+    def _rgw_backend_url(address: str, port: int) -> str:
+        """Format public IPv4 or IPv6 addresses as Traefik backend URLs."""
+        host = f"[{address}]" if ":" in address else address
+        return f"http://{host}:{port}"
+
+    def _role_managed_rgw_servers(self) -> Optional[List[dict]]:
+        """Traefik backends for the members the snap reports running RGW.
+
+        Returns None when the placement status cannot be read, so the
+        caller keeps the current route instead of publishing no backends.
+        """
+        frontends = self._observed_rgw_frontends()
+        if frontends is None:
+            return None
+
+        addresses = self._get_hostname_to_public_address_map()
+        servers = []
+        for member, frontend in sorted(frontends.items()):
+            address = addresses.get(member)
+            if not address:
+                logger.warning("No public address for RGW member %s", member)
+                continue
+            if frontend.get("ssl") and not frontend.get("port"):
+                logger.warning("RGW on %s serves TLS only; not routed by traefik", member)
+                continue
+            # A gateway started before the snap recorded frontends has no
+            # rgw_frontend; it runs on the default plaintext port.
+            port = frontend.get("port") or self.rgw_port
+            servers.append({"url": self._rgw_backend_url(address, port)})
+        return servers
+
     @property
-    def traefik_config(self) -> dict:
-        """Config to publish to traefik."""
+    def traefik_config(self) -> Optional[dict]:
+        """Config to publish to traefik, or None if the RGW backends are unknown."""
         model = self.model.name
         app = "rgw"
 
@@ -801,8 +904,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             logger.error("Malformed role-assignment assignments data: %s", e)
             raise
 
-        if not isinstance(assignments, dict) or not assignments:
-            logger.warning("Assignments must be a non-empty dictionary")
+        if not isinstance(assignments, dict):
+            logger.warning("Assignments must be a dictionary")
             return None
 
         ret = {}
@@ -884,7 +987,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         return unit_to_address
 
     def _build_placement_policy_members(
-        self, assignments: dict, unit_to_hostname: dict, unit_to_address: dict
+        self,
+        assignments: dict,
+        unit_to_hostname: dict,
+        unit_to_address: dict,
+        rgw_supported: bool,
     ) -> dict:
         """Build the members dictionary for the placement policy."""
         members = {}
@@ -908,7 +1015,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             members[hostname] = {
                 "control": control,
                 "storage_eligible": storage,
-                "rgw": rgw,
+                "rgw": self._rgw_placement(rgw) if rgw_supported else rgw,
                 "nfs": nfs,
             }
         return members
@@ -953,7 +1060,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             )
 
     def _reconcile_placement(self, event: ops.framework.EventBase) -> None:
-        """Reconcile role-managed placement policy for the storage role."""
+        """Reconcile role-managed placement with RGW frontend intent."""
         if not self.unit.is_leader():
             return
 
@@ -993,14 +1100,37 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         if self._check_assignments_frozen(assignments):
             return
 
+        rgw_supported = (
+            self._check_placement_capabilities(assignments, event) if assignments else False
+        )
         unit_to_hostname = self._get_unit_to_hostname_map()
+        if any(self._assignment_wants_rgw(a) for a in assignments.values()):
+            # Peers advertise hostnames before joining MicroCeph, so a hostname
+            # alone does not mean the snap can place RGW on that member yet.
+            # Keep the local leader and peers that have confirmed their join;
+            # the policy builder skips assignments whose hostname is filtered out.
+            # This filters all assignments when any requests RGW, not just the RGW
+            # targets; without RGW requests, retain the existing storage/NFS path.
+            joined_units = {self.unit.name}
+            peers = self.model.get_relation("peers")
+            if peers:
+                joined_units.update(
+                    unit.name for unit in peers.units if peers.data[unit].get("joined") == "true"
+                )
+            unit_to_hostname = {
+                unit_name: hostname
+                for unit_name, hostname in unit_to_hostname.items()
+                if unit_name in joined_units
+            }
+
         unit_to_address = self._get_unit_to_address_map()
 
         members = self._build_placement_policy_members(
-            assignments, unit_to_hostname, unit_to_address
+            assignments, unit_to_hostname, unit_to_address, rgw_supported
         )
         policy = {"mode": "reconcile", "members": members}
         self._apply_placement_policy(policy, event)
+        self._refresh_traefik_route()
 
     def _on_role_assignment_changed(self, event):
         """Handle role-assignment changed event."""
@@ -1011,6 +1141,57 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Handle role-assignment revoked event."""
         self.configure_charm(event)
         self.storage._on_config_changed_osd_devices(event)
+
+    def _rgw_placement(self, enabled: bool) -> dict:
+        """Build the RGW object of a member's placement entry."""
+        if not enabled:
+            return {"enabled": False}
+        # TLS is terminated at the traefik ingress, so the gateway serves
+        # plaintext on the port traefik routes to.
+        return {"enabled": True, "ssl": False, "port": self.rgw_port}
+
+    def _get_snap_capabilities(self, event: ops.framework.EventBase) -> List[str]:
+        """List the capability markers of the local snap."""
+        try:
+            return microceph.Client.from_socket().cluster.get_capabilities()
+        except ClusterServiceUnavailableException as e:
+            logger.warning("Could not read snap capabilities: %s", e)
+            event.defer()
+            raise sunbeam_guard.WaitingExceptionError(
+                "waiting for microceph snap API to read capabilities"
+            )
+        except HTTPError as e:
+            if getattr(e.response, "status_code", None) == 404:
+                # Snaps older than CE142 have no capabilities endpoint.
+                return []
+            logger.warning("Could not read snap capabilities: %s", e)
+            event.defer()
+            raise sunbeam_guard.WaitingExceptionError(
+                "waiting for microceph snap API to read capabilities"
+            ) from e
+        except ValueError as e:
+            logger.warning("Invalid snap capabilities response: %s", e)
+            return []
+
+    def _check_placement_capabilities(
+        self, assignments: dict, event: ops.framework.EventBase
+    ) -> bool:
+        """Require RGW-capable snaps only when a gateway is requested."""
+        capabilities = self._get_snap_capabilities(event)
+        wants_rgw = any(
+            self._assignment_wants_rgw(assignment) for assignment in assignments.values()
+        )
+        if wants_rgw and DECLARATIVE_PLACEMENT_CAPABILITY not in capabilities:
+            raise sunbeam_guard.BlockedExceptionError(
+                "microceph snap does not support role-managed placement"
+            )
+
+        rgw_supported = PLACEMENT_RGW_CAPABILITY in capabilities
+        if wants_rgw and not rgw_supported:
+            raise sunbeam_guard.BlockedExceptionError(
+                "microceph snap does not support RGW placement"
+            )
+        return rgw_supported
 
     def configure_app_non_leader(self, event: ops.framework.EventBase) -> None:
         """Configure the non leader unit."""
@@ -1277,6 +1458,22 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 if self.model.config.get("enable-rgw") == "*":
                     self.configure_rgw_service(event)
                 self._update_service_endpoints()
+
+    def _refresh_traefik_route(self) -> bool:
+        """Submit the RGW route to traefik; return whether the relation is ready."""
+        if not self.unit.is_leader():
+            return False
+
+        if not (self.traefik_route_rgw and self.traefik_route_rgw.interface.is_ready()):
+            return False
+
+        config = self.traefik_config
+        if config is None:
+            logger.warning("RGW backends unknown; keeping the current traefik route")
+        else:
+            logger.debug("Sending traefik config for rgw interface")
+            self.traefik_route_rgw.interface.submit_to_traefik(config=config)
+        return True
 
     def post_config_setup(self):
         """Configuration steps after services have been setup."""
