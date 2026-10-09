@@ -4,6 +4,8 @@ options:
     type: boolean
     description: |
       Whether the charm's service placement is role-managed via the role-assignment relation.
+      While enabled, RGW placement follows gateway assignments with the rgw flavor;
+      enable-rgw is ignored. Unmentioned units keep their running services.
   snap-channel:
     default: "tentacle/stable"
     type: string

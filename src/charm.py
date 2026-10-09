@@ -173,6 +173,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self.on.set_pool_size_action, self._set_pool_size_action)
         self.framework.observe(self.on.peers_relation_created, self._on_peer_relation_created)
+        self.framework.observe(self.on["peers"].relation_changed, self._on_peer_relation_changed)
         self.framework.observe(self.on["peers"].relation_departed, self._on_peer_relation_departed)
         self.framework.observe(
             self.role_assignment.on.role_assignment_changed,
@@ -276,6 +277,11 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             logger.debug("Microceph not ready for service, skipping rgw readiness update")
             return
 
+        if self.role_managed_enabled():
+            # Gateways can start, fail or be removed after the policy PUT,
+            # so follow the observed placement between reconciles.
+            self._refresh_traefik_route()
+
         if not self.model.relations.get(CEPH_RGW_READY_RELATION):
             logger.debug("No ceph-rgw-ready relation, skipping rgw readiness update")
             return
@@ -317,6 +323,17 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _on_peer_relation_created(self, event: ops.framework.EventBase) -> None:
         logging.debug(f"Peer relation created: {event}")
         self.peers.set_unit_data(collect_peer_data(self.model))
+
+    def _on_peer_relation_changed(self, event: ops.RelationChangedEvent) -> None:
+        """Reconcile when a unit assigned RGW joins MicroCeph."""
+        if (
+            self.role_managed_enabled()
+            and self.unit.is_leader()
+            and event.unit
+            and event.relation.data[event.unit].get("joined") == "true"
+            and event.unit.name in self._desired_rgw_units()
+        ):
+            self.configure_charm(event)
 
     def _on_peer_relation_departed(self, event: ops.framework.EventBase) -> None:
         self.handle_traefik_ready(event)
@@ -452,7 +469,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         try:
             logger.debug("Running update-ca-certificates to update the certs")
             subprocess.run(["update-ca-certificates"], check=True)
-            if self.model.config.get("enable-rgw") == "*":
+            if self.rgw_requested():
                 self.configure_rgw_service(event)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             raise sunbeam_guard.BlockedExceptionError("Updating CA Certificates failed")
@@ -673,13 +690,18 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             },
         }
 
-        # Note: Currently rgw, mon services are enabled on all storage nodes.
-        # So get RGW IPs from mon ip addresses
-        # https://github.com/canonical/microceph/issues/368
-        # Get host key value from all units
-        ips = self.peers.get_all_unit_values(key="public-address", include_local_unit=True)
-        # ips = microceph.get_mon_public_addresses()
-        rgw_lb_servers = [{"url": f"http://{ip}:{self.rgw_port}"} for ip in ips]
+        if self.role_managed_enabled():
+            rgw_lb_servers = self._role_managed_rgw_servers()
+            if rgw_lb_servers is None:
+                return None
+        else:
+            # Note: Currently rgw, mon services are enabled on all storage nodes.
+            # So get RGW IPs from mon ip addresses
+            # https://github.com/canonical/microceph/issues/368
+            # Get host key value from all units
+            ips = self.peers.get_all_unit_values(key="public-address", include_local_unit=True)
+            # ips = microceph.get_mon_public_addresses()
+            rgw_lb_servers = [{"url": f"http://{ip}:{self.rgw_port}"} for ip in ips]
         health_check = {"path": "/swift/healthcheck", "scheme": "http"}
         service_cfg = {
             f"juju-{model}-{app}-service": {
@@ -1450,12 +1472,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             logger.debug("Not a leader unit, not updating traefik route config")
             return
 
-        if self.traefik_route_rgw and self.traefik_route_rgw.interface.is_ready():
-            logger.debug("Sending traefik config for rgw interface")
-            self.traefik_route_rgw.interface.submit_to_traefik(config=self.traefik_config)
-
+        if self._refresh_traefik_route():
             if self.traefik_route_rgw.ready:
-                if self.model.config.get("enable-rgw") == "*":
+                if self.rgw_requested():
                     self.configure_rgw_service(event)
                 self._update_service_endpoints()
 
@@ -1666,6 +1685,20 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         """Enable/Disable RGW service."""
         logger.debug("Configuring RGW service")
         try:
+            if self.role_managed_enabled():
+                # The placement policy owns every gateway in role-managed
+                # mode. A local enable or disable would be silently undone
+                # by the next policy PUT, so only the cluster-wide RGW
+                # configs are handled here.
+                if self.model.config.get("enable-rgw"):
+                    logger.warning("enable-rgw is ignored while role-managed is enabled")
+                if self.rgw_requested():
+                    self.configure_rgw_service(event)
+                else:
+                    self.remove_rgw_configs(event)
+                self.handle_traefik_ready(event)
+                return
+
             enabled = microceph.is_rgw_enabled(gethostname())
             logger.info(f"Microceph RGW enabled: {enabled}")
             if self.model.config.get("enable-rgw") == "*":
