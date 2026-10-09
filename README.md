@@ -78,6 +78,20 @@ Example:
 juju config microceph device-add-flags="wipe:osd,encrypt:osd"
 ```
 
+## RGW role-managed placement
+
+With the existing `role-managed` setting enabled, a `gateway` role assignment with `workload-params.flavors: ["rgw"]` starts RGW on that member. The MicroCeph snap must advertise `declarative-placement` and `placement-rgw`; the charm keeps routing Traefik to the gateways the snap reports running. RGW serves plaintext on port 80 behind Traefik, and `enable-rgw` is ignored while placement is role-managed.
+
+To stop RGW, keep the unit assigned but remove its gateway role or switch to another valid gateway flavor without `rgw`. Omitting a unit from the assignment snapshot or removing the provider does not change its running services; while role-managed mode remains active, an unmentioned unit cannot enroll new OSDs. Control, storage, and NFS roles remain governed by the upstream storage-role implementation.
+
+The RGW functional scenario selects `tentacle/edge` directly in its `snap_channel` fixture, both locally and in CI:
+
+```bash
+tox -e functional -- -k rgw_role_lifecycle
+```
+
+Missing `declarative-placement` or `placement-rgw` capabilities fail the scenario rather than skip it.
+
 ## Terraform module
 
 A reusable Terraform + Terragrunt module for deploying the `microceph` charm can be found in `terraform/microceph/`. See the module README for usage instructions.
