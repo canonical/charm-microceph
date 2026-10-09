@@ -1,4 +1,9 @@
 options:
+  role-managed:
+    default: false
+    type: boolean
+    description: |
+      Whether the charm's service placement is role-managed via the role-assignment relation.
   snap-channel:
     default: "tentacle/stable"
     type: string

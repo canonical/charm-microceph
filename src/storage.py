@@ -96,10 +96,23 @@ class StorageHandler(Object):
 
     # storage event handlers
 
+    def _check_storage_eligibility(self):
+        ret = self.charm.is_unit_storage_eligible()
+        if not ret:
+            self._reset_osd_config_cache()
+        return ret
+
     def _on_osd_standalone_attached(self, event: StorageAttachedEvent):
         """Storage attached handler for osd-standalone."""
         if not self.charm.ready_for_service():
             logger.warning("MicroCeph not ready yet, deferring storage event.")
+            event.defer()
+            return
+
+        if not self._check_storage_eligibility():
+            logger.info(
+                "Storage attachment deferred: unit is not yet eligible for storage in role-managed mode."
+            )
             event.defer()
             return
 
@@ -191,6 +204,11 @@ class StorageHandler(Object):
             event.fail()
             return
 
+        if not self._check_storage_eligibility():
+            event.set_results({"message": "This unit does not have the 'storage' role assigned."})
+            event.fail()
+            return
+
         # list of osd specs to be executed with disk add cmd.
         add_osd_specs = list()
 
@@ -277,6 +295,13 @@ class StorageHandler(Object):
             if not self.charm.ready_for_service():
                 logger.warning("MicroCeph not ready yet, deferring storage config processing")
                 event.defer()
+                return
+
+            if not self._check_storage_eligibility():
+                logger.info(
+                    "Config-driven OSD enrollment skipped: unit is not eligible for storage in role-managed mode."
+                )
+                self._set_storage_config_idle_status()
                 return
 
             if self._is_cached_osd_config(storage_request):

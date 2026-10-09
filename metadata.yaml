@@ -46,6 +46,10 @@ provides:
     interface: microceph-remote
 
 requires:
+  role-assignment:
+    interface: role-assignment
+    limit: 1
+    optional: true
   traefik-route-rgw:
     interface: traefik_route
     optional: true
