@@ -46,12 +46,19 @@ def juju(juju_vm: jubilant.Juju) -> jubilant.Juju:
 
 
 @pytest.fixture(scope="module")
-def deployed_microceph(juju: jubilant.Juju, microceph_charm: Path) -> str:
+def deployed_microceph(
+    juju: jubilant.Juju, microceph_charm: Path, request: pytest.FixtureRequest
+) -> str:
     """Deploy microceph with loop OSDs and wait for the app to settle."""
+    qualification = getattr(request.config, "_microceph_qualification", None)
+    config = None
+    if qualification:
+        config = {"snap-channel": qualification.manifest["beta"]["requested_channel"]}
     helpers.deploy_microceph(
         juju,
         microceph_charm,
         APP_NAME,
+        config=config,
         loop_osd_spec=LOOP_OSD_SPEC,
         timeout=DEFAULT_TIMEOUT,
     )
@@ -143,6 +150,7 @@ def _assert_app_message_contains(juju: jubilant.Juju, app: str, expected: str) -
 def test_upgrade_health_warning_recovers_on_update_status(
     juju: jubilant.Juju,
     deployed_microceph: str,
+    request: pytest.FixtureRequest,
 ) -> None:
     """Verify blocked status from transient Ceph health warning auto-recovers."""
     status = juju.status()
@@ -152,7 +160,12 @@ def test_upgrade_health_warning_recovers_on_update_status(
     if not current_channel:
         pytest.skip("snap-channel config is unavailable")
 
-    target_channel = _pick_same_track_upgrade_channel(juju, unit_name, current_channel)
+    qualification = getattr(request.config, "_microceph_qualification", None)
+    target_channel = (
+        qualification.manifest["edge"]["requested_channel"]
+        if qualification
+        else _pick_same_track_upgrade_channel(juju, unit_name, current_channel)
+    )
     if not target_channel:
         pytest.skip(
             f"No alternate same-track channel found for current channel {current_channel!r}"

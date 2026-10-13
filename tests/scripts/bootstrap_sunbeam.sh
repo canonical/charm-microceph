@@ -65,10 +65,31 @@ sudo snap connect openstack:juju-bin juju:juju-bin || true
 
 echo "==> Bootstrapping Sunbeam"
 sunbeam prepare-node-script --bootstrap | bash -x
-sg snap_daemon "sunbeam cluster bootstrap --accept-defaults --topology single --database single"
+bootstrap_args=""
+if [ -n "${MICROCEPH_TEST_SNAP_CHANNEL:-}" ]; then
+    # A minimal override preserves the selected Sunbeam release's other defaults.
+    if ! [[ "${MICROCEPH_TEST_SNAP_CHANNEL}" =~ ^[a-z0-9.-]+/(stable|candidate|beta|edge)$ ]]; then
+        echo "Invalid MicroCeph snap channel" >&2
+        exit 1
+    fi
+    manifest_path="$(mktemp)"
+    trap 'rm -f "${manifest_path}"' EXIT
+    printf 'core:\n  software:\n    charms:\n      microceph:\n        config:\n          snap-channel: %s\n' \
+        "${MICROCEPH_TEST_SNAP_CHANNEL}" > "${manifest_path}"
+    printf -v bootstrap_args ' --manifest %q' "${manifest_path}"
+    if [[ "${OPENSTACK_CHANNEL}" == 2026.* ]]; then
+        # Storage is not in the 2026 default role list. Control is implicit.
+        bootstrap_args+=" --role compute,storage"
+    fi
+fi
+sg snap_daemon "sunbeam cluster bootstrap --accept-defaults --topology single --database single${bootstrap_args}"
 sg snap_daemon "sunbeam cluster list"
-juju status -m admin/controller
-juju status -m openstack
+if [[ "${OPENSTACK_CHANNEL}" == 2026.* ]]; then
+    juju status -m "${SUNBEAM_MODEL}"
+else
+    juju status -m admin/controller
+    juju status -m openstack
+fi
 sg snap_daemon "sunbeam configure --accept-defaults --openrc demo-openrc"
 juju status -m "$SUNBEAM_MODEL"
 date

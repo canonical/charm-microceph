@@ -17,7 +17,7 @@
 import jubilant
 import pytest
 
-from tests.conftest import DEFAULT_JUJU_BASE
+from tests.conftest import DEFAULT_JUJU_BASE, JUJU_BASE_PATTERN
 
 
 def _sunbeam_juju_base() -> str:
@@ -34,9 +34,25 @@ def _sunbeam_juju_base() -> str:
 
 
 @pytest.fixture(scope="session")
-def juju_base() -> str:
-    """Return the fixed base for Sunbeam-backed tests (ignores ``JUJU_BASE``)."""
-    return _sunbeam_juju_base()
+def juju_base(request: pytest.FixtureRequest) -> str:
+    """Match the existing deployment in qualification mode, without changing it."""
+    if not getattr(request.config, "_microceph_qualification", None):
+        return _sunbeam_juju_base()
+    juju = jubilant.Juju(model=str(request.config.getoption("--sunbeam-model")))
+    app = str(request.config.getoption("--sunbeam-app"))
+    units = juju.status().apps[app].units
+    if not units:
+        raise pytest.UsageError("Sunbeam has no MicroCeph unit to determine artifact base")
+    versions = {
+        juju.ssh(unit, "bash", "-c", '. /etc/os-release; printf %s "$VERSION_ID"').strip()
+        for unit in units
+    }
+    if len(versions) != 1:
+        raise pytest.UsageError("Sunbeam MicroCeph units have mixed operating-system bases")
+    base = "ubuntu@" + versions.pop()
+    if not JUJU_BASE_PATTERN.fullmatch(base):
+        raise pytest.UsageError(f"Unsupported Sunbeam workload base: {base}")
+    return base
 
 
 @pytest.fixture(scope="session")

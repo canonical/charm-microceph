@@ -1,5 +1,6 @@
 """Pytest + jubilant fixtures for testing."""
 
+import json
 import os
 import re
 import subprocess
@@ -10,6 +11,7 @@ import jubilant
 import pytest
 
 from tests import helpers
+from tests.helpers.qualification import Qualification, test_identity
 
 REPO_ROOT = helpers.find_repo_root(Path(__file__).resolve())
 DEFAULT_JUJU_BASE = "ubuntu@24.04"
@@ -34,6 +36,8 @@ def _artifact_name_for_juju_base(juju_base: str) -> str:
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Add options."""
+    parser.addoption("--qualification-manifest", default=None)
+    parser.addoption("--qualification-evidence", default=None)
     parser.addoption(
         "--keep-models",
         action="store_true",
@@ -52,6 +56,42 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default="microceph",
         help="Application name to target inside the attached Sunbeam model.",
     )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Enable optional release evidence only for an explicit, pinned manifest."""
+    config._microceph_qualification = None
+    manifest_path = config.getoption("--qualification-manifest")
+    if not manifest_path:
+        return
+    evidence_path = config.getoption("--qualification-evidence")
+    if not evidence_path:
+        raise pytest.UsageError("Qualification evidence path is required")
+    manifest = json.loads(Path(manifest_path).read_text())
+    actual_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True
+    ).strip()
+    if actual_sha != manifest.get("source_sha"):
+        raise pytest.UsageError("Test source SHA does not match qualification manifest")
+    config._microceph_qualification = Qualification(manifest, Path(evidence_path))
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item: pytest.Item):
+    """Audit actual snap identities while models still exist, before teardown."""
+    qualification = getattr(item.config, "_microceph_qualification", None)
+    juju = item.funcargs.get("sunbeam_juju") or item.funcargs.get("juju")
+    app = item.funcargs.get("sunbeam_app_name", "microceph")
+    if qualification:
+        if juju is None:
+            raise AssertionError("Qualification test has no Juju deployment")
+        qualification.audit(juju, app, test_identity(item.nodeid), "before")
+    outcome = yield
+    if qualification and outcome.excinfo is None:
+        try:
+            qualification.audit(juju, app, test_identity(item.nodeid), "after")
+        except Exception as error:
+            outcome.force_exception(error)
 
 
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:
