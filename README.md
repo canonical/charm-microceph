@@ -84,7 +84,7 @@ With the existing `role-managed` setting enabled, a `gateway` role assignment wi
 
 To stop RGW, keep the unit assigned but remove its gateway role or switch to another valid gateway flavor without `rgw`. Omitting a unit from the assignment snapshot or removing the provider does not change its running services; while role-managed mode remains active, an unmentioned unit cannot enroll new OSDs. Control, storage, and NFS roles remain governed by the upstream storage-role implementation.
 
-The RGW functional scenario selects `tentacle/edge` directly in its `snap_channel` fixture, both locally and in CI:
+The RGW functional scenario temporarily selects `tentacle/edge/rgw-placement` directly in its `snap_channel` fixture, both locally and in CI. Revert the temporary Store branch commit before merging to restore `tentacle/edge`:
 
 ```bash
 tox -e functional -- -k rgw_role_lifecycle

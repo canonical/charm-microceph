@@ -31,7 +31,8 @@ from tests.functests.test_storage_role import create_dummy_provider_charm, zip_d
 @pytest.fixture(scope="module")
 def snap_channel() -> str:
     """Deploy a snap channel that can accept role-managed RGW placement."""
-    return "tentacle/edge"
+    # REVERT BEFORE MERGE: use tentacle/edge once RGW placement is available there.
+    return "tentacle/edge/rgw-placement"
 
 
 @pytest.fixture(scope="module")
