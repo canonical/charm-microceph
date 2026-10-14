@@ -4,7 +4,7 @@ flake8
 pytest
 jubilant~=1.0
 ops<3.4
-pydantic>=2.12,<2.13 
+pydantic>=2.14,<2.15 
 cosl==0.0.55
 
 # Pinned to match uv.lock; bump together via `uv lock --upgrade-package ...`
