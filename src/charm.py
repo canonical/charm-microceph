@@ -1081,6 +1081,30 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 "waiting for microceph snap API to apply placement policy"
             )
 
+    def _get_placement_unit_to_hostname_map(self, assignments: dict) -> dict:
+        """Resolve placement targets, waiting for membership when RGW is requested."""
+        unit_to_hostname = self._get_unit_to_hostname_map()
+        if not any(self._assignment_wants_rgw(a) for a in assignments.values()):
+            return unit_to_hostname
+
+        # Peers advertise hostnames before joining MicroCeph, so a hostname
+        # alone does not mean the snap can place RGW on that member yet.
+        # Keep the local leader and peers that have confirmed their join;
+        # the policy builder skips assignments whose hostname is filtered out.
+        # This filters all assignments when any requests RGW, not just the RGW
+        # targets; without RGW requests, retain the existing storage/NFS path.
+        joined_units = {self.unit.name}
+        peers = self.model.get_relation("peers")
+        if peers:
+            joined_units.update(
+                unit.name for unit in peers.units if peers.data[unit].get("joined") == "true"
+            )
+        return {
+            unit_name: hostname
+            for unit_name, hostname in unit_to_hostname.items()
+            if unit_name in joined_units
+        }
+
     def _reconcile_placement(self, event: ops.framework.EventBase) -> None:
         """Reconcile role-managed placement with RGW frontend intent."""
         if not self.unit.is_leader():
@@ -1125,25 +1149,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         rgw_supported = (
             self._check_placement_capabilities(assignments, event) if assignments else False
         )
-        unit_to_hostname = self._get_unit_to_hostname_map()
-        if any(self._assignment_wants_rgw(a) for a in assignments.values()):
-            # Peers advertise hostnames before joining MicroCeph, so a hostname
-            # alone does not mean the snap can place RGW on that member yet.
-            # Keep the local leader and peers that have confirmed their join;
-            # the policy builder skips assignments whose hostname is filtered out.
-            # This filters all assignments when any requests RGW, not just the RGW
-            # targets; without RGW requests, retain the existing storage/NFS path.
-            joined_units = {self.unit.name}
-            peers = self.model.get_relation("peers")
-            if peers:
-                joined_units.update(
-                    unit.name for unit in peers.units if peers.data[unit].get("joined") == "true"
-                )
-            unit_to_hostname = {
-                unit_name: hostname
-                for unit_name, hostname in unit_to_hostname.items()
-                if unit_name in joined_units
-            }
+        unit_to_hostname = self._get_placement_unit_to_hostname_map(assignments)
 
         unit_to_address = self._get_unit_to_address_map()
 

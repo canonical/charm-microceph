@@ -73,6 +73,37 @@ def get_placement(juju: jubilant.Juju, unit_name: str) -> dict:
     )["metadata"]
 
 
+def wait_for_rgw(
+    juju: jubilant.Juju,
+    unit_name: str,
+    hostname: str,
+    *,
+    enabled: bool,
+    refusal_message: str,
+    timeout_message: str,
+) -> dict:
+    """Wait for the observed gateway state, including its plaintext port when enabled."""
+    timeout, interval = (360, 5) if enabled else (120, 2)
+    with helpers.fast_forward(juju):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            placement = get_placement(juju, unit_name)
+            observed = next(
+                (member for member in placement["observed"] if member["member"] == hostname),
+                {},
+            )
+            if enabled:
+                ready = observed.get("rgw") and observed.get("rgw_frontend", {}).get("port") == 80
+            else:
+                ready = observed.get("rgw") is False
+            if ready:
+                return observed
+            if placement.get("placement_refusal"):
+                pytest.fail(f"{refusal_message}: {placement['placement_refusal']}")
+            time.sleep(interval)
+        pytest.fail(timeout_message)
+
+
 @pytest.mark.abort_on_fail
 def test_rgw_role_lifecycle(
     juju: jubilant.Juju, placement_microceph: str, attached_lxd_volume: str
@@ -135,57 +166,36 @@ def test_rgw_role_lifecycle(
             )
 
         publish_roles(["control", "storage", "gateway"], {"flavors": ["rgw"]})
-        with helpers.fast_forward(juju):
-            deadline = time.monotonic() + 360
-            while time.monotonic() < deadline:
-                placement = get_placement(juju, unit_name)
-                observed = next(
-                    (member for member in placement["observed"] if member["member"] == hostname),
-                    {},
-                )
-                if observed.get("rgw") and observed.get("rgw_frontend", {}).get("port") == 80:
-                    break
-                if placement.get("placement_refusal"):
-                    pytest.fail(f"RGW placement refused: {placement['placement_refusal']}")
-                time.sleep(5)
-            else:
-                pytest.fail("RGW did not start on the assigned member")
+        wait_for_rgw(
+            juju,
+            unit_name,
+            hostname,
+            enabled=True,
+            refusal_message="RGW placement refused",
+            timeout_message="RGW did not start on the assigned member",
+        )
 
         publish_roles(["control", "storage"])
-        with helpers.fast_forward(juju):
-            deadline = time.monotonic() + 120
-            while time.monotonic() < deadline:
-                placement = get_placement(juju, unit_name)
-                observed = next(
-                    (member for member in placement["observed"] if member["member"] == hostname),
-                    {},
-                )
-                if observed.get("rgw") is False:
-                    break
-                if placement.get("placement_refusal"):
-                    pytest.fail(f"RGW revocation refused: {placement['placement_refusal']}")
-                time.sleep(2)
-            else:
-                pytest.fail("Explicitly removing the RGW role did not stop RGW")
+        observed = wait_for_rgw(
+            juju,
+            unit_name,
+            hostname,
+            enabled=False,
+            refusal_message="RGW revocation refused",
+            timeout_message="Explicitly removing the RGW role did not stop RGW",
+        )
         assert observed["control"] is True
         helpers.assert_osd_count(juju, APP_NAME, expected_osds=1)
 
         publish_roles(["control", "storage", "gateway"], {"flavors": ["rgw"]})
-        with helpers.fast_forward(juju):
-            deadline = time.monotonic() + 360
-            while time.monotonic() < deadline:
-                placement = get_placement(juju, unit_name)
-                observed = next(
-                    (member for member in placement["observed"] if member["member"] == hostname),
-                    {},
-                )
-                if observed.get("rgw") and observed.get("rgw_frontend", {}).get("port") == 80:
-                    break
-                if placement.get("placement_refusal"):
-                    pytest.fail(f"RGW restart refused: {placement['placement_refusal']}")
-                time.sleep(5)
-            else:
-                pytest.fail("RGW did not restart on the assigned member")
+        wait_for_rgw(
+            juju,
+            unit_name,
+            hostname,
+            enabled=True,
+            refusal_message="RGW restart refused",
+            timeout_message="RGW did not restart on the assigned member",
+        )
 
         juju.remove_relation(APP_NAME, provider)
         with helpers.fast_forward(juju):
