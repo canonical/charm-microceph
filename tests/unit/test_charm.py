@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch
 
 import ops_sunbeam.guard as sunbeam_guard
 import ops_sunbeam.test_utils as test_utils
+import requests
 from charms.ceph_mon.v0 import ceph_cos_agent
 from ops.model import BlockedStatus
 from unit import testbase
@@ -2250,6 +2251,12 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         self.harness.update_config(config)
         self.harness.enable_hooks()
 
+    def set_capabilities(self, cclient, capabilities=None) -> None:
+        """Make the mocked snap advertise placement capabilities."""
+        if capabilities is None:
+            capabilities = ["declarative-placement", "placement-rgw"]
+        cclient.from_socket().cluster.get_capabilities.return_value = capabilities
+
     @patch("charm.microceph.Client")
     def test_reconcile_placement_non_leader_is_noop(self, cclient):
         """When not leader, reconciliation is a no-op."""
@@ -2266,8 +2273,9 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         cclient.from_socket().cluster.apply_placement.assert_not_called()
         cclient.from_socket().cluster.delete_placement.assert_called_once()
 
+    @patch("charm.gethostname", return_value="node-a")
     @patch("charm.microceph.Client")
-    def test_reconcile_placement_missing_relation_stands_down_placement(self, cclient):
+    def test_reconcile_placement_missing_relation_stands_down_placement(self, cclient, _):
         """When relation is missing, placement is stood down to secure lockdown."""
         self.harness.set_leader(True)
         self.set_config({"role-managed": True})
@@ -2275,6 +2283,107 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         cclient.from_socket().cluster.apply_placement.assert_called_once_with(
             {"mode": "reconcile", "members": {}}
         )
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_empty_assignment_snapshot_preserves_services(self, cclient, _):
+        """A published empty snapshot changes no service placement."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        self.add_assignments({})
+        self.set_capabilities(cclient)
+
+        self.harness.charm._reconcile_placement(MagicMock())
+
+        cclient.from_socket().cluster.apply_placement.assert_called_once_with(
+            {"mode": "reconcile", "members": {}}
+        )
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_omitted_unit_preserves_gateway_until_explicitly_revoked(self, cclient, _):
+        """Omission leaves RGW alone; an explicit empty role set disables it."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        control = {"status": "assigned", "roles": ["control", "storage"]}
+        rel_id = self.add_assignments({"microceph/0": control, "microceph/1": self.RGW_GATEWAY})
+        peer_rel_id = self.harness.add_relation("peers", "microceph")
+        self.harness.add_relation_unit(peer_rel_id, "microceph/1")
+        self.harness.update_relation_data(
+            peer_rel_id, "microceph/1", {"microceph/1": "node-b", "joined": "true"}
+        )
+        self.set_capabilities(cclient)
+        self.harness.charm._reconcile_placement(MagicMock())
+        initial = cclient.from_socket().cluster.apply_placement.call_args.args[0]
+        self.assertTrue(initial["members"]["node-b"]["rgw"]["enabled"])
+
+        self.harness.disable_hooks()
+        self.harness.update_relation_data(
+            rel_id, "provider-charm", {"assignments": json.dumps({"microceph/0": control})}
+        )
+        self.harness.enable_hooks()
+        self.harness.charm._reconcile_placement(MagicMock())
+
+        omitted = cclient.from_socket().cluster.apply_placement.call_args.args[0]["members"]
+        self.assertNotIn("node-b", omitted)
+        self.assertTrue(omitted["node-a"]["control"])
+        self.assertTrue(omitted["node-a"]["storage_eligible"])
+
+        self.harness.disable_hooks()
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {
+                "assignments": json.dumps(
+                    {
+                        "microceph/0": control,
+                        "microceph/1": {"status": "assigned", "roles": []},
+                    }
+                )
+            },
+        )
+        self.harness.enable_hooks()
+        self.harness.charm._reconcile_placement(MagicMock())
+        revoked = cclient.from_socket().cluster.apply_placement.call_args.args[0]["members"]
+        self.assertEqual(revoked["node-b"]["rgw"], {"enabled": False})
+        self.assertTrue(revoked["node-a"]["storage_eligible"])
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_assigned_rgw_peer_reconciles_on_join(self, cclient, _):
+        """An RGW target waits for membership, then joins the placement policy."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        self.add_assignments(
+            {
+                "microceph/0": {"status": "assigned", "roles": ["control"]},
+                "microceph/1": self.RGW_GATEWAY,
+            }
+        )
+        peer_rel_id = self.harness.add_relation("peers", "microceph")
+        self.harness.add_relation_unit(peer_rel_id, "microceph/1")
+        self.harness.update_relation_data(peer_rel_id, "microceph/1", {"microceph/1": "node-b"})
+        self.set_capabilities(cclient)
+        self.harness.charm._reconcile_placement(MagicMock())
+        first = cclient.from_socket().cluster.apply_placement.call_args.args[0]
+        self.assertNotIn("node-b", first["members"])
+
+        self.harness.disable_hooks()
+        self.harness.update_relation_data(peer_rel_id, "microceph/1", {"joined": "true"})
+        self.harness.enable_hooks()
+        peer_rel = self.harness.model.get_relation("peers", peer_rel_id)
+        peer_unit = next(iter(peer_rel.units))
+        with patch.object(
+            self.harness.charm,
+            "configure_charm",
+            side_effect=self.harness.charm._reconcile_placement,
+        ):
+            self.harness.charm._on_peer_relation_changed(
+                MagicMock(unit=peer_unit, relation=peer_rel)
+            )
+
+        applied = cclient.from_socket().cluster.apply_placement.call_args.args[0]
+        self.assertTrue(applied["members"]["node-b"]["rgw"]["enabled"])
 
     @patch("charm.microceph.Client")
     def test_reconcile_placement_active_relation_missing_data_freezes_placement(self, cclient):
@@ -2316,6 +2425,7 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
             {"microceph/1": "node-b"},
         )
 
+        self.set_capabilities(cclient)
         self.harness.charm._reconcile_placement(MagicMock())
 
         cclient.from_socket().cluster.apply_placement.assert_called_once_with(
@@ -2325,13 +2435,13 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
                     "node-a": {
                         "control": False,
                         "storage_eligible": True,
-                        "rgw": False,
+                        "rgw": {"enabled": False},
                         "nfs": [],
                     },
                     "node-b": {
                         "control": True,
                         "storage_eligible": False,
-                        "rgw": False,
+                        "rgw": {"enabled": False},
                         "nfs": [],
                     },
                 },
@@ -2373,9 +2483,10 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         self.harness.update_relation_data(
             peer_rel_id,
             "microceph/1",
-            {"microceph/1": "node-b", "public-address": "10.0.0.14"},
+            {"microceph/1": "node-b", "public-address": "10.0.0.14", "joined": "true"},
         )
 
+        self.set_capabilities(cclient)
         self.harness.charm._reconcile_placement(MagicMock())
 
         cclient.from_socket().cluster.apply_placement.assert_called_once_with(
@@ -2385,13 +2496,13 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
                     "node-a": {
                         "control": False,
                         "storage_eligible": True,
-                        "rgw": False,
+                        "rgw": {"enabled": False},
                         "nfs": [],
                     },
                     "node-b": {
                         "control": False,
                         "storage_eligible": False,
-                        "rgw": True,
+                        "rgw": {"enabled": True, "ssl": False, "port": 80},
                         "nfs": [{"group_id": "role-alpha", "bind_address": "10.0.0.14"}],
                     },
                 },
@@ -2404,7 +2515,6 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         self.harness.set_leader(True)
         self.set_config({"role-managed": True})
 
-        # Add relation with malformed assignments JSON string
         rel_id = self.harness.add_relation("role-assignment", "provider-charm")
         self.harness.update_relation_data(
             rel_id,
@@ -2414,7 +2524,6 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
 
         self.harness.charm._reconcile_placement(MagicMock())
 
-        # Verify apply_placement is not called and the charm status is BlockedStatus
         cclient.from_socket().cluster.apply_placement.assert_not_called()
         self.assertIsInstance(self.harness.charm.status.status, BlockedStatus)
         self.assertIn(
@@ -2444,6 +2553,24 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         cclient.from_socket().cluster.apply_placement.assert_not_called()
 
     @patch("charm.microceph.Client")
+    def test_capabilities_service_failure_retries_instead_of_blocking(self, cclient):
+        """A temporary capabilities 503 must not look like an unsupported snap."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        self.add_assignments({"microceph/0": self.RGW_GATEWAY})
+        response = requests.Response()
+        response.status_code = 503
+        cclient.from_socket().cluster.get_capabilities.side_effect = requests.HTTPError(
+            "temporary failure", response=response
+        )
+        event = MagicMock()
+
+        with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+            self.harness.charm._reconcile_placement(event)
+        event.defer.assert_called_once()
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+
+    @patch("charm.microceph.Client")
     def test_reconcile_placement_api_failure_defers_and_raises(self, cclient):
         """When the placement API fails, the event is deferred and a waiting error is raised."""
         from ops_sunbeam.guard import WaitingExceptionError
@@ -2464,6 +2591,7 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
             },
         )
 
+        self.set_capabilities(cclient)
         cclient.from_socket().cluster.apply_placement.side_effect = Exception("API error")
         mock_event = MagicMock()
 
@@ -2502,6 +2630,7 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
             },
         )
 
+        self.set_capabilities(cclient)
         self.harness.charm._reconcile_placement(MagicMock())
 
         cclient.from_socket().cluster.apply_placement.assert_called_once_with(
@@ -2511,7 +2640,7 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
                     "node-a": {
                         "control": False,
                         "storage_eligible": False,
-                        "rgw": False,
+                        "rgw": {"enabled": False},
                         "nfs": [{"group_id": "role-nfs-cluster", "bind_address": "10.20.30.40"}],
                     }
                 },
@@ -2584,6 +2713,190 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
             MagicMock(relation=self.harness.model.get_relation("role-assignment", rel_id))
         )
         self.assertTrue(listener.emitted_revoked)
+
+    def add_assignments(self, assignments: dict) -> int:
+        """Add the role-assignment relation without running its hooks."""
+        self.harness.disable_hooks()
+        rel_id = self.harness.add_relation("role-assignment", "provider-charm")
+        self.harness.update_relation_data(
+            rel_id, "provider-charm", {"assignments": json.dumps(assignments)}
+        )
+        self.harness.enable_hooks()
+        return rel_id
+
+    RGW_GATEWAY = {
+        "status": "assigned",
+        "roles": ["gateway"],
+        "workload-params": {"flavors": ["rgw"]},
+    }
+
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_blocks_without_declarative_placement(self, cclient):
+        """A snap without the placement API blocks instead of failing every PUT."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        self.add_assignments({"microceph/0": self.RGW_GATEWAY})
+        self.set_capabilities(cclient, [])
+
+        with self.assertRaises(sunbeam_guard.BlockedExceptionError) as ctx:
+            self.harness.charm._reconcile_placement(MagicMock())
+
+        self.assertIn("does not support role-managed placement", str(ctx.exception))
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_omits_rgw_without_capability(self, cclient, _):
+        """Without placement-rgw, existing storage placement keeps its legacy RGW field."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        self.add_assignments({"microceph/0": {"status": "assigned", "roles": ["storage"]}})
+        self.set_capabilities(cclient, ["declarative-placement"])
+
+        self.harness.charm._reconcile_placement(MagicMock())
+
+        cclient.from_socket().cluster.apply_placement.assert_called_once_with(
+            {
+                "mode": "reconcile",
+                "members": {
+                    "node-a": {
+                        "control": False,
+                        "storage_eligible": True,
+                        "rgw": False,
+                        "nfs": [],
+                    },
+                },
+            }
+        )
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_blocks_rgw_without_capability(self, cclient, _):
+        """Without placement-rgw a gateway assignment blocks rather than being dropped."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        self.add_assignments({"microceph/0": self.RGW_GATEWAY})
+        self.set_capabilities(cclient, ["declarative-placement"])
+
+        with self.assertRaises(sunbeam_guard.BlockedExceptionError) as ctx:
+            self.harness.charm._reconcile_placement(MagicMock())
+
+        self.assertIn("does not support RGW placement", str(ctx.exception))
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+
+    @patch("charm.microceph.Client")
+    def test_reconcile_placement_unreadable_capabilities_defers(self, cclient):
+        """An unavailable snap API defers instead of blocking."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        self.add_assignments({"microceph/0": self.RGW_GATEWAY})
+        cclient.from_socket().cluster.get_capabilities.side_effect = (
+            charm.ClusterServiceUnavailableException("socket gone")
+        )
+        mock_event = MagicMock()
+
+        with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+            self.harness.charm._reconcile_placement(mock_event)
+
+        mock_event.defer.assert_called_once()
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+
+    @patch("charm.microceph.Client")
+    def test_rgw_requested_legacy_follows_enable_rgw(self, cclient):
+        """Without role-managed, RGW is requested by enable-rgw alone."""
+        self.set_config({"enable-rgw": "*"})
+        self.assertTrue(self.harness.charm.rgw_requested())
+        self.set_config({"enable-rgw": ""})
+        self.assertFalse(self.harness.charm.rgw_requested())
+        cclient.from_socket().cluster.get_placement.assert_not_called()
+
+    @patch("charm.microceph.Client")
+    def test_rgw_requested_role_managed(self, cclient):
+        """With role-managed, RGW is requested by assignments or running gateways."""
+        self.set_config({"role-managed": True, "enable-rgw": "*"})
+        placement = cclient.from_socket().cluster.get_placement
+
+        # No gateway assigned and none running: enable-rgw is ignored.
+        placement.return_value = {"observed": [{"member": "node-a", "rgw": False}]}
+        self.assertFalse(self.harness.charm.rgw_requested())
+
+        # A gateway still running keeps RGW requested.
+        placement.return_value = {"observed": [{"member": "node-a", "rgw": True}]}
+        self.assertTrue(self.harness.charm.rgw_requested())
+
+        # An unreadable status never counts as "no gateways".
+        placement.side_effect = Exception("API error")
+        self.assertTrue(self.harness.charm.rgw_requested())
+
+        # A gateway assignment is enough on its own.
+        placement.side_effect = None
+        placement.return_value = {"observed": []}
+        self.add_assignments({"microceph/0": self.RGW_GATEWAY})
+        self.assertTrue(self.harness.charm.rgw_requested())
+
+    @patch("charm.microceph.enable_rgw")
+    @patch("charm.microceph.disable_rgw")
+    @patch("charm.microceph.is_rgw_enabled")
+    @patch.object(charm.MicroCephCharm, "configure_rgw_service")
+    @patch("charm.microceph.Client")
+    def test_handle_config_rgw_service_role_managed_leaves_gateways_alone(
+        self, cclient, configure_rgw, is_enabled, disable_rgw, enable_rgw
+    ):
+        """In role-managed mode the charm never enables or disables RGW locally."""
+        self.set_config({"role-managed": True, "enable-rgw": "*"})
+        cclient.from_socket().cluster.get_placement.return_value = {
+            "observed": [{"member": "node-a", "rgw": True}]
+        }
+
+        self.harness.charm.handle_config_rgw_service(MagicMock())
+
+        is_enabled.assert_not_called()
+        enable_rgw.assert_not_called()
+        disable_rgw.assert_not_called()
+        configure_rgw.assert_called_once()
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_traefik_config_role_managed_routes_observed_gateways(self, cclient, _):
+        """Traefik backends are the members the snap reports running RGW."""
+        self.set_config({"role-managed": True})
+        peer_rel_id = self.harness.add_relation("peers", "microceph")
+        for unit, host, address in (
+            ("microceph/1", "node-b", "10.0.0.11"),
+            ("microceph/2", "node-c", "2001:db8::12"),
+            ("microceph/3", "node-d", "10.0.0.13"),
+        ):
+            self.harness.add_relation_unit(peer_rel_id, unit)
+            self.harness.update_relation_data(
+                peer_rel_id, unit, {unit: host, "public-address": address}
+            )
+        cclient.from_socket().cluster.get_placement.return_value = {
+            "observed": [
+                {"member": "node-a", "rgw": False},
+                {"member": "node-b", "rgw": True, "rgw_frontend": {"port": 8080, "ssl": False}},
+                # Started before the snap recorded frontends: default port.
+                {"member": "node-c", "rgw": True},
+                # TLS only: traefik routes plaintext, so this one is skipped.
+                {"member": "node-d", "rgw": True, "rgw_frontend": {"ssl_port": 443, "ssl": True}},
+            ]
+        }
+
+        config = self.harness.charm.traefik_config
+
+        services = config["http"]["services"]
+        (service,) = services.values()
+        self.assertEqual(
+            service["loadBalancer"]["servers"],
+            [{"url": "http://10.0.0.11:8080"}, {"url": "http://[2001:db8::12]:80"}],
+        )
+
+    @patch("charm.microceph.Client")
+    def test_traefik_config_role_managed_unknown_backends(self, cclient):
+        """An unreadable placement status yields no config rather than no backends."""
+        self.set_config({"role-managed": True})
+        cclient.from_socket().cluster.get_placement.side_effect = Exception("API error")
+
+        self.assertIsNone(self.harness.charm.traefik_config)
 
 
 class TestConfigLeaderCephPoolPgs(testbase.TestBaseCharm):
