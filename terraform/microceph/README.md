@@ -47,7 +47,9 @@ You can still override inputs on the command line using the `-var` flag (for exa
 Terragrunt simply seeds the defaults.
 
 Charm configuration defaults mirror `config.yaml`. You can override any of
-them by supplying a `config` map variable, for example:
+them by supplying a `config` map variable. To use Vaultlocker-backed OSDs,
+set `osd-encryption-provider` to `vaultlocker` and relate the application to a
+Vaultlocker subordinate separately. For example:
 
 ```bash
 terragrunt apply -var='config={"snap-channel"="latest/stable","enable-rgw"="*"}'
@@ -91,7 +93,7 @@ No modules.
 | <a name="input_app_name"></a> [app\_name](#input\_app\_name) | Name to give the deployed application | `string` | `"microceph"` | no |
 | <a name="input_base"></a> [base](#input\_base) | Base to deploy the microceph charm with | `string` | `"ubuntu@24.04"` | no |
 | <a name="input_channel"></a> [channel](#input\_channel) | Channel that the microceph charm is deployed from | `string` | `"tentacle/stable"` | no |
-| <a name="input_config"></a> [config](#input\_config) | Additional charm configuration as key/value pairs. Keys must match MicroCeph charm config<br/>options (for example: snap-channel, default-pool-size, enable-rgw, region, namespace-projects,<br/>rbd-stats-pools, enable-perf-metrics). Values are rendered as strings and forwarded to Juju. | `map(string)` | `{}` | no |
+| <a name="input_config"></a> [config](#input\_config) | Additional charm configuration as key/value pairs. Keys must match MicroCeph charm config<br/>options (for example: snap-channel, default-pool-size, enable-rgw, region, namespace-projects,<br/>rbd-stats-pools, enable-perf-metrics, osd-encryption-provider). Values are rendered as strings<br/>and forwarded to Juju. | `map(string)` | `{}` | no |
 | <a name="input_model_name"></a> [model\_name](#input\_model\_name) | Name of the model to deploy to. Requires model\_owner when model\_uuid is not set. | `string` | `null` | no |
 | <a name="input_model_owner"></a> [model\_owner](#input\_model\_owner) | Owner of the model to deploy to. Requires model\_name when model\_uuid is not set. | `string` | `"admin"` | no |
 | <a name="input_model_uuid"></a> [model\_uuid](#input\_model\_uuid) | UUID of the model to deploy to. Provide either this or both model\_name and model\_owner. | `string` | `null` | no |

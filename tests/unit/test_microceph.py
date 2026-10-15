@@ -581,6 +581,13 @@ class TestMicroCeph(unittest.TestCase):
         )
 
     @patch("microceph._setup_dm_crypt")
+    def test_ensure_dm_crypt_uses_existing_snap_setup(self, setup_dm_crypt):
+        """External mapper consumers need the same snap interface preparation."""
+        microceph.ensure_dm_crypt()
+
+        setup_dm_crypt.assert_called_once_with()
+
+    @patch("microceph._setup_dm_crypt")
     @patch("utils.run_cmd")
     def test_add_disk_match_cmd_osd_only(self, run_cmd, setup_dm_crypt):
         """Test DSL-based disk add for OSD-only requests."""

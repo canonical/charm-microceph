@@ -113,6 +113,7 @@ jobs:
       - name: Install tooling
         run: |
           sudo snap install charmcraft --classic
+          sudo apt-get update
           sudo apt-get -qq install tox
 
       - name: Install and bootstrap
@@ -161,7 +162,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install tooling
-        run: sudo apt-get -qq install tox
+        run: sudo apt-get update && sudo apt-get -qq install tox
 
       - name: Bootstrap Sunbeam
         run: ./tests/scripts/bootstrap_sunbeam.sh
