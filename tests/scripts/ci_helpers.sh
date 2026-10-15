@@ -23,7 +23,9 @@ function check_osd_count() {
 }
 
 function install_deps() {
+    set -e
     date
+    sudo apt-get -qq update
     sudo apt-get -qq install jq tox
     sudo snap install juju
     mkdir -p ~/.local/share/juju
