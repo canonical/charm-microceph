@@ -102,9 +102,7 @@ jobs:
           channel: 5.21/stable
 
       - name: Install tooling
-        run: |
-          sudo snap install charmcraft --classic
-          sudo apt-get -qq install tox
+        run: sudo snap install charmcraft --classic
 
       - name: Install and bootstrap
         run: ./tests/scripts/ci_helpers.sh install_deps
@@ -151,7 +149,9 @@ jobs:
           fetch-depth: 0
 
       - name: Install tooling
-        run: sudo apt-get -qq install tox
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tox
 
       - name: Bootstrap Sunbeam
         run: ./tests/scripts/bootstrap_sunbeam.sh
