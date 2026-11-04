@@ -102,9 +102,13 @@ options:
       Supported variables: @type, @vendor, @model, @size, @devnode, @host
 
       Examples:
-        eq(@type,'nvme')
+        or(eq(@type,'nvme'), eq(@type,'nvme-subsystem'))
         and(eq(@type,'ssd'), ge(@size,100GiB))
-        or(eq(@type,'ssd'), eq(@type,'nvme'))
+        or(eq(@type,'ssd'), eq(@type,'nvme-subsystem'))
+
+      Note: match values must align with `microceph disk list` output.
+      For NVMe drives this may be `nvme-subsystem` instead of `nvme`
+      depending on the platform and disk reporting.
 
       When set, the charm evaluates this expression against available
       block devices on each unit and enrolls matching devices as OSDs.

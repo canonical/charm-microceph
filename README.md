@@ -62,10 +62,13 @@ https://canonical-microceph.readthedocs-hosted.com/latest/reference/commands/dis
 Examples:
 
 ```
-juju config microceph osd-devices="eq(@type,'nvme')"
+juju config microceph osd-devices="or(eq(@type,'nvme'), eq(@type,'nvme-subsystem'))"
 juju config microceph osd-devices="and(eq(@type,'ssd'), ge(@size,100GiB))"
 juju config microceph osd-devices="eq(@devnode,'/dev/sdb')"
 ```
+
+Note: use the exact values reported by `microceph disk list`. On some
+systems NVMe drives are reported as `nvme-subsystem` (not `nvme`).
 
 To control device enrollment behavior, set `device-add-flags`:
 
@@ -111,4 +114,3 @@ tox -e sunbeam -- --sunbeam-model sunbeam-controller:admin/openstack-machines
 ```
 
 For a one-command local wrapper, use `./tests/scripts/run_sunbeam_e2e.sh` after placing the charm artifact at `./microceph_ubuntu-24.04-amd64.charm`.
-
