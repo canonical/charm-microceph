@@ -1332,8 +1332,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 cluster_net=network_params.get("cluster_net", ""),
                 availability_zone=network_params.get("availability_zone", ""),
             )
-            # mark bootstrap node also as joined
-            self.peers.interface.state.joined = True
+            self.peers.interface.mark_joined()
             if applied.get("availability_zone"):
                 self.peers.set_app_data({"cluster_uses_az": "true"})
             # Same-hook baseline recording, as in the bootstrap path.
@@ -1342,6 +1341,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             if "Unable to initialize cluster: Database is online" in str(e.stderr):
                 logger.info("microceph is already bootstrapped, ignore failure.")
+                self.peers.interface.mark_joined()
                 # A retry of the hook that adopted but died before recording:
                 # record now, or handle_config_leader_set_ready's upgrade
                 # fallback would stamp "" and block the unchanged option.
@@ -1357,8 +1357,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             params = self._get_bootstrap_params()
             applied = microceph.bootstrap_cluster(**params)
             logger.debug(f"Successfully bootstrapped with params {params}")
-            # mark bootstrap node also as joined
-            self.peers.interface.state.joined = True
+            self.peers.interface.mark_joined()
             if applied.get("availability_zone"):
                 self.peers.set_app_data({"cluster_uses_az": "true"})
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
@@ -1372,6 +1371,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
 
             if error_already_exists not in e.stderr:
                 raise e
+            self.peers.interface.mark_joined()
 
     def remove_rgw_configs(self, event: ops.framework.EventBase) -> None:
         """Remove RGW configs."""

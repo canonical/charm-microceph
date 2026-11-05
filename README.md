@@ -82,6 +82,8 @@ juju config microceph device-add-flags="wipe:osd,encrypt:osd"
 
 With the existing `role-managed` setting enabled, a `gateway` role assignment with `workload-params.flavors: ["rgw"]` starts RGW on that member. The MicroCeph snap must advertise `declarative-placement` and `placement-rgw`; the charm keeps routing Traefik to the gateways the snap reports running. RGW serves plaintext on port 80 behind Traefik, and `enable-rgw` is ignored while placement is role-managed.
 
+When any assignment requests RGW, placement waits for peer units to confirm MicroCeph membership. The bootstrap or adoption unit publishes the same membership marker as joining peers, so subsequent leaders can still place services on it. Older seed units publish their stored membership on the next peer-relation change.
+
 To stop RGW, keep the unit assigned but remove its gateway role or switch to another valid gateway flavor without `rgw`. Omitting a unit from the assignment snapshot or removing the provider does not change its running services; while role-managed mode remains active, an unmentioned unit cannot enroll new OSDs. Control, storage, and NFS roles remain governed by the upstream storage-role implementation.
 
 The RGW functional scenario selects `tentacle/edge` directly in its `snap_channel` fixture, both locally and in CI:

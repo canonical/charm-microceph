@@ -186,6 +186,11 @@ class MicroClusterPeers(OperatorPeers):
         self.state.set_default(joined=False)
         self.framework.observe(charm.on[relation_name].relation_departed, self.on_departed)
 
+    def mark_joined(self) -> None:
+        """Record local membership and advertise it independently of leadership."""
+        self.state.joined = True
+        self.set_unit_data({"joined": json.dumps(True)})
+
     def _event_args(self, relation_event):
         return dict(
             relation=relation_event.relation,
@@ -275,9 +280,6 @@ class MicroClusterPeers(OperatorPeers):
 
         join_keys = [key for key in self.get_all_app_data().keys() if key.endswith(".join_token")]
         if not join_keys:
-            logger.debug("We are the seed node.")
-            # The seed node is implicitly joined, so there's no need to emit an event.
-            self.state.joined = True
             # No peers yet, init channel info
             if not self.get_app_data("channel"):
                 self.set_app_data({"channel": self.model.config["snap-channel"]})
@@ -350,6 +352,10 @@ class MicroClusterPeers(OperatorPeers):
 
     def on_changed(self, event: EventBase) -> None:
         """Handle relation changed event."""
+        # Older revisions recorded seed membership only in local stored state.
+        if self.state.joined:
+            self.mark_joined()
+
         if self.model.unit.is_leader():
             self._rel_changed_leader(event)
         else:
