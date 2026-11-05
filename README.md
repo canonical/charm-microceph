@@ -84,7 +84,7 @@ With the existing `role-managed` setting enabled, a `gateway` role assignment wi
 
 When any assignment requests RGW, placement waits for peer units to confirm MicroCeph membership. The bootstrap or adoption unit publishes the same membership marker as joining peers, so subsequent leaders can still place services on it. Older seed units publish their stored membership on the next peer-relation change.
 
-To stop RGW, keep the unit assigned but remove its gateway role or switch to another valid gateway flavor without `rgw`. Omitting a unit from the assignment snapshot or removing the provider does not change its running services; while role-managed mode remains active, an unmentioned unit cannot enroll new OSDs. Control, storage, and NFS roles remain governed by the upstream storage-role implementation.
+To stop RGW, keep the unit assigned but remove its gateway role or switch to another valid gateway flavor without `rgw`. Omitting a unit from the assignment snapshot or removing the provider does not change its running services; while role-managed mode remains active, an unmentioned unit cannot enroll new OSDs. The same placement policy reconciles control and storage roles alongside RGW and NFS gateway assignments.
 
 The RGW functional scenario selects `tentacle/edge` directly in its `snap_channel` fixture, both locally and in CI:
 

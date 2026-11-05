@@ -1094,7 +1094,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         }
 
     def _reconcile_placement(self, event: ops.framework.EventBase) -> None:
-        """Reconcile role-managed placement with RGW frontend intent."""
+        """Reconcile control, storage, and gateway placement, including RGW frontend intent."""
         if not self.unit.is_leader():
             return
 
