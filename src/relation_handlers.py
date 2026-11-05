@@ -123,6 +123,10 @@ class MicroClusterNodeAddedEvent(RelationEvent):
     """charm runs join in response to this event using supplied join URL."""
 
 
+class MicroClusterNodeJoinedEvent(RelationEvent):
+    """A peer has confirmed its MicroCeph membership."""
+
+
 class MicroClusterRemoveNodeEvent(RelationEvent):
     """charm runs remove-node to this event."""
 
@@ -164,6 +168,7 @@ class MicroClusterEvents(ObjectEvents):
 
     add_node = EventSource(MicroClusterNewNodeEvent)
     node_added = EventSource(MicroClusterNodeAddedEvent)
+    node_joined = EventSource(MicroClusterNodeJoinedEvent)
     remove_node = EventSource(MicroClusterRemoveNodeEvent)
     upgrade_request = EventSource(UpgradeNodeRequestEvent)
     upgrade_done = EventSource(UpgradeNodeDoneEvent)
@@ -281,6 +286,10 @@ class MicroClusterPeers(OperatorPeers):
             # we don't expect any other app data change here - ignore
             return
 
+        if event.relation.data[event.unit].get("joined") == "true":
+            self.on.node_joined.emit(**self._event_args(event))
+            return
+
         if f"{event.unit.name}.join_token" in join_keys:
             logger.debug(f"Already added {event.unit.name} to the cluster")
             return
@@ -374,6 +383,7 @@ class MicroClusterPeerHandler(BasePeerHandler):
 
         self.framework.observe(peer_int.on.add_node, self._on_add_node)
         self.framework.observe(peer_int.on.node_added, self._on_node_added)
+        self.framework.observe(peer_int.on.node_joined, self._on_node_joined)
         self.framework.observe(peer_int.on.remove_node, self._on_remove_node)
         self.framework.observe(peer_int.on.upgrade_request, self._on_upgrade_request)
         self.framework.observe(peer_int.on.upgrade_done, self._on_upgrade_done)
@@ -409,6 +419,16 @@ class MicroClusterPeerHandler(BasePeerHandler):
             return
 
         self.callback_f(event)
+
+    def _on_node_joined(self, event):
+        """Reconcile placement when an assigned RGW peer confirms its join."""
+        if (
+            self.model.unit.is_leader()
+            and self.charm.role_managed_enabled()
+            and event.unit
+            and event.unit.name in self.charm._desired_rgw_units()
+        ):
+            self.callback_f(event)
 
     def _on_remove_node(self, event):
         if not self.is_leader_ready():

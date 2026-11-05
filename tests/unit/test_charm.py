@@ -2368,19 +2368,12 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         first = cclient.from_socket().cluster.apply_placement.call_args.args[0]
         self.assertNotIn("node-b", first["members"])
 
-        self.harness.disable_hooks()
-        self.harness.update_relation_data(peer_rel_id, "microceph/1", {"joined": "true"})
-        self.harness.enable_hooks()
-        peer_rel = self.harness.model.get_relation("peers", peer_rel_id)
-        peer_unit = next(iter(peer_rel.units))
         with patch.object(
-            self.harness.charm,
-            "configure_charm",
+            self.harness.charm.peers,
+            "callback_f",
             side_effect=self.harness.charm._reconcile_placement,
         ):
-            self.harness.charm._on_peer_relation_changed(
-                MagicMock(unit=peer_unit, relation=peer_rel)
-            )
+            self.harness.update_relation_data(peer_rel_id, "microceph/1", {"joined": "true"})
 
         applied = cclient.from_socket().cluster.apply_placement.call_args.args[0]
         self.assertTrue(applied["members"]["node-b"]["rgw"]["enabled"])

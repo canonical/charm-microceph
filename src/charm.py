@@ -173,7 +173,6 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self.on.set_pool_size_action, self._set_pool_size_action)
         self.framework.observe(self.on.peers_relation_created, self._on_peer_relation_created)
-        self.framework.observe(self.on["peers"].relation_changed, self._on_peer_relation_changed)
         self.framework.observe(self.on["peers"].relation_departed, self._on_peer_relation_departed)
         self.framework.observe(
             self.role_assignment.on.role_assignment_changed,
@@ -323,17 +322,6 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
     def _on_peer_relation_created(self, event: ops.framework.EventBase) -> None:
         logging.debug(f"Peer relation created: {event}")
         self.peers.set_unit_data(collect_peer_data(self.model))
-
-    def _on_peer_relation_changed(self, event: ops.RelationChangedEvent) -> None:
-        """Reconcile when a unit assigned RGW joins MicroCeph."""
-        if (
-            self.role_managed_enabled()
-            and self.unit.is_leader()
-            and event.unit
-            and event.relation.data[event.unit].get("joined") == "true"
-            and event.unit.name in self._desired_rgw_units()
-        ):
-            self.configure_charm(event)
 
     def _on_peer_relation_departed(self, event: ops.framework.EventBase) -> None:
         self.handle_traefik_ready(event)
