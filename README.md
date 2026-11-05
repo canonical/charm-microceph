@@ -92,6 +92,8 @@ tox -e functional -- -k rgw_role_lifecycle
 
 Missing `declarative-placement` or `placement-rgw` capabilities fail the scenario rather than skip it.
 
+The lifecycle test waits for observed RGW start, explicit stop, and restart, then checks that removing the provider preserves the running gateway. It also checks that control services and the enrolled OSD survive these transitions.
+
 ## Terraform module
 
 A reusable Terraform + Terragrunt module for deploying the `microceph` charm can be found in `terraform/microceph/`. See the module README for usage instructions.
