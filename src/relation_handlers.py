@@ -427,13 +427,8 @@ class MicroClusterPeerHandler(BasePeerHandler):
         self.callback_f(event)
 
     def _on_node_joined(self, event):
-        """Reconcile placement when an assigned RGW peer confirms its join."""
-        if (
-            self.model.unit.is_leader()
-            and self.charm.role_managed_enabled()
-            and event.unit
-            and event.unit.name in self.charm._desired_rgw_units()
-        ):
+        """Reconcile all role-managed placement when a peer confirms its join."""
+        if self.model.unit.is_leader() and self.charm.role_managed_enabled() and event.unit:
             self.callback_f(event)
 
     def _on_remove_node(self, event):

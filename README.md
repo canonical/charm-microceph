@@ -82,7 +82,11 @@ juju config microceph device-add-flags="wipe:osd,encrypt:osd"
 
 With the existing `role-managed` setting enabled, a `gateway` role assignment with `workload-params.flavors: ["rgw"]` starts RGW on that member. The MicroCeph snap must advertise `declarative-placement` and `placement-rgw`; the charm keeps routing Traefik to the gateways the snap reports running. RGW serves plaintext on port 80 behind Traefik, and `enable-rgw` is ignored while placement is role-managed.
 
-When any assignment requests RGW, placement waits for peer units to confirm MicroCeph membership. The bootstrap or adoption unit publishes the same membership marker as joining peers, so subsequent leaders can still place services on it. Older seed units publish their stored membership on the next peer-relation change.
+Every role-managed placement update waits until all explicitly named targets have both a hostname and confirmed MicroCeph membership, including updates with no RGW assignments. If any target is not ready, the charm reports Waiting and defers reconciliation without replacing the current policy; it never drops an unready destination and submits the remaining changes. This prevents an RGW or NFS move from submitting the old host's removal without its replacement, and applies the same readiness requirement to control and storage assignments. Every confirmed peer join retries the whole update, while peers not named in it do not block progress.
+
+One unready requested target therefore delays other changes in the same update. This guarantees a complete policy request, not atomic service handover or zero downtime.
+
+The bootstrap or adoption unit publishes the same membership marker as joining peers, so subsequent leaders can still place services on it. Older seed units publish their stored membership on the next peer-relation change.
 
 To stop RGW, keep the unit assigned but remove its gateway role or switch to another valid gateway flavor without `rgw`. Omitting a unit from the assignment snapshot or removing the provider does not change its running services; while role-managed mode remains active, an unmentioned unit cannot enroll new OSDs. The same placement policy reconciles control and storage roles alongside RGW and NFS gateway assignments.
 

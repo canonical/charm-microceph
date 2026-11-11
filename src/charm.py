@@ -1003,13 +1003,10 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         unit_to_address: dict,
         rgw_supported: bool,
     ) -> dict:
-        """Build the members dictionary for the placement policy."""
+        """Build the complete policy after every target passes the readiness gate."""
         members = {}
         for unit_name, assignment in assignments.items():
-            hostname = unit_to_hostname.get(unit_name)
-            if not hostname:
-                # If no hostname, skip the unit.
-                continue
+            hostname = unit_to_hostname[unit_name]
 
             roles = assignment.roles
             status = assignment.status
@@ -1069,29 +1066,36 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
                 "waiting for microceph snap API to apply placement policy"
             )
 
-    def _get_placement_unit_to_hostname_map(self, assignments: dict) -> dict:
-        """Resolve placement targets, waiting for membership when RGW is requested."""
+    def _get_placement_unit_to_hostname_map(
+        self, assignments: dict, event: ops.framework.EventBase
+    ) -> dict:
+        """Resolve eligible targets, waiting until every requested member is known."""
         unit_to_hostname = self._get_unit_to_hostname_map()
-        if not any(self._assignment_wants_rgw(a) for a in assignments.values()):
-            return unit_to_hostname
-
-        # Peers advertise hostnames before joining MicroCeph, so a hostname
-        # alone does not mean the snap can place RGW on that member yet.
-        # Keep the local leader and peers that have confirmed their join;
-        # the policy builder skips assignments whose hostname is filtered out.
-        # This filters all assignments when any requests RGW, not just the RGW
-        # targets; without RGW requests, retain the existing storage/NFS path.
+        # A peer can advertise its hostname before joining MicroCeph. Every role
+        # needs both signals, not just RGW. The local member is already bootstrapped
+        # before placement runs; peers must explicitly confirm their membership.
         joined_units = {self.unit.name}
         peers = self.model.get_relation("peers")
         if peers:
             joined_units.update(
                 unit.name for unit in peers.units if peers.data[unit].get("joined") == "true"
             )
-        return {
+        eligible_units = {
             unit_name: hostname
             for unit_name, hostname in unit_to_hostname.items()
             if unit_name in joined_units
         }
+        waiting_units = assignments.keys() - eligible_units.keys()
+        if waiting_units:
+            # Treat the update as one batch across all roles. Omitting an unready
+            # NFS replacement, for example, could remove NFS from its old host
+            # without including its destination. Preserve the complete current
+            # policy until every explicitly requested target is ready.
+            event.defer()
+            raise sunbeam_guard.WaitingExceptionError(
+                "waiting for placement members: " + ", ".join(sorted(waiting_units))
+            )
+        return eligible_units
 
     def _reconcile_placement(self, event: ops.framework.EventBase) -> None:
         """Reconcile control, storage, and gateway placement, including RGW frontend intent."""
@@ -1137,7 +1141,7 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         rgw_supported = (
             self._check_placement_capabilities(assignments, event) if assignments else False
         )
-        unit_to_hostname = self._get_placement_unit_to_hostname_map(assignments)
+        unit_to_hostname = self._get_placement_unit_to_hostname_map(assignments, event)
 
         unit_to_address = self._get_unit_to_address_map()
 

@@ -2352,6 +2352,8 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
     @patch("charm.microceph.Client")
     def test_assigned_rgw_peer_reconciles_on_join(self, cclient, _):
         """An RGW target waits for membership, then joins the placement policy."""
+        # A is the leader; B is the requested RGW host. The mocked client records
+        # placement requests without starting a real MicroCeph cluster.
         self.harness.set_leader(True)
         self.set_config({"role-managed": True})
         self.add_assignments(
@@ -2362,12 +2364,20 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         )
         peer_rel_id = self.harness.add_relation("peers", "microceph")
         self.harness.add_relation_unit(peer_rel_id, "microceph/1")
+        # A peer can advertise its hostname before it has joined MicroCeph.
+        # Knowing that B is called node-b must not make it eligible yet.
         self.harness.update_relation_data(peer_rel_id, "microceph/1", {"microceph/1": "node-b"})
         self.set_capabilities(cclient)
-        self.harness.charm._reconcile_placement(MagicMock())
-        first = cclient.from_socket().cluster.apply_placement.call_args.args[0]
-        self.assertNotIn("node-b", first["members"])
 
+        # Wait for B rather than sending a partial policy that leaves B out.
+        event = MagicMock()
+        with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+            self.harness.charm._reconcile_placement(event)
+        event.defer.assert_called_once()
+        cclient.from_socket().cluster.apply_placement.assert_not_called()
+
+        # Exercise the real peer-join event path, routing its callback directly
+        # to placement reconciliation rather than the full charm configuration.
         with patch.object(
             self.harness.charm.peers,
             "callback_f",
@@ -2375,8 +2385,218 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         ):
             self.harness.update_relation_data(peer_rel_id, "microceph/1", {"joined": "true"})
 
+        # The membership update alone must include B in the next RGW policy.
         applied = cclient.from_socket().cluster.apply_placement.call_args.args[0]
         self.assertTrue(applied["members"]["node-b"]["rgw"]["enabled"])
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_rgw_replacement_preserves_policy_until_destination_joins(self, cclient, _):
+        """A missing hostname or membership must not turn migration into a disable."""
+        # Reproduce an RGW move from A (microceph/0) to B (microceph/1).
+        # This is a policy-level test: the client records requests, not live services.
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        control = {"status": "assigned", "roles": ["control", "storage"]}
+        rel_id = self.add_assignments(
+            {"microceph/0": {**self.RGW_GATEWAY, "roles": ["control", "storage", "gateway"]}}
+        )
+
+        # B exists in Juju, but has not advertised a hostname or joined MicroCeph.
+        peer_rel_id = self.harness.add_relation("peers", "microceph")
+        self.harness.add_relation_unit(peer_rel_id, "microceph/1")
+        # Simulate an RGW-capable snap and establish the initial policy with RGW on A.
+        self.set_capabilities(cclient)
+        self.harness.charm._reconcile_placement(MagicMock())
+        apply = cclient.from_socket().cluster.apply_placement
+        self.assertTrue(apply.call_args.args[0]["members"]["node-a"]["rgw"]["enabled"])
+        # Clear the recorded call, not the policy; subsequent attempts must send nothing.
+        apply.reset_mock()
+
+        # Request RGW on B instead of A, retaining A's control and storage roles.
+        # Disable hooks while staging the change; explicit calls below check the result.
+        self.harness.disable_hooks()
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {"assignments": json.dumps({"microceph/0": control, "microceph/1": self.RGW_GATEWAY})},
+        )
+        self.harness.enable_hooks()
+
+        # Check both prerequisites independently: joined without a hostname, then
+        # a hostname without membership. Databag updates merge, so joined="" clears
+        # the first case's marker rather than accidentally making B fully eligible.
+        for peer_data in ({"joined": "true"}, {"microceph/1": "node-b", "joined": ""}):
+            with self.subTest(peer_data=peer_data):
+                self.harness.disable_hooks()
+                self.harness.update_relation_data(peer_rel_id, "microceph/1", peer_data)
+                self.harness.enable_hooks()
+                # Filtering out B and submitting the rest would disable RGW on A.
+                # Deferral plus no API write must preserve the entire previous policy.
+                event = MagicMock()
+                with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+                    self.harness.charm._reconcile_placement(event)
+                event.defer.assert_called_once()
+                apply.assert_not_called()
+
+        # B retains node-b from the second case; joined=true now makes it eligible.
+        # Keep real peer-join dispatch, but isolate placement reconciliation from
+        # unrelated work normally performed by the handler's charm callback.
+        with patch.object(
+            self.harness.charm.peers,
+            "callback_f",
+            side_effect=self.harness.charm._reconcile_placement,
+        ):
+            self.harness.update_relation_data(peer_rel_id, "microceph/1", {"joined": "true"})
+
+        # No new role-assignment or config event is needed: the join finishes the move.
+        # The resulting request moves only RGW; A keeps its control and storage roles.
+        members = apply.call_args.args[0]["members"]
+        self.assertEqual(members["node-a"]["rgw"], {"enabled": False})
+        self.assertTrue(members["node-a"]["control"])
+        self.assertTrue(members["node-a"]["storage_eligible"])
+        self.assertTrue(members["node-b"]["rgw"]["enabled"])
+
+    @patch("charm.get_nfs_space_address", return_value="10.0.0.1")
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_nfs_replacement_preserves_policy_without_rgw(
+        self, cclient, mock_gethostname, mock_nfs_addr
+    ):
+        """An unready NFS destination must not remove the old service, even without RGW."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        control = {"status": "assigned", "roles": ["control", "storage"]}
+        nfs_gateway = {
+            "status": "assigned",
+            "roles": ["gateway"],
+            "workload-params": {"flavors": ["nfs"], "nfs-cluster-id": "alpha"},
+        }
+        rel_id = self.add_assignments(
+            {"microceph/0": {**nfs_gateway, "roles": ["control", "storage", "gateway"]}}
+        )
+        peer_rel_id = self.harness.add_relation("peers", "microceph")
+        self.harness.add_relation_unit(peer_rel_id, "microceph/1")
+        self.harness.update_relation_data(peer_rel_id, "microceph/1", {"nfs-address": "10.0.0.2"})
+        # No RGW assignment or capability is involved: readiness must protect NFS too.
+        self.set_capabilities(cclient, ["declarative-placement"])
+        self.harness.charm._reconcile_placement(MagicMock())
+        apply = cclient.from_socket().cluster.apply_placement
+        self.assertEqual(
+            apply.call_args.args[0]["members"]["node-a"]["nfs"],
+            [{"group_id": "role-alpha", "bind_address": "10.0.0.1"}],
+        )
+        apply.reset_mock()
+
+        # Request both halves of the move in one snapshot. Publishing A's removal
+        # while omitting B would turn an NFS move into a service shutdown.
+        self.harness.disable_hooks()
+        self.harness.update_relation_data(
+            rel_id,
+            "provider-charm",
+            {"assignments": json.dumps({"microceph/0": control, "microceph/1": nfs_gateway})},
+        )
+        self.harness.enable_hooks()
+        # Check a missing hostname and missing membership separately. The empty
+        # joined value clears the first case's marker because databag updates merge.
+        for peer_data in ({"joined": "true"}, {"microceph/1": "node-b", "joined": ""}):
+            with self.subTest(peer_data=peer_data):
+                self.harness.disable_hooks()
+                self.harness.update_relation_data(peer_rel_id, "microceph/1", peer_data)
+                self.harness.enable_hooks()
+                event = MagicMock()
+                with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+                    self.harness.charm._reconcile_placement(event)
+                event.defer.assert_called_once()
+                apply.assert_not_called()
+
+        # The join event alone must submit the complete move, without another
+        # role/config change. Keep real peer dispatch and isolate the placement callback.
+        with patch.object(
+            self.harness.charm.peers,
+            "callback_f",
+            side_effect=self.harness.charm._reconcile_placement,
+        ):
+            self.harness.update_relation_data(peer_rel_id, "microceph/1", {"joined": "true"})
+
+        apply.assert_called_once()
+        members = apply.call_args.args[0]["members"]
+        self.assertEqual(members["node-a"]["nfs"], [])
+        self.assertTrue(members["node-a"]["control"])
+        self.assertTrue(members["node-a"]["storage_eligible"])
+        self.assertEqual(
+            members["node-b"]["nfs"],
+            [{"group_id": "role-alpha", "bind_address": "10.0.0.2"}],
+        )
+
+    @patch("charm.gethostname", return_value="node-a")
+    @patch("charm.microceph.Client")
+    def test_placement_waits_for_all_requested_members_then_reconciles_on_join(self, cclient, _):
+        """Publish the complete policy only after every requested role's target joins."""
+        self.harness.set_leader(True)
+        self.set_config({"role-managed": True})
+        # A's RGW target is already eligible, but that must not permit a partial
+        # update which silently leaves out the requested storage, control or NFS roles.
+        assignments = {
+            "microceph/0": self.RGW_GATEWAY,
+            "microceph/1": {"status": "assigned", "roles": ["storage"]},
+            "microceph/2": {"status": "assigned", "roles": ["control"]},
+            "microceph/3": {
+                "status": "assigned",
+                "roles": ["gateway"],
+                "workload-params": {"flavors": ["nfs"], "nfs-cluster-id": "alpha"},
+            },
+        }
+        self.add_assignments(assignments)
+        peer_rel_id = self.harness.add_relation("peers", "microceph")
+        # Each peer advertises a hostname, and an address for the NFS binding,
+        # but none has confirmed membership yet.
+        for index, hostname in enumerate(("node-b", "node-c", "node-d"), start=1):
+            unit = f"microceph/{index}"
+            self.harness.add_relation_unit(peer_rel_id, unit)
+            self.harness.update_relation_data(
+                peer_rel_id, unit, {unit: hostname, "public-address": f"10.0.0.{index}"}
+            )
+        # An unrelated, unready peer must not hold up the requested update.
+        self.harness.add_relation_unit(peer_rel_id, "microceph/4")
+        self.set_capabilities(cclient)
+        event = MagicMock()
+        with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+            self.harness.charm._reconcile_placement(event)
+        event.defer.assert_called_once()
+        apply = cclient.from_socket().cluster.apply_placement
+        apply.assert_not_called()
+
+        # Keep real peer event dispatch and let the join handler call placement
+        # reconciliation directly, avoiding unrelated charm configuration.
+        with patch.object(
+            self.harness.charm.peers,
+            "callback_f",
+            side_effect=self.harness.charm._reconcile_placement,
+        ):
+            # Joining only some targets must still preserve the old policy. These
+            # real join callbacks raise Waiting here because the full charm guard
+            # is bypassed; in a hook, the guard translates it into waiting status.
+            for unit in ("microceph/1", "microceph/2"):
+                with self.subTest(unit=unit):
+                    with self.assertRaises(sunbeam_guard.WaitingExceptionError):
+                        self.harness.update_relation_data(peer_rel_id, unit, {"joined": "true"})
+                    apply.assert_not_called()
+
+            # NFS is the last required target. Its join must finish the entire
+            # update without another assignment/config event or waiting for unit 4.
+            self.harness.update_relation_data(peer_rel_id, "microceph/3", {"joined": "true"})
+
+        apply.assert_called_once()
+        members = apply.call_args.args[0]["members"]
+        self.assertEqual(set(members), {"node-a", "node-b", "node-c", "node-d"})
+        self.assertTrue(members["node-a"]["rgw"]["enabled"])
+        self.assertTrue(members["node-b"]["storage_eligible"])
+        self.assertTrue(members["node-c"]["control"])
+        self.assertEqual(
+            members["node-d"]["nfs"],
+            [{"group_id": "role-alpha", "bind_address": "10.0.0.3"}],
+        )
 
     @patch("charm.microceph.Client")
     def test_reconcile_placement_active_relation_missing_data_freezes_placement(self, cclient):
@@ -2415,7 +2635,7 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         self.harness.update_relation_data(
             peer_rel_id,
             "microceph/1",
-            {"microceph/1": "node-b"},
+            {"microceph/1": "node-b", "joined": "true"},
         )
 
         self.set_capabilities(cclient)
