@@ -15,7 +15,6 @@
 
 """The cluster module manages cluster-wide operations."""
 
-import json
 import logging
 import subprocess
 import uuid
@@ -95,8 +94,7 @@ class ClusterNodes(ops.framework.Object):
 
         try:
             microceph.join_cluster(token=token, **params)
-            self.charm.peers.interface.state.joined = True
-            self.charm.peers.set_unit_data({"joined": json.dumps(True)})
+            self.charm.peers.interface.mark_joined()
             logger.debug("Joined cluster successfully.")
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(e.stderr)
