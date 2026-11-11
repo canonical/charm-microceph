@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, PropertyMock, call, mock_open, patch
 import ops_sunbeam.guard as sunbeam_guard
 import ops_sunbeam.test_utils as test_utils
 import requests
+import yaml
 from charms.ceph_mon.v0 import ceph_cos_agent
 from ops.model import BlockedStatus
 from unit import testbase
@@ -2257,6 +2258,13 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
             capabilities = ["declarative-placement", "placement-rgw"]
         cclient.from_socket().cluster.get_capabilities.return_value = capabilities
 
+    def get_published_rgw_backends(self, relation_id: int) -> set[str]:
+        """Read backend URLs from the actual Traefik application relation data."""
+        app_data = self.harness.get_relation_data(relation_id, self.harness.charm.app.name)
+        config = yaml.safe_load(app_data["config"])
+        (service,) = config["http"]["services"].values()
+        return {server["url"] for server in service["loadBalancer"]["servers"]}
+
     @patch("charm.microceph.Client")
     def test_reconcile_placement_non_leader_is_noop(self, cclient):
         """When not leader, reconciliation is a no-op."""
@@ -2392,11 +2400,12 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
     @patch("charm.gethostname", return_value="node-a")
     @patch("charm.microceph.Client")
     def test_rgw_replacement_preserves_policy_until_destination_joins(self, cclient, _):
-        """A missing hostname or membership must not turn migration into a disable."""
+        """An RGW move waits for membership and routes only gateways observed running."""
         # Reproduce an RGW move from A (microceph/0) to B (microceph/1).
-        # This is a policy-level test: the client records requests, not live services.
+        # The client simulates snap state; real relation events publish Traefik config.
         self.harness.set_leader(True)
         self.set_config({"role-managed": True})
+        self.harness.add_network("10.0.0.10")
         control = {"status": "assigned", "roles": ["control", "storage"]}
         rel_id = self.add_assignments(
             {"microceph/0": {**self.RGW_GATEWAY, "roles": ["control", "storage", "gateway"]}}
@@ -2405,6 +2414,21 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         # B exists in Juju, but has not advertised a hostname or joined MicroCeph.
         peer_rel_id = self.harness.add_relation("peers", "microceph")
         self.harness.add_relation_unit(peer_rel_id, "microceph/1")
+        self.harness.update_relation_data(
+            peer_rel_id, "microceph/1", {"public-address": "10.0.0.11"}
+        )
+        placement = cclient.from_socket().cluster.get_placement
+        running_a = {"member": "node-a", "rgw": True}
+        running_b = {"member": "node-b", "rgw": True}
+        placement.return_value = {"observed": [running_a]}
+
+        # Exercise provider readiness and the real relation publisher, not a mock
+        # of submit_to_traefik. Only unrelated RGW/Keystone configuration is bypassed.
+        with patch.object(self.harness.charm, "configure_rgw_service"):
+            self.add_complete_ingress_relation(self.harness)
+        route_id = self.harness.model.get_relation("traefik-route-rgw").id
+        self.assertEqual(self.get_published_rgw_backends(route_id), {"http://10.0.0.10:80"})
+
         # Simulate an RGW-capable snap and establish the initial policy with RGW on A.
         self.set_capabilities(cclient)
         self.harness.charm._reconcile_placement(MagicMock())
@@ -2438,6 +2462,13 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
                     self.harness.charm._reconcile_placement(event)
                 event.defer.assert_called_once()
                 apply.assert_not_called()
+                # A desired replacement must not enter the route before it runs.
+                # Even a periodic refresh while placement waits must retain A.
+                with patch.object(self.harness.charm, "ready_for_service", return_value=True):
+                    self.harness.charm.on.update_status.emit()
+                self.assertEqual(
+                    self.get_published_rgw_backends(route_id), {"http://10.0.0.10:80"}
+                )
 
         # B retains node-b from the second case; joined=true now makes it eligible.
         # Keep real peer-join dispatch, but isolate placement reconciliation from
@@ -2449,13 +2480,29 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
         ):
             self.harness.update_relation_data(peer_rel_id, "microceph/1", {"joined": "true"})
 
-        # No new role-assignment or config event is needed: the join finishes the move.
-        # The resulting request moves only RGW; A keeps its control and storage roles.
+        # The join publishes the desired policy without another role/config event.
+        # Only RGW moves; A keeps its control and storage roles.
         members = apply.call_args.args[0]["members"]
         self.assertEqual(members["node-a"]["rgw"], {"enabled": False})
         self.assertTrue(members["node-a"]["control"])
         self.assertTrue(members["node-a"]["storage_eligible"])
         self.assertTrue(members["node-b"]["rgw"]["enabled"])
+
+        # Membership and a successful policy PUT do not mean B is serving yet.
+        # The refresh after that PUT must still publish the observed gateway A.
+        self.assertEqual(self.get_published_rgw_backends(route_id), {"http://10.0.0.10:80"})
+
+        # Service startup/shutdown happens later, without new role or join events.
+        # Periodic status must include both during overlap, then remove A when stopped.
+        with patch.object(self.harness.charm, "ready_for_service", return_value=True):
+            for observed, expected in (
+                ([running_a, running_b], {"http://10.0.0.10:80", "http://10.0.0.11:80"}),
+                ([{"member": "node-a", "rgw": False}, running_b], {"http://10.0.0.11:80"}),
+            ):
+                with self.subTest(observed=observed):
+                    placement.return_value = {"observed": observed}
+                    self.harness.charm.on.update_status.emit()
+                    self.assertEqual(self.get_published_rgw_backends(route_id), expected)
 
     @patch("charm.get_nfs_space_address", return_value="10.0.0.1")
     @patch("charm.gethostname", return_value="node-a")
@@ -3103,13 +3150,39 @@ class TestPlacementReconciliation(testbase.TestBaseCharm):
             [{"url": "http://10.0.0.11:8080"}, {"url": "http://[2001:db8::12]:80"}],
         )
 
+    @patch("charm.gethostname", return_value="node-a")
     @patch("charm.microceph.Client")
-    def test_traefik_config_role_managed_unknown_backends(self, cclient):
-        """An unreadable placement status yields no config rather than no backends."""
+    def test_traefik_route_preserves_unknown_backends_but_publishes_known_empty(self, cclient, _):
+        """A status read failure preserves the route; confirmed absence clears backends."""
+        self.harness.set_leader(True)
         self.set_config({"role-managed": True})
-        cclient.from_socket().cluster.get_placement.side_effect = Exception("API error")
+        self.harness.add_network("10.0.0.10")
+        placement = cclient.from_socket().cluster.get_placement
+        placement.return_value = {"observed": [{"member": "node-a", "rgw": True}]}
+        with patch.object(self.harness.charm, "configure_rgw_service"):
+            self.add_complete_ingress_relation(self.harness)
+        route_id = self.harness.model.get_relation("traefik-route-rgw").id
+        self.assertEqual(self.get_published_rgw_backends(route_id), {"http://10.0.0.10:80"})
+        previous_route = dict(
+            self.harness.get_relation_data(route_id, self.harness.charm.app.name)
+        )
 
-        self.assertIsNone(self.harness.charm.traefik_config)
+        with patch.object(self.harness.charm, "ready_for_service", return_value=True):
+            # An unreadable snap status is not evidence that all gateways stopped.
+            # Keep the entire published route instead of advertising an empty pool.
+            placement.side_effect = ClusterServiceUnavailableException("socket unavailable")
+            self.harness.charm.on.update_status.emit()
+            self.assertEqual(
+                self.harness.get_relation_data(route_id, self.harness.charm.app.name),
+                previous_route,
+            )
+
+            # Once the API confirms no gateway is running, a periodic refresh must
+            # remove the stale destination rather than preserving it indefinitely.
+            placement.side_effect = None
+            placement.return_value = {"observed": [{"member": "node-a", "rgw": False}]}
+            self.harness.charm.on.update_status.emit()
+            self.assertEqual(self.get_published_rgw_backends(route_id), set())
 
 
 class TestConfigLeaderCephPoolPgs(testbase.TestBaseCharm):

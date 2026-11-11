@@ -90,6 +90,8 @@ The bootstrap or adoption unit publishes the same membership marker as joining p
 
 To stop RGW, keep the unit assigned but remove its gateway role or switch to another valid gateway flavor without `rgw`. Omitting a unit from the assignment snapshot or removing the provider does not change its running services; while role-managed mode remains active, an unmentioned unit cannot enroll new OSDs. The same placement policy reconciles control and storage roles alongside RGW and NFS gateway assignments.
 
+Traefik routing is covered by event-driven Harness unit tests (`tox -e py3`) that inspect the actual relation configuration across placement and observed-service transitions. They verify that unready replacements do not displace running gateways, periodic updates follow observed service changes, and unreadable snap status preserves the last route while confirmed absence clears stale backends. This validates the charm's relation contract without deploying Kubernetes or Traefik; it does not exercise proxy traffic.
+
 The RGW functional scenario selects `tentacle/edge` directly in its `snap_channel` fixture, both locally and in CI:
 
 ```bash
