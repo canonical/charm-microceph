@@ -78,6 +78,40 @@ class TestUpdateStatusUpgradeReconcile(testbase.TestBaseCharm):
 
         self.assertIsInstance(self.harness.charm.status.status, ActiveStatus)
 
+    @patch("microceph.snap.SnapClient")
+    def test_update_status_pending_upgrade_store_unreachable_blocks(self, mock_snap_client):
+        """A store outage during the upgrade check blocks the unit, no hook error."""
+        mock_snap_client.return_value.get_snap_information.side_effect = TimeoutError("timed out")
+        self.ready_for_service.return_value = True
+
+        with patch.object(
+            self.harness.charm.cluster_upgrades,
+            "upgrade_requested",
+            return_value=True,
+        ):
+            self.harness.charm.on.update_status.emit()
+
+        status = self.harness.charm.status.status
+        self.assertIsInstance(status, BlockedStatus)
+        self.assertTrue(
+            status.message.startswith(charm.cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX),
+            status.message,
+        )
+
+    def test_update_status_clears_stale_upgrade_store_blocked(self):
+        self.harness.charm.status.set(
+            BlockedStatus(f"{charm.cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX}: timed out")
+        )
+
+        with patch.object(
+            self.harness.charm.cluster_upgrades,
+            "upgrade_requested",
+            side_effect=[False, False],
+        ):
+            self.harness.charm.on.update_status.emit()
+
+        self.assertIsInstance(self.harness.charm.status.status, ActiveStatus)
+
     def test_update_status_does_not_clear_unrelated_blocked_status(self):
         self.harness.set_leader(False)
         self.harness.charm.status.set(BlockedStatus("waiting for something else"))

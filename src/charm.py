@@ -296,12 +296,14 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self._clear_resolved_upgrade_blocked_status(snap_chan)
 
     def _clear_resolved_upgrade_blocked_status(self, snap_chan: str) -> None:
-        """Clear stale blocked status once a health-gated upgrade has recovered."""
+        """Clear stale blocked status once a gated upgrade has recovered."""
         status = self.status.status
         if not isinstance(status, BlockedStatus):
             return
 
-        if not status.message.startswith(cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX):
+        if not status.message.startswith(
+            (cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX, cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX)
+        ):
             return
 
         if self.cluster_upgrades.upgrade_requested(snap_chan):

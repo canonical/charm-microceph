@@ -147,6 +147,36 @@ class TestAirgapSnapChannelCharm(testbase.TestBaseCharm):
 
         self.assertTrue(ok, msg)
 
+    def _check_payload_with_snapd_error(self, mock_snap_client, error):
+        mock_snap_client.return_value.get_snap_information.side_effect = error
+        unit_charm = self.harness.charm
+        with (
+            patch.object(unit_charm, "ready_for_service", return_value=True),
+            patch("cluster.CephStatus") as mock_status,
+        ):
+            ok, msg = unit_charm.cluster_upgrades.can_upgrade_charm_payload("tentacle/stable")
+        mock_status.return_value.ceph_health.assert_not_called()
+        return ok, msg
+
+    @patch("microceph.snap.SnapClient")
+    def test_can_upgrade_charm_payload_store_unreachable(self, mock_snap_client):
+        """Store or proxy unreachable from snapd: refuse the upgrade, do not raise."""
+        error = microceph.snap.SnapAPIError(
+            {}, 500, "Not found", "[Errno -3] Temporary failure in name resolution"
+        )
+        ok, msg = self._check_payload_with_snapd_error(mock_snap_client, error)
+
+        self.assertFalse(ok)
+        self.assertTrue(msg.startswith(charm_module.cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX))
+
+    @patch("microceph.snap.SnapClient")
+    def test_can_upgrade_charm_payload_snapd_timeout(self, mock_snap_client):
+        """A snapd socket read timeout is handled the same way."""
+        ok, msg = self._check_payload_with_snapd_error(mock_snap_client, TimeoutError("timed out"))
+
+        self.assertFalse(ok)
+        self.assertTrue(msg.startswith(charm_module.cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX))
+
 
 if __name__ == "__main__":
     unittest.main()
