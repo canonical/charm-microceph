@@ -35,6 +35,7 @@ from ceph import CephHealth, CephStatus
 
 logger = logging.getLogger(__name__)
 UPGRADE_HEALTH_BLOCKED_MSG_PREFIX = "Cannot upgrade, ceph health not ok"
+UPGRADE_SNAP_QUERY_BLOCKED_MSG_PREFIX = "Cannot upgrade, unable to query snap store via snapd"
 
 
 class ClusterNodes(ops.framework.Object):
@@ -142,7 +143,17 @@ class ClusterUpgrades(ops.framework.Object):
 
     def can_upgrade_charm_payload(self, snap_chan: str) -> Tuple[bool, str]:
         """Check if snap can be upgraded."""
-        if not microceph.can_upgrade_snap(self.track, snap_chan.split("/")[0]):
+        try:
+            allowed = microceph.can_upgrade_snap(self.track, snap_chan.split("/")[0])
+        except (snap.SnapAPIError, OSError) as e:
+            # The track lookup through snapd failed: snapd could not reach the
+            # store or the store proxy, returned an API error, is down, or timed
+            # out. Refuse for now instead of failing the hook; update-status
+            # retries the check while the upgrade is pending.
+            msg = f"{UPGRADE_SNAP_QUERY_BLOCKED_MSG_PREFIX}: {type(e).__name__}: {e}"
+            logger.warning(msg)
+            return False, msg
+        if not allowed:
             msg = f"Cannot upgrade from {self.channel} to {snap_chan}"
             logger.warning(msg)
             return False, msg
