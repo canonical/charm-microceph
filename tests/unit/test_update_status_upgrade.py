@@ -78,10 +78,8 @@ class TestUpdateStatusUpgradeReconcile(testbase.TestBaseCharm):
 
         self.assertIsInstance(self.harness.charm.status.status, ActiveStatus)
 
-    @patch("microceph.snap.SnapClient")
-    def test_update_status_pending_upgrade_store_unreachable_blocks(self, mock_snap_client):
-        """A store outage during the upgrade check blocks the unit, no hook error."""
-        mock_snap_client.return_value.get_snap_information.side_effect = TimeoutError("timed out")
+    def _update_status_with_snapd_error(self, mock_snap_client, error):
+        mock_snap_client.return_value.get_snap_information.side_effect = error
         self.ready_for_service.return_value = True
 
         with patch.object(
@@ -94,13 +92,65 @@ class TestUpdateStatusUpgradeReconcile(testbase.TestBaseCharm):
         status = self.harness.charm.status.status
         self.assertIsInstance(status, BlockedStatus)
         self.assertTrue(
-            status.message.startswith(charm.cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX),
+            status.message.startswith(charm.cluster.UPGRADE_SNAP_QUERY_BLOCKED_MSG_PREFIX),
             status.message,
         )
+        return status.message
+
+    @patch("microceph.snap.SnapClient")
+    def test_update_status_pending_upgrade_snapd_timeout_blocks(self, mock_snap_client):
+        """A snapd timeout during the upgrade check blocks the unit, no hook error."""
+        msg = self._update_status_with_snapd_error(mock_snap_client, TimeoutError("timed out"))
+        self.assertIn("TimeoutError", msg)
+
+    @patch("microceph.snap.SnapClient")
+    def test_update_status_pending_upgrade_snapd_api_error_blocks(self, mock_snap_client):
+        """A snapd API error (e.g. snap not found) also blocks the unit, no hook error."""
+        error = charm.microceph.snap.SnapAPIError({}, 404, "Not Found", "snap not found")
+        msg = self._update_status_with_snapd_error(mock_snap_client, error)
+        self.assertIn("SnapAPIError", msg)
+
+    @patch("microceph.snap.SnapClient")
+    def test_update_status_pending_upgrade_resumes_when_snapd_recovers(self, mock_snap_client):
+        """Once snapd answers again, the next update-status starts the upgrade."""
+        get_info = mock_snap_client.return_value.get_snap_information
+        get_info.side_effect = TimeoutError("timed out")
+        self.ready_for_service.return_value = True
+        upgrades = self.harness.charm.cluster_upgrades
+        pending = {"value": True}
+
+        def _init_upgrade(snap_chan):
+            pending["value"] = False
+
+        with (
+            patch.object(upgrades, "upgrade_requested", side_effect=lambda _: pending["value"]),
+            patch.object(upgrades, "init_upgrade", side_effect=_init_upgrade) as mock_init,
+            patch("cluster.CephStatus") as mock_ceph_status,
+        ):
+            mock_ceph_status.return_value.ceph_health.return_value = (
+                charm.cluster.CephHealth.Ok,
+                "",
+            )
+            self.harness.charm.on.update_status.emit()
+            self.assertIsInstance(self.harness.charm.status.status, BlockedStatus)
+            mock_init.assert_not_called()
+
+            # snapd can query the store again.
+            get_info.side_effect = None
+            get_info.return_value = {
+                "name": "microceph",
+                "tracks": ["squid", "tentacle"],
+                "channels": {},
+            }
+            self.harness.charm.on.update_status.emit()
+
+        snap_chan = self.harness.charm.model.config.get("snap-channel")
+        mock_init.assert_called_once_with(snap_chan)
+        self.assertIsInstance(self.harness.charm.status.status, ActiveStatus)
 
     def test_update_status_clears_stale_upgrade_store_blocked(self):
         self.harness.charm.status.set(
-            BlockedStatus(f"{charm.cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX}: timed out")
+            BlockedStatus(f"{charm.cluster.UPGRADE_SNAP_QUERY_BLOCKED_MSG_PREFIX}: timed out")
         )
 
         with patch.object(

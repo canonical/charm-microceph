@@ -302,15 +302,18 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             return
 
         if not status.message.startswith(
-            (cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX, cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX)
+            (
+                cluster.UPGRADE_HEALTH_BLOCKED_MSG_PREFIX,
+                cluster.UPGRADE_SNAP_QUERY_BLOCKED_MSG_PREFIX,
+            )
         ):
             return
 
         if self.cluster_upgrades.upgrade_requested(snap_chan):
-            logger.debug("Upgrade still pending, keeping blocked health status")
+            logger.debug("Upgrade still pending, keeping blocked upgrade status")
             return
 
-        logger.info("Clearing stale blocked status from resolved Ceph health warning")
+        logger.info("Clearing stale blocked upgrade status, no upgrade pending anymore")
         self.status.set(ActiveStatus(""))
 
     def _on_peer_relation_created(self, event: ops.framework.EventBase) -> None:

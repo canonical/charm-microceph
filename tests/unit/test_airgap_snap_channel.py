@@ -167,7 +167,7 @@ class TestAirgapSnapChannelCharm(testbase.TestBaseCharm):
         ok, msg = self._check_payload_with_snapd_error(mock_snap_client, error)
 
         self.assertFalse(ok)
-        self.assertTrue(msg.startswith(charm_module.cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX))
+        self.assertTrue(msg.startswith(charm_module.cluster.UPGRADE_SNAP_QUERY_BLOCKED_MSG_PREFIX))
 
     @patch("microceph.snap.SnapClient")
     def test_can_upgrade_charm_payload_snapd_timeout(self, mock_snap_client):
@@ -175,7 +175,7 @@ class TestAirgapSnapChannelCharm(testbase.TestBaseCharm):
         ok, msg = self._check_payload_with_snapd_error(mock_snap_client, TimeoutError("timed out"))
 
         self.assertFalse(ok)
-        self.assertTrue(msg.startswith(charm_module.cluster.UPGRADE_STORE_BLOCKED_MSG_PREFIX))
+        self.assertTrue(msg.startswith(charm_module.cluster.UPGRADE_SNAP_QUERY_BLOCKED_MSG_PREFIX))
 
 
 if __name__ == "__main__":
