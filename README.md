@@ -21,6 +21,21 @@ Ceph cluster with [Juju](https://juju.is/).
 Please visit [charmhub](https://charmhub.io/microceph) for documentation and instructions
 on consuming charmed MicroCeph.
 
+## Minor snap upgrades
+
+Run `juju run microceph/leader cluster-snap-refresh` to refresh the MicroCeph snap
+without changing `snap-channel`. The action reports `up-to-date` if the leader already
+has the revision published in that channel. Otherwise it queues that exact
+revision for all units. Use this on clusters whose units have the same CPU
+architecture. Automatic snap refreshes remain held.
+
+The rollout runs one unit at a time on Juju `update-status` hooks, starting with
+the leader. A queued result is not a completion notice. Ceph must be healthy
+before and after each unit refreshes. Use `juju status` and the unit logs to
+monitor the rollout. If a unit fails, fix the underlying error and run
+`juju resolved <unit>` to retry the same revision before the next unit starts.
+Avoid scaling the cluster or manually refreshing snaps during the rollout.
+
 ## Availability zones
 
 The charm configures MicroCeph with Juju availability zones (AZs)

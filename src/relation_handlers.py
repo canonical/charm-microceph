@@ -200,26 +200,22 @@ class MicroClusterPeers(OperatorPeers):
         # Do nothing or raise an event to charm?
         pass
 
-    def set_upgrade_info(self, nonce: str, channel: str, nodes: List[str]) -> None:
+    def set_upgrade_info(
+        self, nonce: str, channel: str, nodes: List[str], revision: str | None = None
+    ) -> None:
         """Set upgrade info in app data."""
-        self.set_app_data(
-            {
-                "upgrade-info": json.dumps(
-                    {
-                        "nonce": nonce,
-                        "nodes": nodes,
-                        "channel": channel,
-                    }
-                )
-            }
-        )
+        plan = {"nonce": nonce, "nodes": nodes, "channel": channel}
+        if revision:
+            plan["revision"] = revision
+        self.set_app_data({"upgrade-info": json.dumps(plan)})
 
     def get_upgrade_info(self) -> Dict:
         """Get upgrade info from app data."""
         s = self.get_app_data("upgrade-info")
         if not s:
             return {}
-        return json.loads(s)
+        plan = json.loads(s)
+        return plan if plan.get("nodes") else {}
 
     def clear_upgrade_info(self) -> None:
         """Clear upgrade info from app data."""
@@ -245,19 +241,17 @@ class MicroClusterPeers(OperatorPeers):
             return
         logger.debug(f"Upgrade done for {event.unit.name}, {nonce}")
 
-        # Remove the node from the list of nodes to upgrade
-        nodes = upgrade_info["nodes"][:]
-        try:
-            nodes.remove(event.unit.name)
-        except ValueError:
-            logger.warning(f"upgrade done: {event.unit.name} not in upgrade list")
-            return
+        if upgrade_info["nodes"][0] == event.unit.name:
+            self.advance_upgrade(upgrade_info)
+
+    def advance_upgrade(self, upgrade_info: Dict) -> None:
+        """Drop the completed unit and preserve the rest of the upgrade plan."""
+        nodes = upgrade_info["nodes"][1:]
         if nodes:
-            # Still nodes left to upgrade, set remaining nodes in app data
-            logger.debug(f"set_upgrade_info for: {nodes}")
-            self.set_upgrade_info(nonce, upgrade_info["channel"], nodes)
+            self.set_upgrade_info(
+                upgrade_info["nonce"], upgrade_info["channel"], nodes, upgrade_info.get("revision")
+            )
         else:
-            logger.debug(f"no more nodes for {nonce}, clear_upgrade_info")
             self.clear_upgrade_info()
 
     def _rel_changed_leader(self, event: EventBase) -> None:
@@ -291,10 +285,11 @@ class MicroClusterPeers(OperatorPeers):
     def _handle_upgrade_nonldr(self, event: EventBase, upgrade_info: Dict) -> None:
         """Handle upgrade request for non-leader units."""
         nodes = upgrade_info.get("nodes")
-        if not nodes:  # no nodes to upgrade
+        if not nodes or upgrade_info.get("revision"):
+            # Same-channel refreshes run on update-status, including on the leader.
             return
         # are we top of stack?
-        unit = nodes.pop(0)
+        unit = nodes[0]
         if unit != self.model.unit.name:
             # no, another unit should upgrade
             logger.debug(f"upgrade nonldr: {unit} != {self.model.unit.name}")
