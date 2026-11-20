@@ -1,3 +1,5 @@
+cluster-snap-refresh:
+  description: Queue a rolling refresh to the latest MicroCeph snap revision in the current channel. Run on the leader.
 list-disks:
   description: |
     List OSDs on the cluster and unpartitioned disks on the
