@@ -462,6 +462,11 @@ def add_osd_cmd(
     utils.run_cmd(cmd, timeout=900)
 
 
+def ensure_dm_crypt() -> None:
+    """Ensure dm-crypt is available and the MicroCeph snap can access it."""
+    _setup_dm_crypt()
+
+
 def _setup_dm_crypt() -> None:
     """Ensure dm-crypt is available and the snap plug is connected."""
     logger.debug("Setting up dm-crypt for encryption")
