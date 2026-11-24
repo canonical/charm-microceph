@@ -32,7 +32,13 @@ VM_CONSTRAINTS = {"virt-type": "virtual-machine", "root-disk": "16G", "mem": "4G
 
 
 @pytest.fixture(scope="module")
-def deployed_microceph(juju: jubilant.Juju, microceph_charm: Path) -> str:
+def snap_channel() -> str:
+    """Choose the snap channel for this functional test module."""
+    return SNAP_CHANNEL
+
+
+@pytest.fixture(scope="module")
+def deployed_microceph(juju: jubilant.Juju, microceph_charm: Path, snap_channel: str) -> str:
     """Deploy MicroCeph in a VM and wait for active/idle.
 
     Returns the unit name.
@@ -41,7 +47,7 @@ def deployed_microceph(juju: jubilant.Juju, microceph_charm: Path) -> str:
     juju.deploy(
         str(microceph_charm),
         APP_NAME,
-        config={"snap-channel": SNAP_CHANNEL},
+        config={"snap-channel": snap_channel},
         constraints=VM_CONSTRAINTS,
     )
 

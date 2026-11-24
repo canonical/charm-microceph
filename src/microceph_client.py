@@ -264,3 +264,12 @@ class ClusterService(BaseService):
     def delete_placement(self) -> dict:
         """Remove/delete any active placement policy."""
         return self._delete("/1.0/placement")
+
+    def get_placement(self) -> dict:
+        """Get the stored placement policy and the observed placement per member."""
+        return self._get("/1.0/placement").get("metadata") or {}
+
+    def get_capabilities(self) -> List[str]:
+        """List the capability markers advertised by the local snap."""
+        capabilities = self._get("/1.0/cluster/capabilities").get("metadata") or {}
+        return capabilities.get("supported") or []

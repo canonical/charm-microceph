@@ -59,7 +59,7 @@ exit 0
 """
 
 
-def create_dummy_provider_charm(target_dir):
+def create_dummy_provider_charm(target_dir, roles=None):
     """Create a minimal bash-hook role-assignment Provider charm on the fly."""
     os.makedirs(target_dir, exist_ok=True)
     os.makedirs(os.path.join(target_dir, "hooks"), exist_ok=True)
@@ -82,7 +82,7 @@ def create_dummy_provider_charm(target_dir):
         {
             "microceph/0": {
                 "status": "assigned",
-                "roles": ["storage"],
+                "roles": roles if roles is not None else ["storage"],
                 "workload-params": {},
             }
         }

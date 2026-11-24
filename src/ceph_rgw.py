@@ -49,7 +49,7 @@ class CephRgwProviderHandler(ServiceReadinessProviderHandler):
     @property
     def rgw_ready(self) -> bool:
         """Returns whether rgw is ready."""
-        if not self.charm.config.get("enable-rgw"):
+        if not self.charm.rgw_requested():
             return False
 
         if not self.charm.ready_for_service():

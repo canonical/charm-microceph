@@ -14,6 +14,7 @@
 
 import json
 import unittest
+from subprocess import CalledProcessError
 from unittest.mock import MagicMock, patch
 
 import ops
@@ -188,6 +189,84 @@ class TestRelationHelpers(testbase.TestBaseCharm):
 
         self.assertEqual(change_data["nfs-address"], "")
         self.assertEqual(change_data["public-address"], "10.0.0.10")
+
+
+class TestMicroClusterMembership(testbase.TestBaseCharm):
+    """Membership publication must not depend on the current Juju leader."""
+
+    def setUp(self):
+        super().setUp(relation_handlers, [])
+        self.init_harness()
+        self.harness.disable_hooks()
+        self.harness.set_leader(True)
+        self.rel_id = self.harness.add_relation("peers", "microceph")
+        self.peer = self.harness.charm.peers.interface
+
+    def test_seed_publishes_membership(self):
+        """Bootstrap and adoption publish the seed's membership, including retries."""
+        for operation in ("bootstrap", "adopt"):
+            for already_online in (False, True):
+                with self.subTest(operation=operation, already_online=already_online):
+                    self.peer.state.joined = False
+                    self.peer.set_unit_data({"joined": ""})
+                    api = (
+                        "microceph.bootstrap_cluster"
+                        if operation == "bootstrap"
+                        else "microceph.adopt_ceph_cluster"
+                    )
+                    error = (
+                        CalledProcessError(
+                            1, [], stderr="Unable to initialize cluster: Database is online"
+                        )
+                        if already_online
+                        else None
+                    )
+                    with patch(api, return_value={}, side_effect=error):
+                        if operation == "bootstrap":
+                            self.harness.charm.bootstrap_cluster(MagicMock())
+                        else:
+                            self.harness.charm.adopt_cluster("fsid", ["10.0.0.1"], "key")
+
+                    self.assertTrue(self.peer.state.joined)
+                    self.harness.set_leader(False)
+                    data = self.harness.get_relation_data(self.rel_id, "microceph/0")
+                    self.assertEqual(data.get("joined"), "true")
+                    self.harness.set_leader(True)
+
+    def test_failed_bootstrap_does_not_publish_membership(self):
+        """A failed bootstrap must not make an unjoined seed eligible for placement."""
+        with patch(
+            "microceph.bootstrap_cluster",
+            side_effect=CalledProcessError(1, [], stderr="bootstrap failed"),
+        ):
+            with self.assertRaises(CalledProcessError):
+                self.harness.charm.bootstrap_cluster(MagicMock())
+
+        self.assertFalse(self.peer.state.joined)
+        data = self.harness.get_relation_data(self.rel_id, "microceph/0")
+        self.assertNotIn("joined", data)
+
+    def test_former_seed_backfills_membership(self):
+        """An upgraded seed publishes its stored membership even after losing leadership."""
+        self.peer.state.joined = True
+        self.harness.set_leader(False)
+        self.harness.enable_hooks()
+
+        self.harness.update_relation_data(self.rel_id, "microceph", {"leader_ready": "true"})
+
+        data = self.harness.get_relation_data(self.rel_id, "microceph/0")
+        self.assertEqual(data.get("joined"), "true")
+
+    def test_leadership_does_not_imply_membership(self):
+        """A leader without join tokens may still be waiting to bootstrap."""
+        self.harness.enable_hooks()
+
+        relation = self.harness.model.get_relation("peers", self.rel_id)
+        self.harness.charm.on.peers_relation_changed.emit(relation, self.harness.charm.app)
+
+        self.assertFalse(self.peer.state.joined)
+        data = self.harness.get_relation_data(self.rel_id, "microceph/0")
+        self.assertNotIn("joined", data)
 
 
 class TestCephClientProvides(testbase.TestBaseCharm):
