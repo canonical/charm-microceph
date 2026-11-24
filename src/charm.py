@@ -169,6 +169,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         self.framework.observe(self.on.stop, self._on_stop)
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self.on.set_pool_size_action, self._set_pool_size_action)
+        self.framework.observe(
+            self.on.cluster_snap_refresh_action, self._on_cluster_snap_refresh_action
+        )
         self.framework.observe(self.on.peers_relation_created, self._on_peer_relation_created)
         self.framework.observe(self.on["peers"].relation_departed, self._on_peer_relation_departed)
         self.framework.observe(
@@ -259,6 +262,9 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             logger.info("Application is being removed; skipping update-status")
             return
 
+        if self.cluster_upgrades.process_local_refresh():
+            return
+
         snap_chan = self.model.config.get("snap-channel")
         # Cleanup can run on all units, including units that are no longer leader.
         self._clear_resolved_upgrade_blocked_status(snap_chan)
@@ -278,6 +284,16 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
             return
 
         self.ceph_rgw.set_readiness_on_related_units()
+
+    def _on_cluster_snap_refresh_action(self, event: ops.ActionEvent) -> None:
+        """Request a same-channel snap refresh."""
+        if not self.unit.is_leader():
+            event.fail("Run this action on the leader unit")
+            return
+        try:
+            event.set_results(self.cluster_upgrades.queue_refresh())
+        except (ValueError, IndexError, snap.Error) as e:
+            event.fail(str(e))
 
     def _reconcile_pending_upgrade(self, snap_chan: str) -> None:
         """Retry pending upgrade checks on leader when an upgrade is still pending."""
@@ -1502,6 +1518,8 @@ class MicroCephCharm(sunbeam_charm.OSBaseOperatorCharm):
         snap_chan = self.model.config.get("snap-channel")
 
         if self.cluster_upgrades.upgrade_requested(snap_chan):
+            if self.cluster_upgrades.peer_int.get_upgrade_info():
+                return
             ok, msg = self.cluster_upgrades.can_upgrade_charm_payload(snap_chan)
             if not ok:
                 raise sunbeam_guard.BlockedExceptionError(msg)

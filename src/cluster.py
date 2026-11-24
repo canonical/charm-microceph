@@ -157,6 +157,9 @@ class ClusterUpgrades(ops.framework.Object):
             msg = f"Cannot upgrade from {self.channel} to {snap_chan}"
             logger.warning(msg)
             return False, msg
+        return self._check_upgrade_health()
+
+    def _check_upgrade_health(self) -> Tuple[bool, str]:
         health, det = CephStatus().ceph_health()
         if health != CephHealth.Ok:
             msg = f"{UPGRADE_HEALTH_BLOCKED_MSG_PREFIX}: {health}, {det}"
@@ -164,10 +167,62 @@ class ClusterUpgrades(ops.framework.Object):
             return False, msg
         return True, ""
 
-    def perform_upgrade(self, channel: str) -> None:
+    def queue_refresh(self) -> dict:
+        """Pin the current channel's published revision and queue a rolling refresh."""
+        if not self.peer_int.peers_rel or not self.charm.ready_for_service():
+            raise ValueError("MicroCeph is not ready for a refresh")
+        if self.peer_int.get_upgrade_info() or self.upgrade_requested(
+            self.model.config["snap-channel"]
+        ):
+            raise ValueError("A MicroCeph snap upgrade is already pending")
+
+        channel = self.channel
+        # snapd reports channel-map keys as track/risk, even for shorthand config values.
+        if "/" not in channel:
+            channel = (
+                f"latest/{channel}"
+                if channel in {"stable", "candidate", "beta", "edge"}
+                else f"{channel}/stable"
+            )
+        info = microceph.get_snap_info("microceph")
+        revision = str(info.get("channels", {}).get(channel, {}).get("revision", ""))
+        if not revision.isdecimal():
+            raise ValueError(f"No published MicroCeph snap revision found for {channel}")
+        if str(snap.SnapCache()["microceph"].revision) == revision:
+            return {"status": "up-to-date", "revision": revision}
+
+        ok, msg = self._check_upgrade_health()
+        if not ok:
+            raise ValueError(msg)
+        nodes = [self.model.unit.name, *sorted(u.name for u in self.peer_int.all_joined_units())]
+        self.peer_int.set_upgrade_info(str(uuid.uuid4()), self.channel, nodes, revision)
+        return {"status": "queued", "revision": revision}
+
+    def process_local_refresh(self) -> bool:
+        """Process a queued refresh if this unit is next, leaving failures retryable."""
+        plan = self.peer_int.get_upgrade_info()
+        if not plan.get("revision") or plan["nodes"][0] != self.model.unit.name:
+            return False
+
+        unit_data = self.peer_int.peers_rel.data[self.model.unit]
+        if unit_data.get("upgrade-done") != plan["nonce"]:
+            logger.info("Refreshing MicroCeph to revision %s", plan["revision"])
+            self.perform_upgrade(plan["channel"], plan["revision"])
+            logger.info("MicroCeph refresh to revision %s complete on this unit", plan["revision"])
+        if self.model.unit.is_leader():
+            self.peer_int.advance_upgrade(plan)
+        else:
+            self.peer_int.set_unit_data({"upgrade-done": plan["nonce"]})
+        return True
+
+    def perform_upgrade(self, channel: str, revision: str | None = None) -> None:
         """Perform the snap upgrade on this node."""
         node = self.model.unit.name
-        logger.debug(f"Upgrading {node} to {channel}")
+        logger.debug("Upgrading %s on %s (revision: %s)", node, channel, revision)
+        if revision:
+            ok, msg = self._check_upgrade_health()
+            if not ok:
+                raise sunbeam_guard.BlockedExceptionError(msg)
 
         # Check if any of the non-service commands are running
         # Upgrading while a non-service command is running fails; checking
@@ -186,9 +241,7 @@ class ClusterUpgrades(ops.framework.Object):
 
         # TODO(peter) possibly set noout, noin for cases where upgrades take longer
 
-        # let loose the dogs of upgrade
-        mc_snap = snap.SnapCache()["microceph"]
-        mc_snap.ensure(snap.SnapState.Present, channel=channel)
+        self._refresh_snap(channel, revision)
 
         @tenacity.retry(
             wait=tenacity.wait_fixed(8),
@@ -224,6 +277,14 @@ class ClusterUpgrades(ops.framework.Object):
             raise sunbeam_guard.BlockedExceptionError(msg)
 
         logger.debug(f"Upgrade on {node} to {channel} done")
+
+    def _refresh_snap(self, channel: str, revision: str | None) -> None:
+        mc_snap = snap.SnapCache()["microceph"]
+        if not revision:
+            mc_snap.ensure(snap.SnapState.Present, channel=channel)
+        elif str(mc_snap.revision) != revision:
+            # A targeted refresh works with the automatic refresh hold in place.
+            utils.run_cmd(["snap", "refresh", "microceph", f"--revision={revision}"], timeout=900)
 
     def init_upgrade(self, snap_chan: str):
         """Kick off the snap upgrade."""
