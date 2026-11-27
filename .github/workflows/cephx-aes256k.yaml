@@ -1,0 +1,103 @@
+name: CephX aes256k upgrade + rotation
+
+# Manual trigger only. Builds a 19.2.6 MicroCeph snap, deploys the charm on 19.2.3,
+# sideloads the snap, rotates every cephx key to aes256k and cuts over.
+# See tests/scripts/cephx-aes256k-rotation.md.
+on:
+  workflow_dispatch:
+    inputs:
+      microceph_repo:
+        description: "microceph repo to build the 19.2.6 snap from"
+        default: "johnramsden/microceph"
+      microceph_ref:
+        description: "microceph ref to build"
+        default: "squid"
+      old_channel:
+        description: "charm snap-channel to start on (19.2.3)"
+        default: "squid/stable"
+  pull_request:
+
+jobs:
+  build-snap:
+    name: Build a 19.2.6 MicroCeph snap (staged from the SRU PPA)
+    runs-on: ubuntu-22.04
+    env:
+      SNAPCRAFT_BUILD_ENVIRONMENT: "lxd"
+    steps:
+      - name: Checkout microceph
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.microceph_repo || 'johnramsden/microceph' }}
+          ref: ${{ github.event.inputs.microceph_ref || 'squid' }}
+          fetch-depth: 0
+      - name: Copy utils
+        run: cp tests/scripts/actionutils.sh $HOME
+      - name: Clear FORWARD firewall rules
+        run: ~/actionutils.sh cleaript
+      - name: Install dependencies
+        run: |
+          ~/actionutils.sh setup_lxd
+          sudo snap install snapcraft --classic
+      - name: Stage Ceph 19.2.6 from the SRU PPA
+        run: |
+          python3 - <<'PY'
+          p = "snap/snapcraft.yaml"; s = open(p).read()
+          blk = ("package-repositories:\n"
+                 "  - type: apt\n"
+                 "    ppa: johnramsden/noble-caracal-ceph-squid-sru\n\n")
+          if "package-repositories" not in s:
+              s = s.replace("confinement: strict\n\n", "confinement: strict\n\n" + blk, 1)
+          open(p, "w").write(s)
+          PY
+          rm -f patches/0002-Adds-list-command-to-cephfs-mirroring.patch
+          # the snap's override-build aborts on a dirty worktree, so commit the staging change
+          git config user.email "ci@localhost"
+          git config user.name "charm-microceph CI"
+          git commit -aqm "test(ci): stage Ceph 19.2.6 for the cephx aes256k test"
+      - name: Build snap
+        run: snapcraft
+      - name: Upload snap artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: microceph-snap
+          path: "*.snap"
+          retention-days: 5
+
+  cephx-test:
+    name: Upgrade + rotate a charmed MicroCeph cluster to aes256k
+    needs: build-snap
+    # nested virtualisation is needed for the microceph VMs
+    runs-on: self-hosted-linux-amd64-noble-xlarge
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download snap
+        uses: actions/download-artifact@v4
+        with:
+          name: microceph-snap
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.1
+        with:
+          channel: 5.21/stable
+      - name: Install juju + jq
+        run: |
+          if ! snap list juju >/dev/null 2>&1; then sudo snap install juju --channel 3/stable; fi
+          sudo apt-get update -q && sudo apt-get install -y jq
+          mkdir -p ~/.local/share/juju
+      - name: Bootstrap a controller if none exists
+        run: |
+          juju controllers --format=json 2>/dev/null | jq -e '(.controllers // {}) | length > 0' >/dev/null 2>&1 || juju bootstrap localhost lxd
+      - name: Run the cephx aes256k test
+        env:
+          MICROCEPH_SNAP: ${{ github.workspace }}/microceph_amd64.snap
+          OLD_CHANNEL: ${{ github.event.inputs.old_channel || 'squid/stable' }}
+          MODEL: cephx-cm-ci
+        run: |
+          # the artifact may be named microceph_<ver>_amd64.snap
+          export MICROCEPH_SNAP="$(ls "$GITHUB_WORKSPACE"/microceph_*.snap)"
+          tests/scripts/cephx-aes256k-rotation.sh
+      - name: Tear down
+        if: always()
+        env:
+          MODEL: cephx-cm-ci
+        run: tests/scripts/cephx-aes256k-rotation.sh --clean || true
